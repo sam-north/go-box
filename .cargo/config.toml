@@ -1,0 +1,3 @@
+# Build for this machine's CPU (AVX2/FMA etc.) — the brains' dot products use it.
+[build]
+rustflags = ["-C", "target-cpu=native"]

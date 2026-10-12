@@ -1,0 +1,20 @@
+[package]
+name = "go-box"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+macroquad = "0.4"
+rand = { version = "0.8", features = ["small_rng"] }
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+debug = false
+lto = "fat"
+codegen-units = 1
+
+# Keep debug builds playable: optimize dependencies and our sim.
+[profile.dev]
+opt-level = 2
