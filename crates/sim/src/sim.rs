@@ -6,8 +6,8 @@ use crate::brain::{Brain, IN_EXTRA, IN_HEAL, IN_ITEMS, IN_MEM, IN_NEAREST, IN_OP
 use crate::character::{Bomb, Character, Dog};
 use glam::{vec2, Vec2};
 use serde::{Deserialize, Serialize};
-use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
+use rand_xoshiro::Xoshiro256PlusPlus;
 use std::ops::{Range, RangeInclusive};
 
 pub const W: f32 = 480.0;
@@ -85,7 +85,11 @@ pub const HEAL_AMOUNT: f32 = 50.0;
 pub const HEAL_R: f32 = 2.5;
 /// Final rules: each round gets 1 or 2 pickups (the trainer starts with more and fades to
 /// this), at random times inside HEAL_WINDOW (ticks).
-pub const HEALS_PER_ROUND: RangeInclusive<usize> = 1..=2;
+pub const HEALS_PER_ROUND: RangeInclusive<u32> = 1..=2;
+
+/// The sim's random number generator, named explicitly so a seed plays out the same on every
+/// platform (rand's `SmallRng` is a different algorithm on 32-bit targets such as wasm).
+pub type SimRng = Xoshiro256PlusPlus;
 const HEAL_WINDOW: Range<u32> = secs(6)..secs(24);
 
 // Senses.
@@ -291,7 +295,7 @@ impl Fighter {
 
     pub fn aim_dir(&self, aim: f32) -> Vec2 {
         let a = aim * AIM_RANGE;
-        vec2(self.facing * a.cos(), -a.sin())
+        vec2(self.facing * libm::cosf(a), -libm::sinf(a))
     }
 }
 
@@ -369,7 +373,7 @@ pub fn ray_dir(i: usize) -> Vec2 {
     static DIRS: std::sync::LazyLock<[Vec2; N_RAYS]> = std::sync::LazyLock::new(|| {
         std::array::from_fn(|i| {
             let a = i as f32 / N_RAYS as f32 * std::f32::consts::TAU;
-            vec2(a.cos(), a.sin())
+            vec2(libm::cosf(a), libm::sinf(a))
         })
     });
     DIRS[i]
@@ -457,7 +461,7 @@ pub struct Match {
     /// Remaining heal spawn times this round, latest first.
     heal_schedule: Vec<u32>,
     next_item: u32,
-    rng: SmallRng,
+    rng: SimRng,
     pub tick: u32,
     pub over: bool,
     pub winner: Option<usize>,
@@ -469,8 +473,10 @@ pub struct Match {
 impl Match {
     /// Four humans spread across the floor, empty-handed, in seat order from left to right
     /// (each somewhere in its own quarter). `heals` is how many health pickups this round gets
-    /// (picked at random from the range).
-    pub fn new(rng: &mut impl Rng, heals: RangeInclusive<usize>) -> Self {
+    /// (picked at random from the range). The same `seed` plays out the same match everywhere.
+    pub fn new(seed: u64, heals: RangeInclusive<u32>) -> Self {
+        let mut rng = SimRng::seed_from_u64(seed);
+        let rng = &mut rng;
         let zones = [20.0, 135.0, 250.0, 365.0];
         let f = std::array::from_fn(|i| {
             let x = zones[i] + rng.gen_range(0.0..90.0);
@@ -491,7 +497,7 @@ impl Match {
             heals: Vec::new(),
             heal_schedule,
             next_item,
-            rng: SmallRng::seed_from_u64(rng.r#gen()),
+            rng: SimRng::seed_from_u64(rng.r#gen()),
             tick: 0,
             over: false,
             winner: None,
@@ -991,7 +997,7 @@ impl Match {
             heals: v.heals,
             heal_schedule: Vec::new(),
             next_item: u32::MAX,
-            rng: SmallRng::seed_from_u64(0),
+            rng: SimRng::seed_from_u64(0),
             tick: v.tick,
             over: v.over,
             winner: v.winner,
@@ -1179,8 +1185,7 @@ mod tests {
         let mut h: u64 = 0xcbf2_9ce4_8422_2325;
         let mut mix = |x: u64| h = (h ^ x).wrapping_mul(0x100_0000_01b3);
         for seed in 0..8u64 {
-            let mut rng = SmallRng::seed_from_u64(seed);
-            let mut m = Match::new(&mut rng, HEALS_PER_ROUND);
+            let mut m = Match::new(seed, HEALS_PER_ROUND);
             let lineup: [&Brain; N_FIGHTERS] = std::array::from_fn(|i| &brains[(seed as usize + i) % brains.len()]);
             while !m.over {
                 m.step(lineup);
@@ -1196,12 +1201,13 @@ mod tests {
         }
         assert_eq!(h, CLASSIC_HASH, "classic match fingerprint changed: {h:#018x}");
     }
-    // Last deliberately changed by the 1s grenade fuse and dropped grenades going off.
-    const CLASSIC_HASH: u64 = 0xee21_1d9a_de0d_50db;
+    // Last deliberately changed by the portable RNG (SimRng) and libm maths. It must come out
+    // the same on 32-bit targets too: `cargo test -p go-box-sim --target i686-pc-windows-msvc`.
+    const CLASSIC_HASH: u64 = 0x369f_a7c2_28c0_b89c;
 
     /// Everyone on the floor, nothing lying around, nobody thinking (all-zero brains stand still).
     fn quiet_match() -> (Match, Brain) {
-        let mut m = Match::new(&mut SmallRng::seed_from_u64(3), 0..=0);
+        let mut m = Match::new(3, 0..=0);
         m.items.clear();
         m.next_item = u32::MAX;
         for (i, x) in [60.0, 200.0, 300.0, 420.0].into_iter().enumerate() {
@@ -1273,6 +1279,6 @@ mod tests {
 #[cfg(test)]
 impl Match {
     pub(crate) fn rng_reseed(&mut self, seed: u64) {
-        self.rng = SmallRng::seed_from_u64(seed);
+        self.rng = SimRng::seed_from_u64(seed);
     }
 }

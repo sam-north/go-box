@@ -275,7 +275,9 @@ impl Room {
     }
 
     fn start(&mut self) {
-        let mut m = Match::new(&mut self.rng, HEALS_PER_ROUND);
+        // Logged with the match: the seed plus the players' inputs replay it exactly.
+        let seed: u64 = self.rng.r#gen();
+        let mut m = Match::new(seed, HEALS_PER_ROUND);
         let mut seats = [None; N_FIGHTERS];
         let mut names: [String; N_FIGHTERS] = Default::default();
         for i in 0..N_FIGHTERS {
@@ -305,7 +307,7 @@ impl Room {
             p.send(&ServerMsg::MatchStart(MatchStart { seats: seats_of(&running), your_seat }));
         }
         self.running = Some(running);
-        tracing::info!(room = %self.code, humans = self.players.len(), difficulty = self.difficulty.name(), "match started");
+        tracing::info!(room = %self.code, seed, humans = self.players.len(), difficulty = self.difficulty.name(), "match started");
         self.broadcast_room();
         self.send_snapshot();
     }

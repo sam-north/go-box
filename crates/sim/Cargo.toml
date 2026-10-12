@@ -6,7 +6,12 @@ edition.workspace = true
 
 [dependencies]
 glam.workspace = true
+# Portable maths: the same sin/cos/powf results on every platform (the sim must be bit-identical
+# on the server and in the browser).
+libm = "0.2"
 # No std/getrandom: the sim also runs in the browser, and every match seeds its own RNG.
 rand.workspace = true
+# An explicitly named generator: rand's SmallRng is a different algorithm on 32-bit (wasm).
+rand_xoshiro = "0.6"
 serde.workspace = true
 serde_json.workspace = true

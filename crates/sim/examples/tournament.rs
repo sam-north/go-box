@@ -8,8 +8,6 @@
 
 use go_box_sim::brain::Brain;
 use go_box_sim::sim::{HEALS_PER_ROUND, Match, N_FIGHTERS};
-use rand::SeedableRng;
-use rand::rngs::SmallRng;
 use std::path::Path;
 
 fn main() {
@@ -19,7 +17,7 @@ fn main() {
     let n = brains.len();
     let (mut wins, mut played, mut kills, mut draws, mut ticks) = (vec![0.0f32; n], vec![0u32; n], vec![0u32; n], 0, 0u64);
     for k in 0..matches {
-        let mut m = Match::new(&mut SmallRng::seed_from_u64(k as u64), HEALS_PER_ROUND);
+        let mut m = Match::new(k as u64, HEALS_PER_ROUND);
         // Rotate who sits where so every brain gets every seat and every opponent.
         let lineup: [usize; N_FIGHTERS] = std::array::from_fn(|s| (k + s * (1 + k / n)) % n);
         while !m.over {

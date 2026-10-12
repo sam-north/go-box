@@ -101,7 +101,7 @@ impl Attract {
     }
 
     fn fresh(rng: &mut SmallRng) -> Match {
-        let mut m = Match::new(rng, HEALS_PER_ROUND);
+        let mut m = Match::new(rng.r#gen(), HEALS_PER_ROUND);
         for f in m.f.iter_mut() {
             f.character = Character::ALL[rng.gen_range(0..Character::ALL.len())];
         }

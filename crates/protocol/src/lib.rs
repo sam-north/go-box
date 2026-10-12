@@ -178,11 +178,10 @@ pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Option<T> {
 mod tests {
     use super::*;
     use go_box_sim::sim::{HEALS_PER_ROUND, Match};
-    use rand::SeedableRng;
 
     #[test]
     fn snapshot_round_trips_and_is_small() {
-        let m = Match::new(&mut rand::rngs::SmallRng::seed_from_u64(1), HEALS_PER_ROUND);
+        let m = Match::new(1, HEALS_PER_ROUND);
         let msg = ServerMsg::Snapshot(Snapshot { ack: 7, view: m.view(), events: Vec::new() });
         let bytes = encode(&msg);
         assert!(bytes.len() < 1500, "snapshot is {} bytes", bytes.len());

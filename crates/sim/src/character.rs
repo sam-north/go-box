@@ -394,7 +394,7 @@ fn new_bomb(f: &Fighter, who: usize) -> Bomb {
 /// How hard a gravity bomb yanks someone `d` px away: fully within BOMB_PULL_RADIUS, then
 /// weaker with distance (but never nothing).
 fn pull_strength(d: f32) -> f32 {
-    if d <= BOMB_PULL_RADIUS { 1.0 } else { (BOMB_PULL_RADIUS / d).powf(BOMB_PULL_FALLOFF) }
+    if d <= BOMB_PULL_RADIUS { 1.0 } else { libm::powf(BOMB_PULL_RADIUS / d, BOMB_PULL_FALLOFF) }
 }
 
 fn run_dog(dog: &mut Dog) {
@@ -426,12 +426,10 @@ mod tests {
     use super::*;
     use crate::brain::Brain;
     use crate::sim::{Action, HEALS_PER_ROUND, MAX_HP};
-    use rand::SeedableRng;
-    use rand::rngs::SmallRng;
 
     /// A match with the given cast, everyone standing still on the floor at chosen x positions.
     fn staged(cast: [Character; N_FIGHTERS], xs: [f32; N_FIGHTERS]) -> Match {
-        let mut m = Match::new(&mut SmallRng::seed_from_u64(7), 0..=0);
+        let mut m = Match::new(7, 0..=0);
         m.items.clear();
         for i in 0..N_FIGHTERS {
             m.f[i].character = cast[i];
@@ -456,8 +454,7 @@ mod tests {
         let brains = Brain::committed();
         let mut fired = [0u32; 4];
         for seed in 0..12u64 {
-            let mut rng = SmallRng::seed_from_u64(seed);
-            let mut m = Match::new(&mut rng, HEALS_PER_ROUND);
+            let mut m = Match::new(seed, HEALS_PER_ROUND);
             for i in 0..N_FIGHTERS {
                 m.f[i].character = Character::ALL[(seed as usize + i) % 4];
             }

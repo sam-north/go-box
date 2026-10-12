@@ -363,11 +363,6 @@ impl Sounds {
         Self { sounds, muted: false, master: 0.8, effects: 1.0, last: vec![-1.0; Sfx::ALL.len()], now: 0.0, step_dist: [0.0; N_FIGHTERS], fuse_acc: 0.0, special_cd: None }
     }
 
-    /// How many sounds are ready to play.
-    pub fn loaded(&self) -> usize {
-        self.sounds.lock().unwrap().iter().filter(|s| s.is_some()).count()
-    }
-
     /// Plays `s` at `vol` (0..1, before the master volume).
     pub fn play(&mut self, s: Sfx, vol: f32) {
         let k = s as usize;
