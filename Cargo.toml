@@ -12,6 +12,7 @@ edition = "2024"
 [workspace.dependencies]
 go-box-sim = { path = "crates/sim" }
 go-box-render = { path = "crates/render" }
+go-box-protocol = { path = "crates/protocol" }
 # Must match the glam that macroquad uses, so sim and render share one Vec2 type.
 glam = { version = "0.27", features = ["serde"] }
 macroquad = "0.4"

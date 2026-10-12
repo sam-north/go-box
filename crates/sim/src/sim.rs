@@ -600,6 +600,11 @@ impl Match {
 
     /// Like `step`, but seat `human.0` is driven by a player's input instead of its brain.
     pub fn step_with(&mut self, brains: [&Brain; N_FIGHTERS], human: Option<(usize, Action)>) {
+        self.step_humans(brains, std::array::from_fn(|i| human.filter(|&(h, _)| h == i).map(|(_, a)| a)));
+    }
+
+    /// One tick where any seat with `Some(action)` is a player and the rest think for themselves.
+    pub fn step_humans(&mut self, brains: [&Brain; N_FIGHTERS], humans: [Option<Action>; N_FIGHTERS]) {
         self.events.clear();
         if self.over {
             return;
@@ -611,7 +616,7 @@ impl Match {
             if !self.f[i].alive() {
                 continue;
             }
-            if let Some((_, a)) = human.filter(|&(h, _)| h == i) {
+            if let Some(a) = humans[i] {
                 actions[i] = a;
                 self.f[i].action = a;
                 continue;
@@ -947,6 +952,78 @@ impl Match {
         }
         s + shaping * me.close_ticks as f32 * 0.03
     }
+}
+
+/// Everything a viewer needs to draw a match (and the scoreboard): what the server sends
+/// clients. The hidden parts of `Match` (RNG, spawn schedule) stay on the server.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MatchView {
+    pub tick: u32,
+    pub f: [Fighter; N_FIGHTERS],
+    pub items: Vec<Item>,
+    pub heals: Vec<Vec2>,
+    pub wells: Vec<Well>,
+    pub dogs: Vec<Dog>,
+    pub over: bool,
+    pub winner: Option<usize>,
+}
+
+impl Match {
+    pub fn view(&self) -> MatchView {
+        MatchView {
+            tick: self.tick,
+            f: self.f.clone(),
+            items: self.items.clone(),
+            heals: self.heals.clone(),
+            wells: self.wells.clone(),
+            dogs: self.dogs.clone(),
+            over: self.over,
+            winner: self.winner,
+        }
+    }
+
+    /// A drawable match rebuilt from a view (it can't be stepped faithfully: no spawns).
+    pub fn from_view(v: MatchView, events: Vec<Event>) -> Self {
+        Self {
+            f: v.f,
+            items: v.items,
+            heals: v.heals,
+            heal_schedule: Vec::new(),
+            heals_spawned: 0,
+            next_item: u32::MAX,
+            rng: SmallRng::seed_from_u64(0),
+            tick: v.tick,
+            over: v.over,
+            winner: v.winner,
+            events,
+            wells: v.wells,
+            dogs: v.dogs,
+        }
+    }
+}
+
+/// One tick of a fighter's own movement and swing timing, exactly as `Match::step` does it, but
+/// without anyone else: a client runs this on its own fighter to show its input immediately,
+/// and the server's snapshots correct it.
+pub fn predict(f: &mut Fighter, a: Action) {
+    if f.absent {
+        return;
+    }
+    control(f, a, &mut Vec::new());
+    collide(f);
+    if f.atk_timer > 0 {
+        f.atk_timer += 1;
+        if f.atk_timer > ATK_TOTAL {
+            f.atk_timer = 0;
+            f.cooldown = ATK_COOLDOWN;
+        }
+    } else if f.cooldown > 0 {
+        f.cooldown -= 1;
+    }
+    if f.hand_cd > 0 {
+        f.hand_cd -= 1;
+    }
+    f.action = a;
 }
 
 fn step_item(it: &mut Item) {

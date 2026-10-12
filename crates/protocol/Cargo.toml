@@ -1,0 +1,13 @@
+[package]
+name = "go-box-protocol"
+description = "Messages between the go-box server and its clients."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+go-box-sim.workspace = true
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+serde.workspace = true
+
+[dev-dependencies]
+rand.workspace = true
