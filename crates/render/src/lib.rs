@@ -4,6 +4,8 @@
 
 pub mod sound;
 
+use sound::Sfx;
+
 use go_box_sim::character::*;
 use go_box_sim::sim::*;
 use macroquad::prelude::*;
@@ -34,8 +36,8 @@ const DOG_DARK: Color = Color::new(0.28, 0.19, 0.12, 1.0);
 const GRAV: Color = Color::new(0.45, 0.85, 0.55, 1.0);
 const SMOKE: Color = Color::new(0.75, 0.74, 0.70, 0.8);
 
-/// How a character looks. Classic is the hooded figure the brains were trained as; the named
-/// characters show their hair and wear their colour.
+/// How a character looks as drawn: Classic is the hooded figure the brains were trained as;
+/// the named characters show their hair and wear their colour.
 pub struct Look {
     pub body: Color,
     /// Back and front leg.
@@ -49,34 +51,78 @@ pub struct Look {
     pub headband: bool,
 }
 
-/// The colour that stands for a character in menus and the HUD. Classic has none of its own
-/// (it uses the seat colour), so this is its neutral grey.
-pub fn character_color(c: Character) -> Color {
+/// How a character looks and sounds: one row per character in `art`.
+pub struct CharacterArt {
+    /// Its colour in menus and the HUD, and on its scarf and health bar. None: it wears its
+    /// seat's colour instead (Classic, so four of them can be told apart).
+    pub color: Option<Color>,
+    pub body: Color,
+    pub legs: [Color; 2],
+    pub arms: Color,
+    pub hair: Option<Color>,
+    pub headband: bool,
+    /// Played when it uses its special (None: the special's own effects make the sound).
+    pub special_sound: Option<Sfx>,
+}
+
+pub fn art(c: Character) -> &'static CharacterArt {
     match c {
-        Character::Classic => Color::new(0.62, 0.64, 0.70, 1.0),
-        // Forest green.
-        Character::Sam => Color::new(0.16, 0.50, 0.24, 1.0),
-        // Gold.
-        Character::Austin => Color::new(0.93, 0.72, 0.18, 1.0),
-        // Runner's neon volt.
-        Character::Tyler => Color::new(0.80, 1.0, 0.16, 1.0),
+        Character::Classic => &CharacterArt { color: None, body: CLOAK, legs: [HOOD, CLOAK], arms: HOOD, hair: None, headband: false, special_sound: None },
+        // Brown hair, green-grey jacket; forest green.
+        Character::Sam => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(0.16, 0.50, 0.24, 1.0)),
+                body: rgb(62, 78, 64),
+                legs: [rgb(32, 36, 44), rgb(44, 48, 58)],
+                arms: rgb(50, 64, 52),
+                hair: Some(rgb(96, 62, 36)),
+                headband: false,
+                special_sound: Some(Sfx::BombThrow),
+            };
+            &ART
+        }
+        // Reddish-brown hair, work jacket; gold. (The pop-up's poof is its sound.)
+        Character::Austin => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(0.93, 0.72, 0.18, 1.0)),
+                body: rgb(84, 76, 66),
+                legs: [rgb(38, 40, 50), rgb(50, 52, 64)],
+                arms: rgb(70, 63, 55),
+                hair: Some(rgb(128, 58, 34)),
+                headband: false,
+                special_sound: None,
+            };
+            &ART
+        }
+        // Blondish-brown hair, light running top, sweatband; runner's neon volt.
+        Character::Tyler => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(0.80, 1.0, 0.16, 1.0)),
+                body: rgb(118, 122, 130),
+                legs: [rgb(30, 32, 40), rgb(40, 42, 52)],
+                arms: SKIN,
+                hair: Some(rgb(168, 132, 84)),
+                headband: true,
+                special_sound: Some(Sfx::Hounds),
+            };
+            &ART
+        }
     }
+}
+
+/// The colour that stands for a character in menus and the HUD (a neutral grey for one that
+/// wears its seat's colour).
+pub fn character_color(c: Character) -> Color {
+    art(c).color.unwrap_or(Color::new(0.62, 0.64, 0.70, 1.0))
 }
 
 pub fn look(c: Character, seat: usize) -> Look {
-    match c {
-        Character::Classic => Look { body: CLOAK, legs: [HOOD, CLOAK], arms: HOOD, hair: None, accent: ACCENTS[seat], headband: false },
-        // Brown hair, green-grey jacket.
-        Character::Sam => Look { body: rgb(62, 78, 64), legs: [rgb(32, 36, 44), rgb(44, 48, 58)], arms: rgb(50, 64, 52), hair: Some(rgb(96, 62, 36)), accent: character_color(c), headband: false },
-        // Reddish-brown hair, work jacket.
-        Character::Austin => Look { body: rgb(84, 76, 66), legs: [rgb(38, 40, 50), rgb(50, 52, 64)], arms: rgb(70, 63, 55), hair: Some(rgb(128, 58, 34)), accent: character_color(c), headband: false },
-        // Blondish-brown hair, light running top, sweatband.
-        Character::Tyler => Look { body: rgb(118, 122, 130), legs: [rgb(30, 32, 40), rgb(40, 42, 52)], arms: SKIN, hair: Some(rgb(168, 132, 84)), accent: character_color(c), headband: true },
-    }
+    let a = art(c);
+    Look { body: a.body, legs: a.legs, arms: a.arms, hair: a.hair, accent: a.color.unwrap_or(ACCENTS[seat]), headband: a.headband }
 }
 
-fn rgb(r: u8, g: u8, b: u8) -> Color {
-    Color::from_rgba(r, g, b, 255)
+const fn rgb(r: u8, g: u8, b: u8) -> Color {
+    Color::new(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0)
 }
 
 fn hash(x: i32, y: i32, seed: u32) -> f32 {
@@ -496,17 +542,17 @@ impl Art {
         draw_texture(&self.terrain, 0.0, 0.0, WHITE);
         draw_texture(&self.stain_tex, 0.0, 0.0, WHITE);
 
-        for b in &m.bombs {
-            draw_bomb(b, self.time);
-        }
         for &(p, c) in &self.flags {
             draw_flag(p, c, self.time);
         }
         for &h in &m.heals {
             draw_heal(h, self.time);
         }
-        for d in &m.dogs {
-            draw_dog(d);
+        for e in &m.effects {
+            match e {
+                Effect::Bomb(b) => draw_bomb(b, self.time),
+                Effect::Dog(d) => draw_dog(d),
+            }
         }
         // Loose and flying items (held spears are drawn with their holder).
         for it in m.items.iter().filter(|it| !(it.held_by.is_some() && it.kind == ItemKind::Spear)) {

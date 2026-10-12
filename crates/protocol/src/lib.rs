@@ -28,7 +28,7 @@ use go_box_sim::sim::{Action, Event, MatchView, N_FIGHTERS};
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 8;
+pub const PROTOCOL_VERSION: u16 = 9;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -249,14 +249,15 @@ mod tests {
         for (f, c) in m.f.iter_mut().zip(Character::ALL) {
             f.character = c;
         }
+        use go_box_sim::character::Effect;
         let (mut bomb, mut dogs) = (None, None);
         while (bomb.is_none() || dogs.is_none()) && !m.over {
             m.step([&brain; N_FIGHTERS]);
             let snap = || Snapshot { ack: m.tick, view: m.view(), events: m.events.clone() };
-            if bomb.is_none() && !m.bombs.is_empty() {
+            if bomb.is_none() && m.effects.iter().any(|e| matches!(e, Effect::Bomb(_))) {
                 bomb = Some(snap());
             }
-            if dogs.is_none() && !m.dogs.is_empty() {
+            if dogs.is_none() && m.effects.iter().any(|e| matches!(e, Effect::Dog(_))) {
                 dogs = Some(snap());
             }
         }
@@ -336,7 +337,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (8, 0xa2b9_de0f_19ea_d7ed);
+    const WIRE: (u16, u64) = (9, 0x5e65_1e2d_d8ce_5eea);
 
     #[test]
     fn every_sample_round_trips() {

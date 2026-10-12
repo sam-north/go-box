@@ -7,6 +7,7 @@
 //! applied yet are replayed on top. Small corrections are smoothed out rather than snapped.
 
 use go_box_protocol::{MatchStart, Snapshot};
+use go_box_sim::character::Effect;
 use go_box_sim::sim::{Action, Event, Fighter, Match, MatchView, N_FIGHTERS, TICK_RATE, predict};
 use macroquad::math::Vec2;
 use std::collections::VecDeque;
@@ -137,15 +138,16 @@ impl Game {
                 view.f[i].pos = sa.f[i].pos.lerp(sb.f[i].pos, t);
                 view.f[i].vel = sa.f[i].vel.lerp(sb.f[i].vel, t);
             }
-            // Items and dogs only line up one-to-one if nothing spawned or vanished in between.
+            // Items and effects only line up one-to-one if nothing appeared or vanished in between.
             if sa.items.len() == sb.items.len() && sa.items.iter().zip(&sb.items).all(|(x, y)| x.kind == y.kind) {
                 for (k, it) in view.items.iter_mut().enumerate() {
                     it.pos = sa.items[k].pos.lerp(sb.items[k].pos, t);
                 }
             }
-            if sa.dogs.len() == sb.dogs.len() {
-                for (k, d) in view.dogs.iter_mut().enumerate() {
-                    d.pos = sa.dogs[k].pos.lerp(sb.dogs[k].pos, t);
+            let same = |x: &Effect, y: &Effect| std::mem::discriminant(x) == std::mem::discriminant(y);
+            if sa.effects.len() == sb.effects.len() && sa.effects.iter().zip(&sb.effects).all(|(x, y)| same(x, y)) {
+                for (k, e) in view.effects.iter_mut().enumerate() {
+                    *e.pos_mut() = sa.effects[k].pos().lerp(sb.effects[k].pos(), t);
                 }
             }
         }

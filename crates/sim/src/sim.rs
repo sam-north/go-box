@@ -3,7 +3,7 @@
 //! expose physical abilities; brains decide what to do with them.
 
 use crate::brain::{Brain, IN_EXTRA, IN_HEAL, IN_ITEMS, IN_MEM, IN_NEAREST, IN_OPP, IN_SELF, IN_THREAT, MEM, N_IN, N_OUT, OUT_MEM};
-use crate::character::{Bomb, Character, Dog};
+use crate::character::{Character, Effect};
 use glam::{vec2, Vec2};
 use serde::{Deserialize, Serialize};
 use rand::{Rng, SeedableRng};
@@ -453,8 +453,8 @@ pub struct Match {
     pub over: bool,
     pub winner: Option<usize>,
     pub events: Vec<Event>,
-    pub bombs: Vec<Bomb>,
-    pub dogs: Vec<Dog>,
+    /// What specials have left in the arena (Sam's bombs, Tyler's dogs...).
+    pub effects: Vec<Effect>,
 }
 
 impl Match {
@@ -489,8 +489,7 @@ impl Match {
             over: false,
             winner: None,
             events: Vec::new(),
-            bombs: Vec::new(),
-            dogs: Vec::new(),
+            effects: Vec::new(),
         }
     }
 
@@ -544,12 +543,9 @@ impl Match {
         for &h in &self.heals {
             mark(&mut s, IN_HEAL, glimpse(eye, h));
         }
-        // Brains never saw specials in training; a dog charging at you reads as a threat.
-        for d in self.dogs.iter().filter(|d| d.owner != i) {
-            mark(&mut s, IN_THREAT, glimpse(eye, d.center()));
-        }
-        for b in self.bombs.iter().filter(|b| b.owner != i) {
-            mark(&mut s, IN_THREAT, glimpse(eye, b.pos));
+        // Brains never saw specials in training; someone else's dog or bomb reads as a threat.
+        for e in self.effects.iter().filter(|e| e.owner() != i) {
+            mark(&mut s, IN_THREAT, glimpse(eye, e.threat_pos()));
         }
         let k = IN_SELF;
         s[k] = me.vel.x / RUN;
@@ -960,8 +956,8 @@ pub struct MatchView {
     pub f: [Fighter; N_FIGHTERS],
     pub items: Vec<Item>,
     pub heals: Vec<Vec2>,
-    pub bombs: Vec<Bomb>,
-    pub dogs: Vec<Dog>,
+    /// What specials have left in the arena (Sam's bombs, Tyler's dogs...).
+    pub effects: Vec<Effect>,
     pub over: bool,
     pub winner: Option<usize>,
 }
@@ -973,8 +969,7 @@ impl Match {
             f: self.f.clone(),
             items: self.items.clone(),
             heals: self.heals.clone(),
-            bombs: self.bombs.clone(),
-            dogs: self.dogs.clone(),
+            effects: self.effects.clone(),
             over: self.over,
             winner: self.winner,
         }
@@ -993,8 +988,7 @@ impl Match {
             over: v.over,
             winner: v.winner,
             events,
-            bombs: v.bombs,
-            dogs: v.dogs,
+            effects: v.effects,
         }
     }
 }

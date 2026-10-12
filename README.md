@@ -48,8 +48,13 @@ Everyone has the same body; each character adds one special on a cooldown.
 Bots playing a character use its special by a simple rule (the brains never trained with
 specials): Sam works out where his bomb would land and throws only if it would catch two people,
 finish one off, or turn a fight he's losing; Austin pops away from incoming projectiles, grenades
-about to blow, or a crowd when hurt; Tyler releases the hounds at someone on his level ahead. Tuning lives at the top of `crates/sim/src/character.rs`; looks in
-`crates/render/src/lib.rs` (`look`).
+about to blow, or a crowd when hurt; Tyler releases the hounds at someone on his level ahead. Tuning lives at the top of `crates/sim/src/character.rs`.
+
+**Adding a character** (the goal is 20+): a variant in `Character` and its row in
+`Character::def` (`crates/sim/src/character.rs`, with a new `Special` if it has one), its row in
+`art` (`crates/render/src/lib.rs`: colours, hair, special sound), and its name in
+`crates/client/text/en-US.txt`. If its special leaves something in the arena, that's a variant of
+`Effect`; the compiler then lists what to fill in (how it steps, is drawn and is seen by bots).
 
 ### Sound
 

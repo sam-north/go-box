@@ -1,7 +1,6 @@
 //! Procedural sound effects: every sound is synthesised at startup from oscillators and
 //! filtered noise (no audio files), then played in response to match events.
 
-use go_box_sim::character::Character;
 use go_box_sim::sim::*;
 use macroquad::audio::{PlaySoundParams, Sound, load_sound_from_bytes, play_sound};
 use macroquad::experimental::coroutines::start_coroutine;
@@ -10,74 +9,43 @@ use std::sync::{Arc, Mutex};
 
 const RATE: u32 = 22050;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Sfx {
-    Jump,
-    Land,
-    Step,
-    Swing,
-    Punch,
-    Stab,
-    SpearHit,
-    RockHit,
-    Headshot,
-    Death,
-    Throw,
-    Grab,
-    ClatterRock,
-    ClatterSpear,
-    ClatterGrenade,
-    Explosion,
-    FuseTick,
-    Heal,
-    Spawn,
-    Poof,
-    Hounds,
-    Bite,
-    BombThrow,
-    BombCrunch,
-    BombBlast,
-    Ready,
-    Start,
-    Win,
-    Lose,
-    Click,
+go_box_sim::enum_all! {
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub enum Sfx {
+        Jump,
+        Land,
+        Step,
+        Swing,
+        Punch,
+        Stab,
+        SpearHit,
+        RockHit,
+        Headshot,
+        Death,
+        Throw,
+        Grab,
+        ClatterRock,
+        ClatterSpear,
+        ClatterGrenade,
+        Explosion,
+        FuseTick,
+        Heal,
+        Spawn,
+        Poof,
+        Hounds,
+        Bite,
+        BombThrow,
+        BombCrunch,
+        BombBlast,
+        Ready,
+        Start,
+        Win,
+        Lose,
+        Click,
+    }
 }
 
 impl Sfx {
-    pub const ALL: [Sfx; 30] = [
-        Sfx::Jump,
-        Sfx::Land,
-        Sfx::Step,
-        Sfx::Swing,
-        Sfx::Punch,
-        Sfx::Stab,
-        Sfx::SpearHit,
-        Sfx::RockHit,
-        Sfx::Headshot,
-        Sfx::Death,
-        Sfx::Throw,
-        Sfx::Grab,
-        Sfx::ClatterRock,
-        Sfx::ClatterSpear,
-        Sfx::ClatterGrenade,
-        Sfx::Explosion,
-        Sfx::FuseTick,
-        Sfx::Heal,
-        Sfx::Spawn,
-        Sfx::Poof,
-        Sfx::Hounds,
-        Sfx::Bite,
-        Sfx::BombThrow,
-        Sfx::BombCrunch,
-        Sfx::BombBlast,
-        Sfx::Ready,
-        Sfx::Start,
-        Sfx::Win,
-        Sfx::Lose,
-        Sfx::Click,
-    ];
-
     /// The waveform, as mono samples in -1..1.
     fn synth(self) -> Vec<f32> {
         let mut s = Buf::new(self as u32);
@@ -412,12 +380,11 @@ impl Sounds {
                 Event::Explosion { pos } => self.play(Sfx::Explosion, 1.0 - (pos.distance(ear) / W * 0.3)),
                 Event::Heal { pos, .. } => self.at(Sfx::Heal, pos, ear, 1.0),
                 Event::Spawn { pos } => self.at(Sfx::Spawn, pos, ear, 0.8),
-                Event::Special { who } => match m.f[who].character {
-                    Character::Sam => self.at(Sfx::BombThrow, m.f[who].center(), ear, 1.0),
-                    Character::Tyler => self.at(Sfx::Hounds, m.f[who].center(), ear, 1.0),
-                    // Austin's sound is the poof itself.
-                    Character::Austin | Character::Classic => {}
-                },
+                Event::Special { who } => {
+                    if let Some(s) = crate::art(m.f[who].character).special_sound {
+                        self.at(s, m.f[who].center(), ear, 1.0);
+                    }
+                }
                 Event::Poof { pos } => self.at(Sfx::Poof, pos, ear, 0.9),
                 Event::BombCrunch { pos } => self.at(Sfx::BombCrunch, pos, ear, 1.0),
                 Event::BombBlast { pos } => self.play(Sfx::BombBlast, 1.0 - (pos.distance(ear) / W * 0.3)),

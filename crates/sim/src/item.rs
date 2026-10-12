@@ -8,11 +8,13 @@
 use crate::sim::{Source, secs};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub enum ItemKind {
-    Spear,
-    Rock,
-    Grenade,
+crate::enum_all! {
+    #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+    pub enum ItemKind {
+        Spear,
+        Rock,
+        Grenade,
+    }
 }
 
 /// What an item looks like to the bots: one of the three kinds their brains were trained on.
@@ -120,8 +122,6 @@ pub const DROPPED_FUSE: u32 = 30;
 pub const SPAWN_ORDER: [ItemKind; 3] = [ItemKind::Grenade, ItemKind::Spear, ItemKind::Rock];
 
 impl ItemKind {
-    pub const ALL: [ItemKind; 3] = [ItemKind::Spear, ItemKind::Rock, ItemKind::Grenade];
-
     pub const fn def(self) -> &'static ItemDef {
         match self {
             ItemKind::Spear => &SPEAR,

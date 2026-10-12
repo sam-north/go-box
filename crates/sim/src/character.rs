@@ -52,37 +52,47 @@ const BITE_EVERY: u32 = SECOND / 2;
 pub const DOG_HALF_W: f32 = 3.0;
 pub const DOG_H: f32 = 5.0;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
-pub enum Character {
-    /// The base fighter the brains were trained as: no special.
-    #[default]
-    Classic,
-    Sam,
-    Austin,
-    Tyler,
+crate::enum_all! {
+    /// Who you play. Everyone has the same body; a character adds a special (see `def`).
+    #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+    pub enum Character {
+        /// The base fighter the brains were trained as: no special.
+        #[default]
+        Classic,
+        Sam,
+        Austin,
+        Tyler,
+    }
+}
+
+/// What the game needs to know about a character. (Its look and sounds are in the render
+/// crate's `art`; its name and special's name in the client's text files, under its id.)
+///
+/// Adding a character: a variant in `Character`, its row in `Character::def` (with a new
+/// `Special` if it has one), its row in render's `art`, and `character.<id>` (plus
+/// `special.<id>`) in the text files. The compiler and the tests point at each.
+pub struct CharacterDef {
+    /// A stable id (lowercase, no spaces): names it in text files and on the command line.
+    pub id: &'static str,
+    pub special: Option<&'static dyn Special>,
 }
 
 impl Character {
-    pub const ALL: [Character; 4] = [Character::Classic, Character::Sam, Character::Austin, Character::Tyler];
-
-    /// A stable id (lowercase, no spaces): names it in text files, settings and the command
-    /// line. What players see comes from the client's text files (`character.<id>`).
-    pub fn id(self) -> &'static str {
+    pub fn def(self) -> &'static CharacterDef {
         match self {
-            Character::Classic => "classic",
-            Character::Sam => "sam",
-            Character::Austin => "austin",
-            Character::Tyler => "tyler",
+            Character::Classic => &CharacterDef { id: "classic", special: None },
+            Character::Sam => &CharacterDef { id: "sam", special: Some(&GravityBomb) },
+            Character::Austin => &CharacterDef { id: "austin", special: Some(&PopUp) },
+            Character::Tyler => &CharacterDef { id: "tyler", special: Some(&Hounds) },
         }
     }
 
+    pub fn id(self) -> &'static str {
+        self.def().id
+    }
+
     pub fn special(self) -> Option<&'static dyn Special> {
-        match self {
-            Character::Classic => None,
-            Character::Sam => Some(&GravityBomb),
-            Character::Austin => Some(&PopUp),
-            Character::Tyler => Some(&Hounds),
-        }
+        self.def().special
     }
 }
 
@@ -112,7 +122,7 @@ impl Special for GravityBomb {
         BOMB_COOLDOWN
     }
     fn activate(&self, m: &mut Match, who: usize) {
-        m.bombs.push(new_bomb(&m.f[who], who));
+        m.effects.push(Effect::Bomb(new_bomb(&m.f[who], who)));
     }
     /// Works out where the bomb would go off and who'd be hauled into the blast (everyone
     /// within BOMB_PULL_RADIUS of it), then throws only when it pays: two or more caught, or
@@ -196,7 +206,7 @@ impl Special for Hounds {
     fn activate(&self, m: &mut Match, who: usize) {
         let f = &m.f[who];
         for (k, &speed) in HOUNDS.iter().enumerate() {
-            m.dogs.push(Dog {
+            m.effects.push(Effect::Dog(Dog {
                 pos: f.pos + vec2(f.facing * (2.0 + 4.0 * k as f32), 0.0),
                 dir: f.facing,
                 speed,
@@ -204,7 +214,7 @@ impl Special for Hounds {
                 owner: who,
                 ticks: HOUND_TICKS,
                 bite_cd: [0; N_FIGHTERS],
-            });
+            }));
         }
     }
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
@@ -215,7 +225,7 @@ impl Special for Hounds {
 }
 
 /// Sam's gravity bomb: flying, then (once it goes off) crunching everyone nearby together.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Bomb {
     pub pos: Vec2,
     pub vel: Vec2,
@@ -270,47 +280,106 @@ impl Match {
         }
     }
 
-    /// Advances bombs and dogs. Nothing happens (and nothing is drawn from the RNG) when there
-    /// are none, so classic matches are unchanged.
+    /// Advances every effect in the arena, then clears out the finished ones. Nothing happens
+    /// (and nothing is drawn from the RNG) when there are none, so classic matches are
+    /// unchanged.
     pub(crate) fn step_effects(&mut self) {
-        for b in 0..self.bombs.len() {
-            match self.bombs[b].crunch {
-                None => self.fly_bomb(b),
-                Some(t) => self.crunch_bomb(b, t),
+        for e in 0..self.effects.len() {
+            // Stepped on a copy: an effect's step may hurt fighters (which needs the whole match).
+            let mut effect = self.effects[e].clone();
+            match &mut effect {
+                Effect::Bomb(b) => self.step_bomb(b),
+                Effect::Dog(d) => self.step_dog(d),
             }
+            self.effects[e] = effect;
         }
-        self.bombs.retain(|b| b.crunch != Some(0));
+        self.effects.retain(|e| !e.done());
+    }
 
-        for d in 0..self.dogs.len() {
-            run_dog(&mut self.dogs[d]);
-            let dog = &self.dogs[d];
-            let (body, owner, dir) = (dog.body(), dog.owner, dog.dir);
-            for j in 0..N_FIGHTERS {
-                if j == owner || !self.f[j].alive() || self.dogs[d].bite_cd[j] > 0 || !body.overlaps(&self.f[j].body()) {
-                    continue;
-                }
-                self.dogs[d].bite_cd[j] = BITE_EVERY;
-                self.events.push(Event::Bite { pos: self.f[j].center() });
-                self.damage(owner, j, BITE_DAMAGE, vec2(dir * 120.0, -90.0), 8, dir, Source::Special, false);
+    fn step_dog(&mut self, dog: &mut Dog) {
+        run_dog(dog);
+        let (body, owner, dir) = (dog.body(), dog.owner, dog.dir);
+        for j in 0..N_FIGHTERS {
+            if j == owner || !self.f[j].alive() || dog.bite_cd[j] > 0 || !body.overlaps(&self.f[j].body()) {
+                continue;
             }
-            let dog = &mut self.dogs[d];
-            dog.bite_cd.iter_mut().for_each(|t| *t = t.saturating_sub(1));
-            dog.ticks -= 1;
+            dog.bite_cd[j] = BITE_EVERY;
+            self.events.push(Event::Bite { pos: self.f[j].center() });
+            self.damage(owner, j, BITE_DAMAGE, vec2(dir * 120.0, -90.0), 8, dir, Source::Special, false);
         }
-        self.dogs.retain(|d| d.ticks > 0);
+        dog.bite_cd.iter_mut().for_each(|t| *t = t.saturating_sub(1));
+        dog.ticks -= 1;
+    }
+
+    fn step_bomb(&mut self, bomb: &mut Bomb) {
+        match bomb.crunch {
+            None => self.fly_bomb(bomb),
+            Some(t) => self.crunch_bomb(bomb, t),
+        }
+    }
+}
+
+/// Something a special leaves in the arena. Each kind is a variant: its step (in
+/// `step_effects`), how the bots perceive it (`threat_pos`), and how it's drawn (the render
+/// crate) are all exhaustive matches, so the compiler lists what a new one needs.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Effect {
+    /// Sam's gravity bomb.
+    Bomb(Bomb),
+    /// One of Tyler's dogs.
+    Dog(Dog),
+}
+
+impl Effect {
+    /// Who made it (it never harms them, and they don't see it as a threat).
+    pub fn owner(&self) -> usize {
+        match self {
+            Effect::Bomb(b) => b.owner,
+            Effect::Dog(d) => d.owner,
+        }
+    }
+
+    /// Where the bots see it (as a threat).
+    pub fn threat_pos(&self) -> Vec2 {
+        match self {
+            Effect::Bomb(b) => b.pos,
+            Effect::Dog(d) => d.center(),
+        }
+    }
+
+    /// Its position (a dog's feet).
+    pub fn pos(&self) -> Vec2 {
+        match self {
+            Effect::Bomb(b) => b.pos,
+            Effect::Dog(d) => d.pos,
+        }
+    }
+
+    /// Its position, for smoothing it between snapshots on the client.
+    pub fn pos_mut(&mut self) -> &mut Vec2 {
+        match self {
+            Effect::Bomb(b) => &mut b.pos,
+            Effect::Dog(d) => &mut d.pos,
+        }
+    }
+
+    fn done(&self) -> bool {
+        match self {
+            Effect::Bomb(b) => b.crunch == Some(0),
+            Effect::Dog(d) => d.ticks == 0,
+        }
     }
 }
 
 impl Match {
     /// A bomb in flight: arcs under gravity and goes off on terrain, on a foe, or when its
     /// fuse runs out.
-    fn fly_bomb(&mut self, b: usize) {
-        if !fly(&mut self.bombs[b], &self.f) {
+    fn fly_bomb(&mut self, bomb: &mut Bomb) {
+        if !fly(bomb, &self.f) {
             return;
         }
-        let (pos, owner) = (self.bombs[b].pos, self.bombs[b].owner);
+        let (pos, owner) = (bomb.pos, bomb.owner);
         let pull = std::array::from_fn(|j| if j == owner || !self.f[j].alive() { 0.0 } else { pull_strength(self.f[j].center().distance(pos)) });
-        let bomb = &mut self.bombs[b];
         bomb.vel = Vec2::ZERO;
         bomb.crunch = Some(BOMB_CRUNCH);
         bomb.pull = pull;
@@ -320,10 +389,10 @@ impl Match {
     /// A bomb that's gone off: yanks everyone toward the middle (they can't fight it, and the
     /// far side of the map feels it too, just less),
     /// then explodes.
-    fn crunch_bomb(&mut self, b: usize, left: u32) {
-        let Bomb { pos, owner, pull, .. } = self.bombs[b];
+    fn crunch_bomb(&mut self, bomb: &mut Bomb, left: u32) {
+        let Bomb { pos, owner, pull, .. } = *bomb;
         let left = left - 1;
-        self.bombs[b].crunch = Some(left);
+        bomb.crunch = Some(left);
         for j in 0..N_FIGHTERS {
             let f = &mut self.f[j];
             if pull[j] <= 0.0 || !f.alive() {
@@ -455,13 +524,24 @@ mod tests {
     }
 
     #[test]
+    fn character_and_special_ids_are_unique() {
+        let mut ids: Vec<&str> = Character::ALL.iter().map(|c| c.id()).chain(Character::ALL.iter().filter_map(|c| c.special()).map(|s| s.id())).collect();
+        let n = ids.len();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), n, "two characters or specials share an id");
+    }
+
+    #[test]
     fn bots_use_every_special_and_matches_finish() {
         let brains = Brain::committed();
-        let mut fired = [0u32; 4];
-        for seed in 0..12u64 {
+        let mut fired = [0u32; Character::ALL.len()];
+        // Enough matches that every character gets a dozen seats.
+        let matches = (Character::ALL.len() * 3).max(12) as u64;
+        for seed in 0..matches {
             let mut m = Match::new(seed, HEALS_PER_ROUND);
             for i in 0..N_FIGHTERS {
-                m.f[i].character = Character::ALL[(seed as usize + i) % 4];
+                m.f[i].character = Character::ALL[(seed as usize + i) % Character::ALL.len()];
             }
             let lineup: [&Brain; N_FIGHTERS] = std::array::from_fn(|i| &brains[(seed as usize + i) % brains.len()]);
             while !m.over {
@@ -473,8 +553,13 @@ mod tests {
                 }
             }
         }
-        assert_eq!(fired[0], 0, "Classic has no special");
-        assert!(fired[1..].iter().all(|&n| n > 0), "every special should get used by bots: {fired:?}");
+        for c in Character::ALL {
+            let n = fired[c as usize];
+            match c.special() {
+                None => assert_eq!(n, 0, "{c:?} has no special"),
+                Some(_) => assert!(n > 0, "bots never used {c:?}'s special: {fired:?}"),
+            }
+        }
     }
 
     #[test]
@@ -541,7 +626,7 @@ mod tests {
         let mut m = staged([Character::Sam, Character::Classic, Character::Classic, Character::Classic], [100.0, 200.0, 245.0, 440.0]);
         m.f[0].facing = 1.0;
         step_idle(&mut m, &z, true);
-        assert_eq!(m.bombs.len(), 1);
+        assert!(matches!(m.effects.as_slice(), [Effect::Bomb(_)]));
         let mut went_off = None;
         for t in 0..BOMB_FUSE + BOMB_CRUNCH + 2 {
             step_idle(&mut m, &z, false);
@@ -554,7 +639,7 @@ mod tests {
         }
         let (t, pos) = went_off.expect("the bomb went off");
         assert!(t < BOMB_FUSE, "it went off on contact, not on the fuse");
-        assert!(m.bombs.is_empty(), "it exploded");
+        assert!(m.effects.is_empty(), "it exploded");
         // The second fighter was dragged right in and caught the blast too.
         assert!(m.f[2].center().distance(pos) < BOMB_BLAST_RADIUS, "second fighter ended {} away", m.f[2].center().distance(pos));
         assert!(m.f[1].hp < MAX_HP && m.f[2].hp < MAX_HP, "both near fighters hurt: {} {}", m.f[1].hp, m.f[2].hp);
@@ -590,11 +675,11 @@ mod tests {
         let mut m = staged([Character::Tyler, Character::Classic, Character::Classic, Character::Classic], [40.0, 120.0, 200.0, 280.0]);
         m.f[0].facing = 1.0;
         step_idle(&mut m, &z, true);
-        assert_eq!(m.dogs.len(), 3);
+        assert_eq!(m.effects.iter().filter(|e| matches!(e, Effect::Dog(_))).count(), 3);
         for _ in 0..HOUND_TICKS {
             step_idle(&mut m, &z, false);
         }
-        assert!(m.dogs.is_empty(), "gone after 5s");
+        assert!(m.effects.is_empty(), "gone after 5s");
         assert_eq!(m.f[0].hp, MAX_HP, "dogs never bite Tyler");
         assert!(m.f[1].hp < MAX_HP, "the fighter in their path got bitten");
         assert!(m.f[0].dmg_dealt > 0.0);
