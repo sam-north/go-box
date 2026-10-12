@@ -220,7 +220,7 @@ pub struct Fighter {
 }
 
 impl Fighter {
-    fn new(x: f32, facing: f32) -> Self {
+    pub fn new(x: f32, facing: f32) -> Self {
         Self {
             pos: vec2(x, 164.0),
             vel: Vec2::ZERO,

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Go Box</title>
+  <style>
+    html, body, canvas { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0c10; }
+    canvas { display: block; outline: none; }
+  </style>
+</head>
+<body>
+  <canvas id="glcanvas" tabindex="1"></canvas>
+  <!-- miniquad's loader (copied from the miniquad crate), then our WebSocket/page bridge. -->
+  <script src="gl.js"></script>
+  <script src="net.js"></script>
+  <script>load("go-box-client.wasm");</script>
+</body>
+</html>

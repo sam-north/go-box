@@ -400,6 +400,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "go-box-client"
+version = "0.1.0"
+dependencies = [
+ "go-box-protocol",
+ "go-box-render",
+ "go-box-sim",
+ "macroquad",
+ "rand 0.8.8",
+ "serde_json",
+ "tungstenite 0.26.2",
+]
+
+[[package]]
 name = "go-box-protocol"
 version = "0.1.0"
 dependencies = [

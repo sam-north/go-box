@@ -1,10 +1,64 @@
 # Go Box
 
-Four humans locked in a box, free-for-all. Everyone starts **empty-handed**; spears, rocks, the
-odd grenade and health lie around the arena. No fighter has any hand-written behaviour — each is a
-small recurrent neural net, and one population evolves with a genetic algorithm. Nothing rewards
-any particular weapon or style: the score is about outcomes, so whatever fighting style wins is
-what evolves.
+Four fighters locked in a box, free-for-all. Everyone starts **empty-handed**; spears, rocks, the
+odd grenade and health lie around the arena. The bots aren't scripted: each is a small recurrent
+neural net evolved with a genetic algorithm (see [Training](#training)). Play it with friends in the
+browser; any empty seat is filled by a trained bot.
+
+## Playing online
+
+```
+./scripts/build-web.sh                  # build the browser client into web/ (or scripts/build-web.ps1)
+cargo run --release -p go-box-server    # serve it on http://127.0.0.1:7878 (this machine only)
+```
+
+Open http://127.0.0.1:7878, pick a name and **Create a room**. Share the invite link (or the
+4-letter code); up to four people can join, and bots take the empty seats. The room leader picks
+the bot difficulty and starts matches; after each match an overlay shows the scoreboard (kills,
+headshots, damage, when each fighter went down), everyone can switch character, the others can
+mark themselves ready, and the leader hits **Play again**. Someone who leaves mid-match is
+replaced by a bot; someone who joins mid-match watches until the next one.
+
+Keys: `A/D` move, `Shift` run, `Space` jump, `R` melee, `E` grab (press `E` again to throw), hold
+`W`/`S` to aim higher/lower, `F` special.
+
+The server only listens on `127.0.0.1` unless told otherwise (`GO_BOX_BIND`); see
+`crates/server/src/main.rs` for its settings.
+
+### Characters
+
+Everyone has the same body; each character adds one special on a cooldown.
+
+| Character | Special | Cooldown |
+|---|---|---|
+| Classic | none — the hooded fighter the brains were trained as | — |
+| Sam | **Gravity Well**: pulls nearby fighters toward him for a second (the closer, the harder), then pops for 12 | 30s |
+| Austin | **Pop-Up**: teleports to a random spot at least 40px from everyone | 15s |
+| Tyler | **Release the Hounds**: three dogs run the floors for 5s, biting anyone but Tyler | 30s |
+
+Bots playing a character use its special by a simple rule (the brains never trained with
+specials). Tuning lives at the top of `crates/sim/src/character.rs`; looks in
+`crates/render/src/lib.rs` (`look`).
+
+### How the netcode works
+
+The server runs the only real match (60 ticks/s) and sends snapshots 30 times a second. Your own
+fighter moves the instant you press a key (the client predicts it, then reconciles with the
+server); everyone else is drawn 100ms in the past, smoothly interpolated. Hits and damage are
+always decided by the server.
+
+## Layout
+
+- `crates/sim` — rules, physics, characters and specials, the brain. Shared by everything.
+- `crates/render` — procedural pixel art (arena, fighters, effects, portraits).
+- `crates/protocol` — the messages between server and client.
+- `crates/server` — rooms, lobby, matches; serves the browser client.
+- `crates/client` — the game client (wasm in the browser; also runs natively for testing).
+- `crates/trainer` — the evolution trainer and viewer (`cargo run --release`).
+- `brains/` — the few trained champions that are committed (the server's bots use them).
+- `web/` — the page that hosts the client (`gl.js` is miniquad's loader, copied from the crate).
+
+## Training
 
 ```
 cargo run --release                     # watch the top 4 fight while training runs in the background
@@ -13,6 +67,7 @@ cargo run --release -- --headless 500   # train 500 generations without a window
 cargo run --release -- --compare        # current champion vs. champions from 10k and 20k gens ago vs. an untrained brain
 cargo run --release -- --play           # you vs. the current champion, 1v1
 cargo run --release -- --watch          # watch/play without training (follows a run in another process)
+cargo run --release -- --cast           # with the characters (Sam, Austin, Tyler, Classic); you're Sam in --play
 cargo run --release -- --bench          # time the simulation (single thread)
 cargo run --release -- --tournament a.json b.json ...   # pit saves' top brains against each other
 ```
@@ -21,14 +76,14 @@ Keys: `1-4` speed, `P` pause, `R` new match, `C` compare generations, `V` play t
 show senses/hitboxes/blast radius, `S` save, `Esc` save + quit.
 
 Playing (you are RED): `A/D` move, `Shift` run, `Space` jump, `R` melee (punch, or stab with a
-spear), `E` grab, `Q` throw, hold `W`/`S` to aim higher/lower.
+spear), `E` grab (press again to throw), hold `W`/`S` to aim higher/lower.
 
 The champion of every 1000th generation is kept in `save/ffa_champions/` for compare mode (this
 started at gen ~30,900, so the 10k/20k-ago seats fill in as training continues).
 
 Only run one copy at a time: a headless run and the viewer would both write the same save.
 
-## Rules
+### Rules
 
 Everyone has the same body: walk, run, jump, gravity, 100 HP, knockback. One thing in hand at a
 time; picking up is a deliberate **grab** (so choosing a spear over a rock is something to learn).
@@ -55,13 +110,13 @@ so brains discover them.
 A match ends with the **last one standing**, or after 30s, when the fighter with the most health
 wins. Only an exact tie is a draw.
 
-## How it works
+### How it works
 
 - **Senses:** 12 terrain raycasts; 12-sector "retinas" (line of sight only) for opponents, threats
   (flying items, live grenades), loose spears, loose rocks, loose grenades and health; what the
   nearest opponent is doing and holding; own body state, what's in hand, whether something is in
   reach, a held grenade's fuse; 4 memory values.
-- **Brain:** 106 inputs → 32 tanh → 11 outputs (move, run, jump, attack, throw, aim, grab, 4 memory).
+- **Brain:** 119 inputs → 64 tanh → 11 outputs (move, run, jump, attack, throw, aim, grab, 4 memory).
 - **Evolution:** 96 brains. Each generation every brain plays at least 8 four-way matches; 20% of
   seats go to hall-of-fame champions from past generations. Elitism + tournament selection +
   uniform crossover + Gaussian mutation.
@@ -69,7 +124,7 @@ wins. Only an exact tie is a draw.
   +80 for winning (plus a bonus for winning early). A "get close to someone" hint fades out over
   the first 300 generations.
 
-## Watching it learn
+### Watching it learn
 
 The HUD shows a chart of **damage by weapon** (how they actually fight), plus headshot rate, heal
 pickup rate, and knockouts (wins by last-one-standing vs. on health). Every generation is also
@@ -80,25 +135,25 @@ The full state saves to `save/ffa.json` every 3 minutes and on exit.
 `save/` is local only (it's ~160MB and not committed). A few stable champions are committed in
 `brains/` (see `brains/README.md`); a fresh clone without `save/` starts training from scratch.
 
-## Hardware budget
+### Hardware budget
 
 Training uses at most half your logical CPUs minus one (7 of 16 threads on a 7800X3D), so it stays
 under ~50% CPU. Population size is fixed, so memory stays small. The window renders a 320×180
 image upscaled with vsync, which is negligible GPU load.
 
-## Archive
+### Archive
 
 The previous 2v2 humans-vs-creatures version is kept in `archive/tribes-2v2/`, with its save in
 `save/state.json`.
 
-## Tuning knobs
+### Tuning knobs
 
-- `src/sim.rs` — physics, weapon damage, headshots, item spawns, heals, arena, senses, fitness.
-- `src/evo.rs` — population size, matches per generation, mutation, hall of fame, curriculum.
-- `src/brain.rs` — network size and memory.
-- `src/render.rs` — all procedural art.
+- `crates/sim/src/sim.rs` — physics, weapon damage, headshots, item spawns, heals, arena, senses, fitness.
+- `crates/trainer/src/evo.rs` — population size, matches per generation, mutation, hall of fame, curriculum.
+- `crates/sim/src/brain.rs` — network size and memory.
+- `crates/render/src/lib.rs` — all procedural art.
 
-## Training against history, and a strength benchmark
+### Training against history, and a strength benchmark
 
 After gen ~50k the champions stopped getting stronger (a tournament of champions from 31k to
 138k was flat at ~25% each). Two changes followed:
@@ -112,7 +167,7 @@ After gen ~50k the champions stopped getting stronger (a tournament of champions
   as the "strength vs panel" chart in the viewer. 25% = as good as the panel; a rising line is
   real improvement. Baseline at the switch: 26.2%.
 
-## Speed and training settings
+### Speed and training settings
 
 `--bench` showed ~70% of the time went to the brains' math. A SIMD-friendly dot product, a fast
 `tanh`, a cached ray table, a fast `atan2`, LTO and `target-cpu=native` (`.cargo/config.toml`)

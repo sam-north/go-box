@@ -34,6 +34,8 @@ pub struct Joined {
 /// big one means added lag, so it's trimmed.
 const INPUT_BACKLOG_MAX: usize = 8;
 const INPUT_BACKLOG_KEEP: usize = 3;
+/// After this many ticks without input, a player's fighter releases all buttons.
+const STARVED_RELEASE: u32 = 10;
 
 struct Player {
     id: PlayerId,
@@ -46,6 +48,8 @@ struct Player {
     last_seq: u32,
     ack: u32,
     last_action: Action,
+    /// Ticks in a row with no input (the tab is in the background, the network stalled...).
+    starved: u32,
 }
 
 impl Player {
@@ -55,15 +59,20 @@ impl Player {
     }
 
     /// The input for this tick: the next queued one, or (if none arrived in time) the last
-    /// one held, minus one-shot presses so a stall never repeats a throw or special.
+    /// one held, minus one-shot presses so a stall never repeats a throw or special. After a
+    /// longer gap (a hidden browser tab sends nothing) the fighter lets go of everything.
     fn next_action(&mut self) -> Action {
         match self.inputs.pop_front() {
             Some((seq, a)) => {
                 self.ack = seq;
                 self.last_action = a;
+                self.starved = 0;
                 a
             }
-            None => Action { throw: false, special: false, ..self.last_action },
+            None => {
+                self.starved += 1;
+                if self.starved > STARVED_RELEASE { Action::default() } else { Action { throw: false, special: false, ..self.last_action } }
+            }
         }
     }
 }
@@ -185,6 +194,7 @@ impl Room {
                     last_seq: 0,
                     ack: 0,
                     last_action: Action::default(),
+                    starved: 0,
                 });
                 let _ = j.reply.send(Ok(()));
                 tracing::info!(room = %self.code, players = self.players.len(), "player joined");

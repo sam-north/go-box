@@ -755,3 +755,18 @@ fn free_hand(f: &Fighter, v: &FighterVis, neck: Vec2) -> Vec2 {
         _ => neck + vec2(s * 1.5, 5.0),
     }
 }
+
+/// A character standing still, feet at (0, 0) in arena pixels, facing right; for menus. The
+/// caller sets up a camera (e.g. onto a small render target) around it.
+pub fn draw_portrait(c: Character, seat: usize, time: f32) {
+    let mut f = Fighter::new(0.0, 1.0);
+    f.pos = vec2(0.0, 0.0);
+    f.character = c;
+    let mut v = FighterVis::default();
+    init_vis(&mut v, &f);
+    // Let the scarf settle into a natural hang.
+    for k in 0..40 {
+        update_scarf(&mut v, &f, 1.0 / 60.0, time - (40 - k) as f32 / 60.0);
+    }
+    draw_human(&v, &f, &look(c, seat), false);
+}
