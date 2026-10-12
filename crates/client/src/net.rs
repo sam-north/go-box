@@ -76,7 +76,7 @@ mod imp {
 
     impl Socket {
         pub fn open() -> Self {
-            let url = crate::Options::get().server.clone();
+            let url = crate::testclient::Options::get().server.clone();
             let (tx, rx) = mpsc::channel();
             std::thread::spawn(move || {
                 let _ = tx.send(connect(&url));

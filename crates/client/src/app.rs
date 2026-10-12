@@ -1,0 +1,149 @@
+//! The client's state: the connection, the room, the match, your choices; and handling what
+//! the server says.
+
+use crate::game::Game;
+use crate::input::{Controls, KEYS_HELP, PAD_HELP};
+use crate::net::{Net, State};
+use crate::platform;
+use crate::testclient::Options;
+use go_box_protocol::*;
+use go_box_render::sound::{Sfx, Sounds};
+use go_box_render::Art;
+use macroquad::prelude::*;
+use ::rand::rngs::SmallRng;
+
+pub struct App {
+    pub net: Option<Net>,
+    /// The name this connection said hello with.
+    pub hello_name: Option<String>,
+    pub hello_sent: bool,
+    /// Sent as soon as the server welcomes us.
+    pub after_welcome: Option<ClientMsg>,
+    pub me: Option<PlayerId>,
+    pub room: Option<RoomInfo>,
+    pub game: Option<Game>,
+    pub name: String,
+    pub code: String,
+    pub notice: Option<(String, f64)>,
+    pub lost: bool,
+    pub seq: u32,
+    pub acc: f32,
+    pub controls: Controls,
+    /// Arena-to-screen mapping of the last frame drawn: (top-left on screen, pixels per unit).
+    pub view: (Vec2, f32),
+    /// The settings menu is open.
+    pub settings_open: bool,
+    /// When the volume preview last played.
+    pub preview_at: f64,
+    pub rng: SmallRng,
+    /// The shown match had ended last frame (to play the result sound once).
+    pub was_over: bool,
+}
+
+impl App {
+    pub fn notify(&mut self, msg: impl Into<String>) {
+        self.notice = Some((msg.into(), get_time()));
+    }
+
+    /// Sends `msg` (CreateRoom / JoinRoom), connecting first if needed.
+    pub fn enter(&mut self, msg: ClientMsg) {
+        let name = self.name.trim().to_string();
+        let name = if name.is_empty() { "Player".to_string() } else { name };
+        platform::save_name(&name);
+        let reuse = self.me.is_some() && self.hello_name.as_deref() == Some(&name) && self.net.as_mut().is_some_and(|n| n.state() == State::Open);
+        if reuse {
+            self.net.as_mut().unwrap().send(&msg);
+        } else {
+            self.net = Some(Net::connect());
+            self.me = None;
+            self.hello_name = Some(name);
+            self.hello_sent = false;
+            self.after_welcome = Some(msg);
+            self.lost = false;
+        }
+    }
+
+    pub fn send(&mut self, msg: ClientMsg) {
+        if let Some(n) = &mut self.net {
+            n.send(&msg);
+        }
+    }
+
+    pub fn update_net(&mut self, art: &mut Art, sfx: &mut Sounds) {
+        let Some(net) = &mut self.net else { return };
+        match net.state() {
+            State::Connecting => return,
+            State::Closed => {
+                if !self.lost {
+                    self.lost = true;
+                    let msg = if self.me.is_some() { "Lost connection to the server." } else { "Can't reach the server." };
+                    self.notify(msg);
+                }
+                self.net = None;
+                self.me = None;
+                self.room = None;
+                self.game = None;
+                art.reset();
+                return;
+            }
+            State::Open => {}
+        }
+        if !self.hello_sent {
+            let name = self.hello_name.clone().unwrap_or_default();
+            net.send(&ClientMsg::Hello { version: PROTOCOL_VERSION, name });
+            self.hello_sent = true;
+        }
+        for msg in net.poll() {
+            match msg {
+                ServerMsg::Welcome { you } => {
+                    self.me = Some(you);
+                    if let Some(m) = self.after_welcome.take() {
+                        net.send(&m);
+                    }
+                }
+                ServerMsg::Error(e) => self.notice = Some((e, get_time())),
+                ServerMsg::Room(r) => {
+                    platform::set_url_room(Some(&r.code));
+                    if let Some(c) = Options::get().character
+                        && self.room.is_none()
+                    {
+                        net.send(&ClientMsg::SetCharacter(c));
+                    }
+                    self.room = Some(r);
+                }
+                ServerMsg::LeftRoom => {
+                    platform::set_url_room(None);
+                    self.room = None;
+                    self.game = None;
+                    art.reset();
+                }
+                ServerMsg::MatchStart(s) => {
+                    self.game = Some(Game::new(s));
+                    self.acc = 0.0;
+                    self.was_over = false;
+                    art.reset();
+                    sfx.reset();
+                    sfx.play(Sfx::Start, 1.0);
+                }
+                ServerMsg::Snapshot(s) => {
+                    if let Some(g) = &mut self.game {
+                        g.on_snapshot(s);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Settings saved in the browser.
+pub const PREF_MUTED: &str = "go-box-muted";
+pub const PREF_MASTER: &str = "go-box-volume-master";
+pub const PREF_EFFECTS: &str = "go-box-volume-effects";
+
+impl App {
+    /// The controls line for whichever device you're using.
+    pub fn controls_help(&self) -> &'static str {
+        if self.controls.using_pad { PAD_HELP } else { KEYS_HELP }
+    }
+}
+

@@ -73,7 +73,7 @@ mod imp {
 
 #[cfg(not(target_arch = "wasm32"))]
 mod imp {
-    use crate::Options;
+    use crate::testclient::Options;
 
     pub fn url_room() -> Option<String> {
         Options::get().join.clone()
