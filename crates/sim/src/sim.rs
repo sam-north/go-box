@@ -3,7 +3,7 @@
 //! expose physical abilities; brains decide what to do with them.
 
 use crate::brain::{Brain, IN_EXTRA, IN_HEAL, IN_ITEMS, IN_MEM, IN_NEAREST, IN_OPP, IN_SELF, IN_THREAT, MEM, N_IN, N_OUT, OUT_MEM};
-use macroquad::math::{vec2, Vec2};
+use glam::{vec2, Vec2};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use std::ops::{Range, RangeInclusive};
@@ -1041,7 +1041,7 @@ mod tests {
     /// so refactors (and new characters) must leave classic matches bit-identical.
     #[test]
     fn classic_matches_are_unchanged() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("brains");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../brains");
         let mut names: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "json")).collect();
         names.sort();
         let brains: Vec<Brain> = names.iter().map(|p| serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap()).collect();

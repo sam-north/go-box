@@ -1,12 +1,20 @@
-[package]
-name = "go-box"
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# `cargo run --release` from the repo root still starts the trainer/viewer.
+default-members = ["crates/trainer"]
+exclude = ["archive"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
+[workspace.dependencies]
+go-box-sim = { path = "crates/sim" }
+# Must match the glam that macroquad uses, so sim and render share one Vec2 type.
+glam = { version = "0.27", features = ["serde"] }
 macroquad = "0.4"
-rand = { version = "0.8", features = ["small_rng"] }
-rayon = "1"
+rand = { version = "0.8", default-features = false, features = ["small_rng"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

@@ -175,7 +175,7 @@ struct MatchResult {
 pub fn save_path() -> PathBuf {
     std::env::var_os("GO_BOX_SAVE")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("save").join("ffa.json"))
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../save").join("ffa.json"))
 }
 
 /// Per-generation stats log next to the save (CSV, appended every generation).

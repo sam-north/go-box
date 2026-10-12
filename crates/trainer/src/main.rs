@@ -1,8 +1,8 @@
 mod bench;
-mod brain;
+use go_box_sim::brain;
 mod evo;
 mod render;
-mod sim;
+use go_box_sim::sim;
 
 use ::rand::rngs::SmallRng;
 use ::rand::SeedableRng;

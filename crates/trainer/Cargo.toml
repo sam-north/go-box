@@ -1,0 +1,13 @@
+[package]
+name = "go-box"
+description = "Evolves the fighters' brains and shows them fighting."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+go-box-sim.workspace = true
+macroquad.workspace = true
+rand = { workspace = true, features = ["std", "std_rng"] }
+rayon = "1"
+serde.workspace = true
+serde_json.workspace = true

@@ -1,3 +1,4 @@
 # Build for this machine's CPU (AVX2/FMA etc.) — the brains' dot products use it.
-[build]
+# Scoped to the Windows desktop target so browser (wasm32) and Linux server builds stay portable.
+[target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-cpu=native"]
