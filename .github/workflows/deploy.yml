@@ -27,8 +27,23 @@ jobs:
       - name: Browser client builds
         run: cargo build --release --locked -p go-box-client --target wasm32-unknown-unknown
 
+  # Builds the same image Fly deploys, so a broken Dockerfile shows up here (on every push and
+  # pull request) rather than at deploy time.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Docker image
+        run: docker build -t go-box .
+      - name: It starts and answers its health check
+        run: |
+          docker run -d --name go-box -p 8080:8080 go-box
+          for i in $(seq 1 20); do curl -fsS localhost:8080/healthz && exit 0; sleep 1; done
+          docker logs go-box
+          exit 1
+
   deploy:
-    needs: test
+    needs: [test, image]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # One deploy at a time; a newer push waits for the one in progress.

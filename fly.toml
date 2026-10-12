@@ -4,9 +4,9 @@
 
 # The app's name (also its address: https://<app>.fly.dev). Set when the app is created.
 app = "go-box"
-# Run near the players: `fly platform regions` lists them (e.g. ord Chicago, iad Virginia,
-# dfw Dallas, sjc San Jose, lhr London).
-primary_region = "ord"
+# Run near the players (mostly in Louisiana: Dallas is the closest region). `fly platform regions`
+# lists them all.
+primary_region = "dfw"
 
 kill_signal = "SIGTERM"
 kill_timeout = "10s"
