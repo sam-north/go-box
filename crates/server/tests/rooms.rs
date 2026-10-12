@@ -96,11 +96,17 @@ async fn create_join_play_and_leave() {
     assert_eq!(room.players[1].character, Character::Tyler);
     assert!(room.players[1].ready);
 
+    // Seat 3 is a bot; seat 4 is left empty (Bob can't change that, Alice can).
+    b.send(ClientMsg::SetSeatFill { seat: 3, fill: SeatFill::Empty }).await;
+    a.send(ClientMsg::SetSeatFill { seat: 3, fill: SeatFill::Empty }).await;
+    let room = a.until(|m| if let ServerMsg::Room(r) = m { (r.fills[3] == SeatFill::Empty).then_some(r) } else { None }).await;
+    assert_eq!(room.fills[2], SeatFill::Bot);
+
     a.send(ClientMsg::Start).await;
     let start = a.until(|m| if let ServerMsg::MatchStart(s) = m { Some(s) } else { None }).await;
     assert_eq!(start.your_seat, Some(0));
     assert_eq!(start.seats[1].character, Character::Tyler);
-    assert!(start.seats[2].player.is_none() && start.seats[3].player.is_none(), "empty seats are bots");
+    assert!(start.seats[2].player.is_none(), "seat 3 is a bot");
     let b_start = b.until(|m| if let ServerMsg::MatchStart(s) = m { Some(s) } else { None }).await;
     assert_eq!(b_start.your_seat, Some(1));
 
@@ -112,11 +118,12 @@ async fn create_join_play_and_leave() {
         a.send(ClientMsg::Input { seq, action: Action { mv: dir, ..Action::default() } }).await;
         tokio::time::sleep(Duration::from_millis(16)).await;
     }
-    // (Where she ends up depends on the bots punching her, so check the action itself.)
-    let (ack, applied) = a.until(|m| if let ServerMsg::Snapshot(s) = m { (s.ack >= 30).then_some((s.ack, s.view.f[0].action.mv)) } else { None }).await;
+    let (ack, me, empty) = a.until(|m| if let ServerMsg::Snapshot(s) = m { (s.ack >= 30).then(|| (s.ack, s.view.f[0].clone(), s.view.f[3].absent)) } else { None }).await;
     assert_eq!(ack, 30);
-    assert_eq!(applied, dir);
-    let _ = x0;
+    assert!(empty, "seat 4 isn't in the match");
+    // (A bot's punch could knock her about, so check the way she faces as well as where she is.)
+    assert_eq!(me.facing, dir);
+    assert!((me.pos.x - x0) * dir > 0.0 || me.hitstun > 0, "moved from {x0} to {}", me.pos.x);
 
     // A third player joining mid-match watches.
     let mut c = Client::connect(&url, "Cat").await;

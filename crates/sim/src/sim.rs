@@ -206,12 +206,17 @@ pub struct Fighter {
     pub atk_timer: u32,
     pub cooldown: u32,
     /// Bitmask of fighters already struck by the current swing.
+    #[serde(skip)]
     hit_mask: u8,
     pub hitstun: u32,
     /// What's in hand (mirrors the item's `held_by`).
     pub holding: Option<ItemKind>,
     pub hand_cd: u32,
+    // Server-side only (not sent to clients): the brain's memory, the last action, and the
+    // scoreboard stats (the server sends `Results` at the end instead).
+    #[serde(skip)]
     pub memory: [f32; MEM],
+    #[serde(skip)]
     pub action: Action,
     /// Not in this match at all (a 1v1 leaves two seats empty).
     pub absent: bool,
@@ -219,10 +224,15 @@ pub struct Fighter {
     /// Ticks until the special can be used again (0 = ready).
     pub special_cd: u32,
     // Stats for the scoreboard.
+    #[serde(skip)]
     pub died_at: Option<u32>,
+    #[serde(skip)]
     pub dmg_dealt: f32,
+    #[serde(skip)]
     pub dmg_taken: f32,
+    #[serde(skip)]
     pub headshots: u32,
+    #[serde(skip)]
     pub kills: u32,
 }
 
@@ -311,6 +321,7 @@ pub struct Item {
     pub lethal: bool,
     /// Ticks left before a thrown grenade explodes.
     pub fuse: Option<u32>,
+    #[serde(skip)]
     age: u32,
 }
 

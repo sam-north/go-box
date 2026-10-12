@@ -222,6 +222,7 @@ pub struct Bomb {
     /// None while flying; once it's gone off, the ticks left before it explodes.
     pub crunch: Option<u32>,
     /// How hard each fighter is being yanked (0..1), fixed by their distance when it went off.
+    #[serde(skip)]
     pub pull: [f32; N_FIGHTERS],
 }
 
@@ -235,6 +236,7 @@ pub struct Dog {
     pub vy: f32,
     pub owner: usize,
     pub ticks: u32,
+    #[serde(skip)]
     bite_cd: [u32; N_FIGHTERS],
 }
 

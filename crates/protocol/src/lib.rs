@@ -3,13 +3,32 @@
 //!
 //! The server runs the only real match; clients send inputs and draw the snapshots they get
 //! back (predicting their own fighter's movement in between).
+//!
+//! # Keeping the format honest
+//!
+//! Snapshots carry the sim's own structs (`MatchView`, `Fighter`, `Item`, ...). Anything only
+//! the server needs is `#[serde(skip)]`ped there, so it never goes on the wire. The test
+//! `wire_format_is_pinned` hashes one encoded sample of every message: any change to the
+//! format, including one made in the sim, fails it until `PROTOCOL_VERSION` is bumped (clients
+//! on another version are turned away at `Hello` rather than failing to decode).
+//!
+//! # Adding a kind of message (e.g. chat or emoji reactions)
+//!
+//! 1. Add a variant at the end of `ClientMsg` (client to server) and/or `ServerMsg` (server to
+//!    client): say `ClientMsg::Chat(String)` / `ServerMsg::Chat { from: PlayerId, text: String }`.
+//! 2. Give it a sample in `tests::samples` (it won't compile until you do), bump
+//!    `PROTOCOL_VERSION` and update `WIRE`.
+//! 3. Server: handle it in `room.rs` `on_msg`. Messages are delivered in order and reliably,
+//!    except that `conn.rs` drops an `Input` rather than wait on a busy room; chat should be
+//!    reliable but rate-limited per connection (see `docs/TODO.md`).
+//! 4. Client: handle the `ServerMsg` in `App::update_net`.
 
 use go_box_sim::character::Character;
 use go_box_sim::sim::{Action, Event, MatchView, N_FIGHTERS};
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 6;
+pub const PROTOCOL_VERSION: u16 = 7;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -188,6 +207,115 @@ mod tests {
         let Some(ServerMsg::Snapshot(s)) = decode::<ServerMsg>(&bytes) else { panic!() };
         assert_eq!(s.ack, 7);
         assert_eq!(s.view.f[2].pos, m.f[2].pos);
+    }
+
+    /// A match of bots playing every character, with a snapshot taken while a gravity bomb is
+    /// out and another while Tyler's dogs are running, so their layouts are on the wire too.
+    fn sample_snapshots() -> Vec<Snapshot> {
+        use go_box_sim::brain::Brain;
+        let brain = Brain::from_json(include_str!("../../../brains/gen_219000.json")).unwrap();
+        let mut m = Match::new(5, HEALS_PER_ROUND);
+        for (f, c) in m.f.iter_mut().zip(Character::ALL) {
+            f.character = c;
+        }
+        let (mut bomb, mut dogs) = (None, None);
+        while (bomb.is_none() || dogs.is_none()) && !m.over {
+            m.step([&brain; N_FIGHTERS]);
+            let snap = || Snapshot { ack: m.tick, view: m.view(), events: m.events.clone() };
+            if bomb.is_none() && !m.bombs.is_empty() {
+                bomb = Some(snap());
+            }
+            if dogs.is_none() && !m.dogs.is_empty() {
+                dogs = Some(snap());
+            }
+        }
+        vec![Snapshot { ack: 0, view: Match::new(1, HEALS_PER_ROUND).view(), events: Vec::new() }, bomb.expect("a bomb was thrown"), dogs.expect("dogs ran")]
+    }
+
+    /// One of every message, with fixed contents. The `match`es have no wildcard arm, so a new
+    /// message kind doesn't compile until it has a sample here.
+    fn samples() -> Vec<Vec<u8>> {
+        use go_box_sim::sim::Action;
+        let action = Action { mv: -1.0, run: true, jump: true, attack: false, throw: true, aim: 0.3, grab: false, special: true, target: Some(glam_vec(0.6, -0.8)) };
+        let client = [
+            ClientMsg::Hello { version: PROTOCOL_VERSION, name: "Sam".into() },
+            ClientMsg::CreateRoom,
+            ClientMsg::JoinRoom { code: "ABCD".into() },
+            ClientMsg::LeaveRoom,
+            ClientMsg::SetCharacter(Character::Tyler),
+            ClientMsg::SetReady(true),
+            ClientMsg::SetDifficulty(Difficulty::Hard),
+            ClientMsg::SetSeatFill { seat: 2, fill: SeatFill::Empty },
+            ClientMsg::Start,
+            ClientMsg::Input { seq: 77, action },
+        ];
+        for m in &client {
+            match m {
+                ClientMsg::Hello { .. }
+                | ClientMsg::CreateRoom
+                | ClientMsg::JoinRoom { .. }
+                | ClientMsg::LeaveRoom
+                | ClientMsg::SetCharacter(_)
+                | ClientMsg::SetReady(_)
+                | ClientMsg::SetDifficulty(_)
+                | ClientMsg::SetSeatFill { .. }
+                | ClientMsg::Start
+                | ClientMsg::Input { .. } => {}
+            }
+        }
+        let seat = |name: &str, c, player| Seat { name: name.into(), character: c, player };
+        let result = SeatResult { name: "Bot".into(), character: Character::Sam, bot: true, kills: 2, headshots: 1, damage_dealt: 88.5, damage_taken: 100.0, died_at: Some(31.5), hp: 0.0 };
+        let room = RoomInfo {
+            code: "ABCD".into(),
+            leader: 1,
+            players: vec![PlayerInfo { id: 1, name: "Sam".into(), character: Character::Austin, ready: true }],
+            difficulty: Difficulty::Easy,
+            fills: [SeatFill::Bot, SeatFill::Bot, SeatFill::Empty, SeatFill::Bot],
+            phase: Phase::Lobby,
+            last_results: Some(Results { seats: vec![result], winner: Some(0), duration: 44.5 }),
+        };
+        let start = MatchStart {
+            seats: [seat("Sam", Character::Sam, Some(1)), seat("A", Character::Austin, None), seat("T", Character::Tyler, None), seat("C", Character::Classic, None)],
+            your_seat: Some(0),
+        };
+        let mut server = vec![ServerMsg::Welcome { you: 9 }, ServerMsg::Error("nope".into()), ServerMsg::Room(room), ServerMsg::LeftRoom, ServerMsg::MatchStart(start)];
+        server.extend(sample_snapshots().into_iter().map(ServerMsg::Snapshot));
+        for m in &server {
+            match m {
+                ServerMsg::Welcome { .. } | ServerMsg::Error(_) | ServerMsg::Room(_) | ServerMsg::LeftRoom | ServerMsg::MatchStart(_) | ServerMsg::Snapshot(_) => {}
+            }
+        }
+        client.iter().map(encode).chain(server.iter().map(encode)).collect()
+    }
+
+    fn glam_vec(x: f32, y: f32) -> go_box_sim::glam::Vec2 {
+        go_box_sim::glam::vec2(x, y)
+    }
+
+    /// The wire format, pinned: the bytes of every sample message, hashed. If this fails, the
+    /// format changed: bump PROTOCOL_VERSION (so old clients are turned away instead of
+    /// silently failing to decode), then update WIRE below to the new version and hash.
+    #[test]
+    fn wire_format_is_pinned() {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for bytes in samples() {
+            for b in bytes.iter().copied().chain((bytes.len() as u32).to_le_bytes()) {
+                h = (h ^ b as u64).wrapping_mul(0x100_0000_01b3);
+            }
+        }
+        assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
+    }
+    const WIRE: (u16, u64) = (7, 0xd8f9_bb0c_762c_c05f);
+
+    #[test]
+    fn every_sample_round_trips() {
+        let samples = samples();
+        for bytes in &samples[..10] {
+            assert_eq!(encode(&decode::<ClientMsg>(bytes).unwrap()), *bytes);
+        }
+        for bytes in &samples[10..] {
+            assert_eq!(encode(&decode::<ServerMsg>(bytes).unwrap()), *bytes);
+        }
     }
 
     #[test]
