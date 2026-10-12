@@ -50,7 +50,7 @@ Everyone has the same body; each character adds one special on a cooldown.
 Bots playing a character use its special by a simple rule (the brains never trained with
 specials): Sam works out where his bomb would land and throws only if it would catch two people,
 finish one off, or turn a fight he's losing; Austin pops away from incoming projectiles, grenades
-about to blow, or a crowd when hurt; Tyler releases the hounds at someone on his level ahead. Tuning lives at the top of `crates/sim/src/character.rs`.
+about to blow, or a crowd when hurt; Tyler releases the hounds at someone on his level ahead; Seth splits when a foe is close. Tuning lives at the top of `crates/sim/src/character.rs`.
 
 **Adding a map** is a variant in `ArenaId` with its platforms (`crates/sim/src/arena.rs`) and its
 name in the text file; check the bots cope with it using `--example tournament 400 <map id>`.
