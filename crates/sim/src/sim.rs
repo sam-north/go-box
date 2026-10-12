@@ -67,7 +67,9 @@ const START_SPEARS: usize = 2;
 const START_ROCKS: usize = 4;
 const ITEM_SPAWN_EVERY: Range<u32> = 60 * 5..60 * 8;
 const MAX_LOOSE_ITEMS: usize = 10;
-const MAX_GRENADES: usize = 1;
+const MAX_GRENADES: usize = 2;
+/// Chance that a spawned item is a grenade (when fewer than MAX_GRENADES are around).
+const GRENADE_CHANCE: f32 = 0.35;
 
 // Health pickups: restore half your health; rare and on a reachable surface.
 pub const HEAL_AMOUNT: f32 = 50.0;
@@ -342,7 +344,7 @@ impl Item {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum Event {
     Hit { pos: Vec2, dir: f32, headshot: bool, source: Source },
-    Death { pos: Vec2 },
+    Death { who: usize, pos: Vec2 },
     Jump { who: usize, pos: Vec2 },
     /// Fighter `who` started a melee swing.
     Swing { who: usize },
@@ -475,13 +477,11 @@ pub struct Match {
 }
 
 impl Match {
-    /// Four humans spread across the floor, empty-handed. `heals` is how many health pickups
-    /// this round gets (picked at random from the range).
+    /// Four humans spread across the floor, empty-handed, in seat order from left to right
+    /// (each somewhere in its own quarter). `heals` is how many health pickups this round gets
+    /// (picked at random from the range).
     pub fn new(rng: &mut impl Rng, heals: RangeInclusive<usize>) -> Self {
-        let mut zones = [20.0, 135.0, 250.0, 365.0];
-        for i in (1..zones.len()).rev() {
-            zones.swap(i, rng.gen_range(0..=i));
-        }
+        let zones = [20.0, 135.0, 250.0, 365.0];
         let f = std::array::from_fn(|i| {
             let x = zones[i] + rng.gen_range(0.0..90.0);
             Fighter::new(x, if x < W / 2.0 { 1.0 } else { -1.0 })
@@ -921,9 +921,9 @@ impl Match {
         }
         let grenades = self.items.iter().filter(|it| it.kind == ItemKind::Grenade).count();
         let roll: f32 = self.rng.r#gen();
-        let kind = if roll < 0.15 && grenades < MAX_GRENADES {
+        let kind = if roll < GRENADE_CHANCE && grenades < MAX_GRENADES {
             ItemKind::Grenade
-        } else if roll < 0.5 {
+        } else if roll < GRENADE_CHANCE + 0.35 {
             ItemKind::Spear
         } else {
             ItemKind::Rock
@@ -965,7 +965,7 @@ impl Match {
             }
             self.f[victim].holding = None;
             self.f[victim].died_at = Some(self.tick);
-            self.events.push(Event::Death { pos });
+            self.events.push(Event::Death { who: victim, pos });
             if src != victim {
                 self.f[src].kills += 1;
             }
@@ -1228,8 +1228,8 @@ mod tests {
         }
         assert_eq!(h, CLASSIC_HASH, "classic match fingerprint changed: {h:#018x}");
     }
-    // Last deliberately changed by the bigger arena (480x270), 45s matches and stronger grenades.
-    const CLASSIC_HASH: u64 = 0xeede_084e_f81e_f0da;
+    // Last deliberately changed by seat-ordered spawns and more grenade spawns.
+    const CLASSIC_HASH: u64 = 0xbf48_80a8_2233_16f3;
 
     #[test]
     fn fast_atan2_matches_std() {

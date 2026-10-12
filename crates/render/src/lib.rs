@@ -300,6 +300,8 @@ pub struct Art {
     vis: [FighterVis; N_FIGHTERS],
     /// Recent explosions (position, seconds since) for the flash.
     blasts: Vec<(Vec2, f32, f32)>,
+    /// A flag in their colour where each fighter went down (ground position, colour).
+    flags: Vec<(Vec2, Color)>,
     time: f32,
 }
 
@@ -326,6 +328,7 @@ impl Art {
             rain,
             vis: Default::default(),
             blasts: Vec::new(),
+            flags: Vec::new(),
             time: 0.0,
         }
     }
@@ -335,6 +338,7 @@ impl Art {
         self.stain_dirty = true;
         self.particles.clear();
         self.blasts.clear();
+        self.flags.clear();
         self.vis = Default::default();
     }
 
@@ -361,7 +365,10 @@ impl Art {
                     let spark = if headshot { Color::new(1.0, 0.95, 0.5, 1.0) } else { Color::new(1.0, 0.95, 0.85, 1.0) };
                     self.burst(pos, vec2(dir, 0.0), 2.5, if headshot { 14 } else { 6 }, spark, false, 120.0, 0.4, 420.0);
                 }
-                Event::Death { pos } => {
+                Event::Death { who, pos } => {
+                    // Planted on whatever is below the spot they died.
+                    let ground = pos + vec2(0.0, terrain_ray(pos, vec2(0.0, 1.0), H));
+                    self.flags.push((ground, look(m.f[who].character, who).accent));
                     self.burst(pos, vec2(0.0, -1.0), 6.0, 70, BLOOD, true, 160.0, 2.5, 420.0);
                 }
                 Event::Jump { pos, .. } | Event::Land { pos } => {
@@ -511,6 +518,9 @@ impl Art {
 
         for b in &m.bombs {
             draw_bomb(b, self.time);
+        }
+        for &(p, c) in &self.flags {
+            draw_flag(p, c, self.time);
         }
         for &h in &m.heals {
             draw_heal(h, self.time);
@@ -797,4 +807,17 @@ pub fn draw_portrait(c: Character, seat: usize, time: f32) {
         update_scarf(&mut v, &f, 1.0 / 60.0, time - (40 - k) as f32 / 60.0);
     }
     draw_human(&v, &f, &look(c, seat), false);
+}
+
+/// A little flag on a pole, rippling in the wind, planted where a fighter went down.
+fn draw_flag(p: Vec2, c: Color, time: f32) {
+    let (x, y) = (p.x.round(), p.y.round());
+    draw_rectangle(x, y - 13.0, 1.0, 13.0, Color::new(0.55, 0.50, 0.42, 1.0));
+    draw_rectangle(x, y - 14.0, 1.0, 1.0, Color::new(0.8, 0.75, 0.6, 1.0));
+    for k in 0..6 {
+        let wave = ((time * 5.0 - k as f32 * 0.9 + p.x).sin() * 0.8).round();
+        let h = 5.0 - k as f32 * 0.5;
+        let shade = if wave > 0.0 { 0.8 } else { 1.0 };
+        draw_rectangle(x + 1.0 + k as f32, y - 13.0 + wave + (5.0 - h) / 2.0, 1.0, h.round(), Color::new(c.r * shade, c.g * shade, c.b * shade, 1.0));
+    }
 }

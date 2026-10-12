@@ -403,8 +403,8 @@ impl Sounds {
                         self.at(Sfx::Headshot, pos, ear, 1.0);
                     }
                 }
-                Event::Death { pos } => self.at(Sfx::Death, pos, ear, 1.0),
-                Event::Jump { who, pos } if Some(who) != own => self.at(Sfx::Jump, pos, ear, 0.6),
+                Event::Death { pos, .. } => self.at(Sfx::Death, pos, ear, 1.0),
+                Event::Jump { who, pos } if Some(who) != own => self.at(Sfx::Jump, pos, ear, 0.25),
                 Event::Swing { who } if Some(who) != own => self.at(Sfx::Swing, m.f[who].center(), ear, 0.7),
                 Event::Jump { .. } | Event::Swing { .. } => {}
                 Event::Land { pos } => self.at(Sfx::Land, pos, ear, 0.6),
@@ -439,7 +439,7 @@ impl Sounds {
     pub fn local(&mut self, events: &[Event]) {
         for e in events {
             match e {
-                Event::Jump { .. } => self.play(Sfx::Jump, 0.6),
+                Event::Jump { .. } => self.play(Sfx::Jump, 0.3),
                 Event::Swing { .. } => self.play(Sfx::Swing, 0.7),
                 _ => {}
             }

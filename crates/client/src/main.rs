@@ -83,6 +83,8 @@ struct Attract {
     rng: SmallRng,
     acc: f32,
     pause: f32,
+    /// A new match began since the arena art was last cleared.
+    restarted: bool,
 }
 
 impl Attract {
@@ -90,7 +92,7 @@ impl Attract {
         let brain: Brain = serde_json::from_str(include_str!("../../../brains/gen_219000.json")).expect("embedded brain");
         let mut rng = SmallRng::seed_from_u64((get_time() * 1e6) as u64 ^ 0x9e37_79b9);
         let m = Self::fresh(&mut rng);
-        Self { m, brain, rng, acc: 0.0, pause: 0.0 }
+        Self { m, brain, rng, acc: 0.0, pause: 0.0, restarted: false }
     }
 
     fn fresh(rng: &mut SmallRng) -> Match {
@@ -109,6 +111,7 @@ impl Attract {
             if self.pause > 2.0 {
                 self.m = Self::fresh(&mut self.rng);
                 self.pause = 0.0;
+                self.restarted = true;
             }
             return events;
         }
@@ -400,6 +403,9 @@ async fn main() {
             None => {
                 let events = attract.frame(dt);
                 attract.m.events = events;
+                if std::mem::take(&mut attract.restarted) {
+                    art.reset();
+                }
                 art.handle_events(&attract.m);
                 &attract.m
             }
@@ -410,6 +416,9 @@ async fn main() {
         art.draw(m, false);
         if let (true, Some(seat)) = (playing, seat) {
             draw_aim(m, seat);
+        }
+        if let Some(seat) = seat {
+            draw_you(m, seat);
         }
 
         // Character portraits for the picker.
@@ -499,6 +508,28 @@ fn draw_aim(m: &Match, seat: usize) {
             let p = o + d * (k as f32 * 6.0);
             draw_rectangle(p.x.floor(), p.y.floor(), 1.0, 1.0, Color::new(1.0, 1.0, 1.0, 0.5 - k as f32 * 0.07));
         }
+    }
+}
+
+/// A bobbing chevron over your own fighter, above the health bar, so you can always find
+/// yourself.
+fn draw_you(m: &Match, seat: usize) {
+    let f = &m.f[seat];
+    if !f.alive() {
+        return;
+    }
+    let c = render::look(f.character, seat).accent;
+    let bob = ((get_time() * 4.0).sin() * 1.0).round() as f32;
+    let (x, y) = (f.pos.x.round(), f.pos.y.round() - 29.0 + bob);
+    // Rows of a 7px-wide downward chevron, with a dark outline so it reads on any backdrop.
+    let rows: [(f32, f32); 4] = [(-3.0, 7.0), (-2.0, 5.0), (-1.0, 3.0), (0.0, 1.0)];
+    let shadow = Color::new(0.0, 0.0, 0.0, 0.7);
+    for (k, &(dx, w)) in rows.iter().enumerate() {
+        draw_rectangle(x + dx - 1.0, y + k as f32, w + 2.0, 1.0, shadow);
+    }
+    draw_rectangle(x - 1.0, y + 4.0, 3.0, 1.0, shadow);
+    for (k, &(dx, w)) in rows.iter().enumerate() {
+        draw_rectangle(x + dx, y + k as f32, w, 1.0, c);
     }
 }
 
