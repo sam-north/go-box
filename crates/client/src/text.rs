@@ -75,6 +75,7 @@ mod tests {
         let mut keys = BTreeSet::new();
         for c in Character::ALL {
             keys.insert(format!("character.{}", c.id()));
+            keys.insert(format!("about.{}", c.id()));
             if let Some(s) = c.special() {
                 keys.insert(format!("special.{}", s.id()));
             }

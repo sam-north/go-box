@@ -11,11 +11,33 @@ use go_box_sim::character::Character;
 use go_box_sim::sim::{ArenaId, TICK_RATE};
 use macroquad::prelude::*;
 
-/// The special's name and its cooldown, as two short lines for a character card.
-pub fn character_lines(c: Character) -> (String, String) {
-    match c.special() {
-        Some(s) => (special_name(s).into(), tf("lobby.cooldown", &[("secs", &(s.cooldown() / TICK_RATE).to_string())])),
-        None => (t("lobby.no_special").into(), t("lobby.classic_blurb").into()),
+/// One character up close: the whole figure, its name, and what its special does.
+fn preview(ui: &Ui, r: Rect, c: Character, picked: bool, portraits: &[RenderTarget]) {
+    let color = render::character_color(c);
+    draw_rectangle(r.x, r.y, r.w, r.h, Color::new(color.r * 0.10, color.g * 0.10, color.b * 0.10, 0.9));
+    draw_rectangle_lines(r.x, r.y, r.w, r.h, 1.0, ui::EDGE);
+    let k = Character::ALL.iter().position(|&x| x == c).unwrap_or(0);
+    // The figure, cropped to its body so it fills the box.
+    let src = Rect::new(4.0, 3.0, 18.0, 27.0);
+    let ph = r.h - ui.px(20.0);
+    let pw = ph * src.w / src.h;
+    draw_texture_ex(&portraits[k].texture, r.x + ui.px(12.0), r.y + ui.px(10.0), WHITE, DrawTextureParams { dest_size: Some(vec2(pw, ph)), source: Some(src), ..Default::default() });
+    let tx = r.x + pw + ui.px(28.0);
+    let tw = r.x + r.w - tx - ui.px(10.0);
+    ui.text(character_name(c), tx, r.y + ui.px(34.0), 30.0, color);
+    if picked {
+        let p = t("lobby.picked");
+        ui.text(p, r.x + r.w - ui.text_width(p, 15.0) - ui.px(10.0), r.y + ui.px(22.0), 15.0, color);
+    }
+    let heading = match c.special() {
+        Some(s) => format!("{}  -  {}", special_name(s), tf("lobby.cooldown", &[("secs", &(s.cooldown() / TICK_RATE).to_string())])),
+        None => t("lobby.no_special").to_string(),
+    };
+    ui.text(&ui.fit(&heading, 18.0, tw), tx, r.y + ui.px(60.0), 18.0, INK);
+    let mut ly = r.y + ui.px(84.0);
+    for line in ui.wrap(t(&format!("about.{}", c.id())), 16.0, tw) {
+        ui.text(&line, tx, ly, 16.0, DIM);
+        ly += ui.px(19.0);
     }
 }
 
@@ -23,7 +45,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     let (sw, sh) = (screen_width(), screen_height());
     let w = ui.px(860.0).min(sw - 32.0);
     let results_h = if room.last_results.is_some() { ui.px(240.0) } else { 0.0 };
-    let h = (ui.px(470.0) + results_h).min(sh - 24.0);
+    let h = (ui.px(520.0) + results_h).min(sh - 24.0);
     let r = Rect::new((sw - w) / 2.0, (sh - h) / 2.0, w, h);
     ui.panel(r);
     let pad = ui.px(24.0);
@@ -143,39 +165,37 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     }
     y = py.max(my + ui.px(46.0)) + ui.px(20.0);
 
-    // Character picker.
+    // Character picker: small tiles (head and name) on the left; on the right, a preview of the
+    // one under the mouse (or the one you picked) with its special explained.
     let mine = room.players.iter().find(|p| Some(p.id) == app.me).map(|p| p.character);
-    let n = Character::ALL.len() as f32;
-    let gap = ui.px(10.0);
-    let cw = (w - pad * 2.0 - gap * (n - 1.0)) / n;
-    let ch = ui.px(110.0);
+    let ch = ui.px(160.0);
+    let (tw, th, gap) = (ui.px(72.0), ui.px(76.0), ui.px(8.0));
+    let cols = (((w - pad * 2.0) * 0.55 + gap) / (tw + gap)).floor().max(1.0) as usize;
+    let grid_w = cols.min(Character::ALL.len()) as f32 * (tw + gap) - gap;
+    let mut shown = mine.unwrap_or(Character::ALL[0]);
     for (k, c) in Character::ALL.into_iter().enumerate() {
-        let rr = Rect::new(r.x + pad + k as f32 * (cw + gap), y, cw, ch);
+        let rr = Rect::new(r.x + pad + (k % cols) as f32 * (tw + gap), y + (k / cols) as f32 * (th + gap), tw, th);
         let color = render::character_color(c);
         let selected = mine == Some(c);
         draw_rectangle(rr.x, rr.y, rr.w, rr.h, Color::new(color.r * 0.15, color.g * 0.15, color.b * 0.15, 0.9));
         draw_rectangle_lines(rr.x, rr.y, rr.w, rr.h, if selected { 4.0 } else { 1.0 }, if selected { color } else { ui::EDGE });
-        let ph = rr.h - ui.px(16.0);
-        let pw = ph * 24.0 / 30.0;
-        draw_texture_ex(&portraits[k].texture, rr.x + ui.px(6.0), rr.y + ui.px(8.0), WHITE, DrawTextureParams { dest_size: Some(vec2(pw, ph)), ..Default::default() });
-        let tx = rr.x + pw + ui.px(12.0);
-        ui.text(character_name(c), tx, rr.y + ui.px(36.0), 26.0, color);
-        let (special, cooldown) = character_lines(c);
-        let mut ly = rr.y + ui.px(58.0);
-        for line in ui.wrap(&special, 15.0, rr.x + rr.w - tx - ui.px(6.0)) {
-            ui.text(&line, tx, ly, 15.0, INK);
-            ly += ui.px(17.0);
+        // Just the head: the top of the portrait, blown up.
+        let hs = ui.px(46.0);
+        let src = Rect::new(8.0, 5.0, 10.0, 10.0);
+        draw_texture_ex(&portraits[k].texture, rr.x + (rr.w - hs) / 2.0, rr.y + ui.px(4.0), WHITE, DrawTextureParams { dest_size: Some(vec2(hs, hs)), source: Some(src), ..Default::default() });
+        let name = ui.fit(character_name(c), 18.0, rr.w - ui.px(6.0));
+        ui.text_centered(&name, rr.x + rr.w / 2.0, rr.y + rr.h - ui.px(8.0), 18.0, color);
+        let (clicked, hot) = ui.area_hover(rr);
+        if hot {
+            shown = c;
         }
-        ui.text(&cooldown, tx, ly, 15.0, DIM);
-        if selected {
-            let picked = t("lobby.picked");
-            ui.text(picked, rr.x + rr.w - ui.text_width(picked, 15.0) - ui.px(8.0), rr.y + ui.px(18.0), 15.0, color);
-        }
-        if ui.area(rr) && !selected {
+        if clicked && !selected {
             app.send(ClientMsg::SetCharacter(c));
         }
     }
-    y += ch + ui.px(20.0);
+    preview(ui, Rect::new(r.x + pad + grid_w + ui.px(16.0), y, w - pad * 2.0 - grid_w - ui.px(16.0), ch), shown, mine == Some(shown), portraits);
+    let rows = Character::ALL.len().div_ceil(cols) as f32;
+    y += ch.max(rows * (th + gap) - gap) + ui.px(20.0);
 
     // Play / ready / exit.
     let bh = ui.px(48.0);

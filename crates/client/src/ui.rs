@@ -209,19 +209,20 @@ impl Ui {
         draw_rectangle_lines(r.x - g, r.y - g, r.w + g * 2.0, r.h + g * 2.0, 3.0, ACCENT);
     }
 
-    /// A clickable area the caller draws itself (e.g. a character card); true when clicked or
-    /// pressed with the gamepad.
-    pub fn area(&mut self, r: Rect) -> bool {
+    /// A clickable area the caller draws itself (e.g. a character tile): whether it was clicked
+    /// (or pressed with the gamepad), and whether the mouse is over it (or the gamepad is on it).
+    pub fn area_hover(&mut self, r: Rect) -> (bool, bool) {
         let focused = self.nav_target(r, false);
         if focused {
             self.draw_focus(r);
         }
-        let clicked = (self.hovered(r) && self.clicked) || (focused && self.nav.activate);
+        let hovered = self.hovered(r);
+        let clicked = (hovered && self.clicked) || (focused && self.nav.activate);
         if clicked {
             self.hot = true;
             self.pressed = true;
         }
-        clicked
+        (clicked, hovered || focused)
     }
 
     /// A button; true when clicked.

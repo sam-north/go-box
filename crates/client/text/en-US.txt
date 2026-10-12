@@ -41,7 +41,6 @@ lobby.seat_bot = bot
 lobby.seat_empty = empty
 lobby.picked = picked
 lobby.no_special = No special
-lobby.classic_blurb = the original
 lobby.cooldown = every {secs}s
 lobby.start = Start match
 lobby.play_again = Play again
@@ -168,3 +167,10 @@ pad.down = D-pad down
 pad.left = D-pad left
 pad.right = D-pad right
 pad.home = Home
+
+# What each character's special does, shown in the lobby preview.
+about.classic = No special. The hooded fighter the bots learned to fight as: just fists, rocks, spears and grenades.
+about.sam = Lobs a bomb ahead. When it lands or touches someone it yanks everyone on the map toward it, then explodes.
+about.austin = Teleports a third of the arena ahead in the direction he's facing, away from the crowd.
+about.tyler = Three dogs run the floors for 5 seconds, biting anyone but Tyler.
+about.seth = Two half-size clones hop out and fight beside him for 15 seconds. One hit kills them; their kills count as his.
