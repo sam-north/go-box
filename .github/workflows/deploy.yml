@@ -1,6 +1,7 @@
-# On every push and pull request: run all the tests. On a push to main, if they pass: deploy to
-# Fly.io (the image is built on Fly's builders). Deploying needs the FLY_API_TOKEN repository
-# secret (docs/DEPLOY.md); until it's set, pushes just test.
+# On every push and pull request: run the tests, and build the Docker image and check it starts.
+# On a push to main, if both pass: push that exact image to Fly's registry and deploy it (nothing
+# is built twice). Deploying needs the FLY_API_TOKEN repository secret (docs/DEPLOY.md); without
+# it, pushes just test.
 name: Test and deploy
 
 on:
@@ -27,20 +28,42 @@ jobs:
       - name: Browser client builds
         run: cargo build --release --locked -p go-box-client --target wasm32-unknown-unknown
 
-  # Builds the same image Fly deploys, so a broken Dockerfile shows up here (on every push and
-  # pull request) rather than at deploy time.
+  # The image Fly runs: built once here (reusing cached layers from earlier runs), checked, and on
+  # main pushed to Fly's registry tagged with the commit, for the deploy job to start.
   image:
     runs-on: ubuntu-latest
+    env:
+      IMAGE: registry.fly.io/go-box:${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
       - name: Build the Docker image
-        run: docker build -t go-box .
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - name: It starts and answers its health check
         run: |
-          docker run -d --name go-box -p 8080:8080 go-box
+          docker run -d --name go-box -p 8080:8080 "$IMAGE"
           for i in $(seq 1 20); do curl -fsS localhost:8080/healthz && exit 0; sleep 1; done
           docker logs go-box
           exit 1
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+      - name: Push it to Fly's registry
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "::notice::No FLY_API_TOKEN secret yet, so not pushing (see docs/DEPLOY.md)."
+            exit 0
+          fi
+          flyctl auth docker
+          docker push "$IMAGE"
 
   deploy:
     needs: [test, image]
@@ -59,5 +82,5 @@ jobs:
             echo "::notice::No FLY_API_TOKEN secret yet, so not deploying (see docs/DEPLOY.md)."
             exit 0
           fi
-          # One machine only: rooms live in its memory.
-          flyctl deploy --remote-only --ha=false
+          # The image the image job built and checked. One machine only: rooms live in its memory.
+          flyctl deploy --image "registry.fly.io/go-box:${{ github.sha }}" --ha=false

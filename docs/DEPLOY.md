@@ -41,8 +41,10 @@ two a month at light use. The first visitor after an idle spell waits a few seco
    fly tokens create deploy -a <name>
    ```
    In the GitHub repo: Settings > Secrets and variables > Actions > New repository secret, name
-   `FLY_API_TOKEN`, value the whole token. From then on each push to `main` runs the tests and,
-   if they pass, deploys (`.github/workflows/deploy.yml`). Keep the token out of chats and files.
+   `FLY_API_TOKEN`, value the whole token. From then on each push to `main` runs the tests and
+   builds the image in GitHub; if both pass, that exact image is pushed to Fly's registry (tagged
+   with the commit) and deployed (`.github/workflows/deploy.yml`, a few minutes end to end).
+   Keep the token out of chats and files.
 
 ## Day to day
 
@@ -51,8 +53,9 @@ two a month at light use. The first visitor after an idle spell waits a few seco
 - **Health:** `https://<name>.fly.dev/healthz` shows the open rooms and connections.
 - **Change the passphrase:** `fly secrets set GO_BOX_CREATE_PASSPHRASE="..." -a <name>` (the
   machine restarts with it; rooms in progress end).
-- **Roll back:** `fly releases -a <name>` lists deploys; `fly deploy --image <image from a
-  release> --ha=false` puts an older one back.
+- **Roll back:** every deployed image is tagged with its commit, so
+  `fly deploy --image registry.fly.io/<name>:<full commit id> --ha=false -a <name>` puts any
+  earlier version back (`fly releases -a <name>` lists what was deployed when).
 - **Stop it entirely:** `fly scale count 0 -a <name>` (and `fly scale count 1` to bring it back).
 - **After a deploy** players with the page open see "This page is out of date with the server.
   Reload it." and reload; new visitors get the new version straight away.
