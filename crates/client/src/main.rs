@@ -5,6 +5,7 @@
 //! a few flags for automated runs (see `Options`).
 
 mod game;
+mod input;
 mod net;
 mod platform;
 mod ui;
@@ -21,7 +22,8 @@ use net::{Net, State};
 use ::rand::rngs::SmallRng;
 use ::rand::{Rng, SeedableRng};
 use std::sync::OnceLock;
-use ui::{ACCENT, BAD, DIM, Field, INK, Ui};
+use input::{Controls, KEYS_HELP, PAD_HELP};
+use ui::{ACCENT, BAD, DIM, Field, INK, Slider, Ui};
 
 /// Command-line options (native test client only; the browser uses the defaults).
 #[derive(Default)]
@@ -40,6 +42,8 @@ pub struct Options {
     shots: Option<String>,
     shot_every: f32,
     quit_after: Option<f32>,
+    /// Open the settings menu at startup (for screenshots).
+    settings: bool,
     /// Start with sound off.
     pub mute: bool,
 }
@@ -68,6 +72,7 @@ impl Options {
             shot_every: val("--shot-every").and_then(|v| v.parse().ok()).unwrap_or(3.0),
             quit_after: val("--quit-after").and_then(|v| v.parse().ok()),
             mute: has("--mute"),
+            settings: has("--settings"),
         }
     }
 }
@@ -126,50 +131,6 @@ impl Attract {
     }
 }
 
-/// Keyboard → this tick's action. E grabs while held (empty-handed) and throws on a fresh press
-/// (holding something); F is the special. Presses are latched until a tick takes them.
-#[derive(Default)]
-struct Controls {
-    throw: bool,
-    special: bool,
-}
-
-impl Controls {
-    fn latch(&mut self, holding: bool) {
-        self.throw |= holding && is_key_pressed(KeyCode::E);
-        self.special |= is_key_pressed(KeyCode::F);
-    }
-
-    fn take(&mut self, holding: bool) -> Action {
-        let down = |keys: &[KeyCode]| keys.iter().any(|&k| is_key_down(k));
-        let mv = down(&[KeyCode::D, KeyCode::Right]) as i32 as f32 - down(&[KeyCode::A, KeyCode::Left]) as i32 as f32;
-        let a = Action {
-            mv,
-            run: down(&[KeyCode::LeftShift, KeyCode::RightShift]),
-            jump: down(&[KeyCode::Space]),
-            attack: down(&[KeyCode::R]),
-            throw: self.throw,
-            aim: aim(),
-            grab: !holding && down(&[KeyCode::E]),
-            special: self.special,
-        };
-        self.throw = false;
-        self.special = false;
-        a
-    }
-}
-
-fn aim() -> f32 {
-    let down = |k| is_key_down(k);
-    if down(KeyCode::W) || down(KeyCode::Up) {
-        1.0
-    } else if down(KeyCode::S) || down(KeyCode::Down) {
-        -0.6
-    } else {
-        0.3
-    }
-}
-
 /// What the test client's autopilot does: chase the nearest opponent, swing, throw, use the
 /// special now and then.
 fn autopilot(m: &Match, seat: usize, rng: &mut SmallRng) -> Action {
@@ -185,6 +146,7 @@ fn autopilot(m: &Match, seat: usize, rng: &mut SmallRng) -> Action {
         aim: 0.3,
         grab: me.holding.is_none(),
         special: rng.gen_bool(0.01),
+        target: None,
     }
 }
 
@@ -205,6 +167,12 @@ struct App {
     seq: u32,
     acc: f32,
     controls: Controls,
+    /// Arena-to-screen mapping of the last frame drawn: (top-left on screen, pixels per unit).
+    view: (Vec2, f32),
+    /// The settings menu is open.
+    settings_open: bool,
+    /// When the volume preview last played.
+    preview_at: f64,
     rng: SmallRng,
     code_written: bool,
     /// The shown match had ended last frame (to play the result sound once).
@@ -312,7 +280,13 @@ async fn main() {
     let mut ui = Ui::new();
     let mut art = Art::new();
     let mut sfx = Sounds::load();
-    sfx.muted = platform::load_muted();
+    sfx.muted = platform::load_pref(PREF_MUTED) == "1";
+    if let Ok(v) = platform::load_pref(PREF_MASTER).parse::<f32>() {
+        sfx.master = v.clamp(0.0, 1.0);
+    }
+    if let Ok(v) = platform::load_pref(PREF_EFFECTS).parse::<f32>() {
+        sfx.effects = v.clamp(0.0, 1.0);
+    }
     let rt = render_target(W as u32, H as u32);
     rt.texture.set_filter(FilterMode::Nearest);
     let mut cam = Camera2D { target: vec2(W / 2.0, H / 2.0), zoom: vec2(2.0 / W, 2.0 / H), ..Default::default() };
@@ -341,6 +315,9 @@ async fn main() {
         seq: 0,
         acc: 0.0,
         controls: Controls::default(),
+        view: (Vec2::ZERO, 1.0),
+        settings_open: opts.settings,
+        preview_at: 0.0,
         rng: SmallRng::seed_from_u64((get_time() * 1e6) as u64),
         code_written: false,
         was_over: false,
@@ -358,11 +335,19 @@ async fn main() {
         app.update_net(&mut art, &mut sfx);
 
         // Your inputs, at the sim's fixed 60/s.
+        app.controls.poll();
+        if app.controls.settings_pressed() {
+            app.settings_open = !app.settings_open;
+        }
+        let mouse: Vec2 = mouse_position().into();
+        let mouse_arena = (mouse - app.view.0) / app.view.1;
+        // Clicks on the menu or its button aren't throws.
+        let mouse_free = !app.settings_open && !settings_button(&ui).contains(mouse);
         let seat = app.game.as_ref().and_then(|g| g.seat());
         let playing = app.room.as_ref().is_some_and(|r| r.phase == Phase::Playing) && app.game.as_ref().is_some_and(|g| !g.over());
-        if let (true, Some(seat)) = (playing, seat) {
-            let holding = app.game.as_ref().and_then(|g| g.me()).is_some_and(|f| f.holding.is_some());
-            app.controls.latch(holding);
+        let me = app.game.as_ref().and_then(|g| g.me()).cloned();
+        if let (true, Some(seat), Some(me)) = (playing, seat, me) {
+            app.controls.latch(me.holding.is_some(), mouse_free);
             app.acc = (app.acc + dt).min(0.25);
             while app.acc >= DT {
                 app.acc -= DT;
@@ -371,8 +356,11 @@ async fn main() {
                     let g = app.game.as_mut().unwrap();
                     let view = g.latest().cloned().map(|v| Match::from_view(v, Vec::new()));
                     view.map_or_else(Action::default, |m| autopilot(&m, seat, &mut app.rng))
+                } else if app.settings_open {
+                    // Stand still while the menu is up.
+                    Action::default()
                 } else {
-                    app.controls.take(holding)
+                    app.controls.take(&me, mouse_arena, mouse_free)
                 };
                 let seq = app.seq;
                 app.send(ClientMsg::Input { seq, action });
@@ -415,7 +403,7 @@ async fn main() {
         clear_background(BLACK);
         art.draw(m, false);
         if let (true, Some(seat)) = (playing, seat) {
-            draw_aim(m, seat);
+            draw_aim(m, seat, app.controls.target(&m.f[seat], mouse_arena));
         }
         if let Some(seat) = seat {
             draw_you(m, seat);
@@ -442,8 +430,10 @@ async fn main() {
         let in_menu = app.game.is_none() || app.room.as_ref().is_none_or(|r| r.phase == Phase::Lobby);
         let tint = if in_menu { Color::new(0.55, 0.55, 0.6, 1.0) } else { WHITE };
         draw_texture_ex(&rt.texture, ox, oy, tint, DrawTextureParams { dest_size: Some(vec2(dw, dh)), ..Default::default() });
+        app.view = (vec2(ox, oy), scale);
 
-        // Screens.
+        // Screens (under the settings menu, if it's open, they ignore the mouse).
+        ui.blocked = app.settings_open;
         match (&app.room, app.net.is_some()) {
             (None, true) => connecting_screen(&mut ui),
             (None, false) => home_screen(&mut ui, &mut app),
@@ -461,12 +451,18 @@ async fn main() {
                 ui.text_centered(msg, screen_width() / 2.0, r.y + ui.px(27.0), 22.0, BAD);
             }
         }
+        ui.blocked = false;
+        if app.settings_open {
+            settings_screen(&mut ui, &mut app, &mut sfx);
+        } else if ui.button(settings_button(&ui), "Settings", true, ui::EDGE) {
+            app.settings_open = true;
+        }
         if ui.pressed {
             sfx.play(Sfx::Click, 1.0);
         }
         if ui.focus.is_none() && is_key_pressed(KeyCode::M) {
             sfx.muted = !sfx.muted;
-            platform::save_muted(sfx.muted);
+            platform::save_pref(PREF_MUTED, if sfx.muted { "1" } else { "0" });
             app.notify(if sfx.muted { "Sound off (M to turn it back on)" } else { "Sound on" });
             sfx.play(Sfx::Click, 1.0);
         }
@@ -500,10 +496,10 @@ async fn main() {
 }
 
 /// Dots showing where a throw would go.
-fn draw_aim(m: &Match, seat: usize) {
+fn draw_aim(m: &Match, seat: usize, target: Option<Vec2>) {
     let f = &m.f[seat];
     if f.alive() && f.holding.is_some() {
-        let (o, d) = (f.hand(), f.aim_dir(aim()));
+        let (o, d) = (f.hand(), target.unwrap_or_else(|| f.aim_dir(0.3)));
         for k in 1..6 {
             let p = o + d * (k as f32 * 6.0);
             draw_rectangle(p.x.floor(), p.y.floor(), 1.0, 1.0, Color::new(1.0, 1.0, 1.0, 0.5 - k as f32 * 0.07));
@@ -533,7 +529,87 @@ fn draw_you(m: &Match, seat: usize) {
     }
 }
 
-const CONTROLS: &str = "A/D move   Shift run   Space jump   R attack   E grab/throw   W/S aim   F special   M sound";
+// Settings saved in the browser.
+const PREF_MUTED: &str = "go-box-muted";
+const PREF_MASTER: &str = "go-box-volume-master";
+const PREF_EFFECTS: &str = "go-box-volume-effects";
+
+impl App {
+    /// The controls line for whichever device you're using.
+    fn controls_help(&self) -> &'static str {
+        if self.controls.using_pad { PAD_HELP } else { KEYS_HELP }
+    }
+}
+
+/// The small button that opens the settings menu, bottom right on every screen.
+fn settings_button(ui: &Ui) -> Rect {
+    let (w, h) = (ui.px(110.0), ui.px(32.0));
+    Rect::new(screen_width() - w - ui.px(10.0), screen_height() - h - ui.px(10.0), w, h)
+}
+
+/// Volume sliders (saved in the browser), mute, and the controls for keyboard and gamepad.
+fn settings_screen(ui: &mut Ui, app: &mut App, sfx: &mut Sounds) {
+    let (sw, sh) = (screen_width(), screen_height());
+    draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.55));
+    let w = ui.px(640.0).min(sw - 32.0);
+    let h = ui.px(470.0).min(sh - 24.0);
+    let r = Rect::new((sw - w) / 2.0, (sh - h) / 2.0, w, h);
+    draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0.05, 0.06, 0.08, 1.0));
+    ui.panel(r);
+    let pad = ui.px(28.0);
+    let mut y = r.y + ui.px(48.0);
+    ui.text("SETTINGS", r.x + pad, y, 36.0, ACCENT);
+
+    // Volumes: overall, and sound effects under it (music will get its own slider here).
+    let label_w = ui.px(170.0);
+    let sx = r.x + pad + label_w;
+    let slider_w = w - pad * 2.0 - label_w - ui.px(70.0);
+    let mut changed = false;
+    for (label, id, value) in [("Overall volume", Slider::Master, &mut sfx.master), ("Sound effects", Slider::Effects, &mut sfx.effects)] {
+        y += ui.px(46.0);
+        ui.text(label, r.x + pad, y, 22.0, INK);
+        changed |= ui.slider(id, Rect::new(sx, y - ui.px(14.0), slider_w, ui.px(12.0)), value);
+        ui.text(&format!("{:.0}%", *value * 100.0), sx + slider_w + ui.px(14.0), y, 20.0, DIM);
+    }
+    y += ui.px(36.0);
+    ui.text("Music", r.x + pad, y, 22.0, DIM);
+    ui.text("none yet", sx, y, 18.0, DIM);
+    if changed {
+        platform::save_pref(PREF_MASTER, &format!("{:.2}", sfx.master));
+        platform::save_pref(PREF_EFFECTS, &format!("{:.2}", sfx.effects));
+        // Let them hear the new level (a few times a second while dragging).
+        if get_time() - app.preview_at > 0.25 {
+            app.preview_at = get_time();
+            sfx.play(Sfx::Grab, 1.0);
+        }
+    }
+    y += ui.px(22.0);
+    let label = if sfx.muted { "Sound: off (M)" } else { "Sound: on (M)" };
+    if ui.button(Rect::new(r.x + pad, y, ui.px(200.0), ui.px(38.0)), label, true, if sfx.muted { BAD } else { ACCENT }) {
+        sfx.muted = !sfx.muted;
+        platform::save_pref(PREF_MUTED, if sfx.muted { "1" } else { "0" });
+    }
+
+    // Controls.
+    y += ui.px(76.0);
+    let tw = w - pad * 2.0;
+    for (title, help) in [("Keyboard + mouse", KEYS_HELP), ("Controller", PAD_HELP)] {
+        ui.text(title, r.x + pad, y, 22.0, INK);
+        if title == "Controller" {
+            let status = if app.controls.pad_connected() { "connected" } else { "none found (press a button on it)" };
+            ui.text(status, r.x + pad + ui.text_width(title, 22.0) + ui.px(14.0), y, 18.0, DIM);
+        }
+        for line in ui.wrap(&help.split("   ").collect::<Vec<_>>().join(",  "), 18.0, tw) {
+            y += ui.px(24.0);
+            ui.text(&line, r.x + pad, y, 18.0, DIM);
+        }
+        y += ui.px(40.0);
+    }
+    let bw = ui.px(140.0);
+    if ui.button(Rect::new(r.x + w - pad - bw, r.y + h - pad - ui.px(42.0), bw, ui.px(42.0)), "Close", true, ACCENT) {
+        app.settings_open = false;
+    }
+}
 
 fn connecting_screen(ui: &mut Ui) {
     let t = "Connecting...";
@@ -574,7 +650,7 @@ fn home_screen(ui: &mut Ui, app: &mut App) {
         let code = app.code.clone();
         app.enter(ClientMsg::JoinRoom { code });
     }
-    ui.text_centered(CONTROLS, cx, sh - ui.px(20.0), 18.0, DIM);
+    ui.text_centered(app.controls_help(), cx, sh - ui.px(20.0), 18.0, DIM);
 }
 
 /// The special's name and its cooldown, as two short lines for a character card.
@@ -723,7 +799,7 @@ fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Render
         if selected {
             ui.text("picked", tx, rr.y + rr.h - ui.px(8.0), 15.0, color);
         }
-        if is_mouse_button_pressed(MouseButton::Left) && rr.contains(mouse_position().into()) && !selected {
+        if is_mouse_button_pressed(MouseButton::Left) && !ui.blocked && rr.contains(mouse_position().into()) && !selected {
             app.send(ClientMsg::SetCharacter(c));
             ui.pressed = true;
         }
@@ -755,7 +831,7 @@ fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Render
     if ui.button(Rect::new(r.x + w - pad - ui.px(140.0), y, ui.px(140.0), bh), "Exit", true, BAD) {
         app.send(ClientMsg::LeaveRoom);
     }
-    ui.text_centered(CONTROLS, sw / 2.0, sh - ui.px(12.0), 18.0, DIM);
+    ui.text_centered(app.controls_help(), sw / 2.0, sh - ui.px(12.0), 18.0, DIM);
 }
 
 /// Names and health across the top, the clock, and your special at the bottom.
@@ -797,10 +873,10 @@ fn hud(ui: &Ui, app: &App, m: &Match) {
                 let frac = 1.0 - f.special_cd as f32 / sp.cooldown() as f32;
                 draw_rectangle(x, y, w, ui.px(10.0), Color::new(0.0, 0.0, 0.0, 0.6));
                 draw_rectangle(x, y, w * frac, ui.px(10.0), if ready { color } else { Color::new(color.r * 0.5, color.g * 0.5, color.b * 0.5, 1.0) });
-                let label = if ready { format!("[F] {} - ready", sp.name()) } else { format!("{} - {:.0}s", sp.name(), (f.special_cd as f32 * DT).ceil()) };
+                let label = if ready { format!("[{}] {} - ready", app.controls.special_key(), sp.name()) } else { format!("{} - {:.0}s", sp.name(), (f.special_cd as f32 * DT).ceil()) };
                 ui.text_centered(&label, sw / 2.0, y + ui.px(32.0), 20.0, if ready { color } else { DIM });
             } else {
-                ui.text_centered(CONTROLS, sw / 2.0, sh - ui.px(16.0), 18.0, DIM);
+                ui.text_centered(app.controls_help(), sw / 2.0, sh - ui.px(16.0), 18.0, DIM);
             }
         }
     }

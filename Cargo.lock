@@ -469,6 +469,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "futures-util",
+ "glam",
  "go-box-protocol",
  "go-box-sim",
  "rand 0.8.8",

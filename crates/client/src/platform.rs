@@ -39,12 +39,27 @@ mod imp {
         set(1, "go-box-name", name);
     }
 
-    pub fn load_muted() -> bool {
-        get(1, "go-box-muted") == "1"
+    /// A saved setting (localStorage), "" if never set.
+    pub fn load_pref(key: &str) -> String {
+        get(1, key)
     }
 
-    pub fn save_muted(muted: bool) {
-        set(1, "go-box-muted", if muted { "1" } else { "0" });
+    pub fn save_pref(key: &str, val: &str) {
+        set(1, key, val);
+    }
+
+    #[link(wasm_import_module = "env")]
+    unsafe extern "C" {
+        fn go_pad(out: *mut f32) -> i32;
+    }
+
+    /// The first connected gamepad (the browser's Gamepad API, standard mapping).
+    pub fn gamepad() -> super::Pad {
+        let mut v = [0.0f32; 5];
+        if unsafe { go_pad(v.as_mut_ptr()) } == 0 {
+            return super::Pad::default();
+        }
+        super::Pad { connected: true, left: macroquad::math::vec2(v[0], v[1]), right: macroquad::math::vec2(v[2], v[3]), buttons: v[4] as u32 }
     }
 
     pub fn share_link(code: &str) -> String {
@@ -72,11 +87,18 @@ mod imp {
 
     pub fn save_name(_name: &str) {}
 
-    pub fn load_muted() -> bool {
-        Options::get().mute
+    /// Settings aren't saved natively (the native client is a test client), except that
+    /// `--mute` starts it silent.
+    pub fn load_pref(key: &str) -> String {
+        if key == "go-box-muted" && Options::get().mute { "1".into() } else { String::new() }
     }
 
-    pub fn save_muted(_muted: bool) {}
+    pub fn save_pref(_key: &str, _val: &str) {}
+
+    /// No gamepad support in the native test client.
+    pub fn gamepad() -> super::Pad {
+        super::Pad::default()
+    }
 
     pub fn share_link(code: &str) -> String {
         format!("{}/?room={code}", Options::get().server.trim_end_matches("/ws").replace("ws://", "http://").replace("wss://", "https://"))
@@ -88,3 +110,13 @@ mod imp {
 }
 
 pub use imp::*;
+
+/// A gamepad's state this frame: sticks in -1..1 (y down), and a bitmask of held buttons by
+/// their standard-mapping number.
+#[derive(Clone, Copy, Default, Debug)]
+pub struct Pad {
+    pub connected: bool,
+    pub left: macroquad::math::Vec2,
+    pub right: macroquad::math::Vec2,
+    pub buttons: u32,
+}

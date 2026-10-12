@@ -16,6 +16,12 @@ pub enum Field {
     Code,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Slider {
+    Master,
+    Effects,
+}
+
 pub struct Ui {
     /// UI scale: 1.0 at 720px tall.
     pub s: f32,
@@ -27,13 +33,17 @@ pub struct Ui {
     pub enter: bool,
     /// Something consumed this frame's click (so a click on a button doesn't also unfocus).
     hot: bool,
+    /// A menu is open on top: everything drawn under it ignores the mouse.
+    pub blocked: bool,
+    /// The slider being dragged.
+    dragging: Option<Slider>,
     /// A button was pressed this frame (for the click sound).
     pub pressed: bool,
 }
 
 impl Ui {
     pub fn new() -> Self {
-        Self { s: 1.0, mouse: Vec2::ZERO, clicked: false, focus: None, typed: Vec::new(), backspace: false, enter: false, hot: false, pressed: false }
+        Self { s: 1.0, mouse: Vec2::ZERO, clicked: false, focus: None, typed: Vec::new(), backspace: false, enter: false, hot: false, blocked: false, dragging: None, pressed: false }
     }
 
     pub fn begin(&mut self) {
@@ -94,7 +104,7 @@ impl Ui {
     }
 
     fn hovered(&self, r: Rect) -> bool {
-        r.contains(self.mouse)
+        !self.blocked && r.contains(self.mouse)
     }
 
     /// A button; true when clicked.
@@ -118,6 +128,29 @@ impl Ui {
             self.pressed = true;
         }
         clicked
+    }
+
+    /// A 0..1 slider: click or drag along it. Returns true while the value changes.
+    pub fn slider(&mut self, id: Slider, r: Rect, value: &mut f32) -> bool {
+        if self.clicked && self.hovered(Rect::new(r.x, r.y - r.h, r.w, r.h * 3.0)) {
+            self.dragging = Some(id);
+            self.hot = true;
+        }
+        if !is_mouse_button_down(MouseButton::Left) {
+            self.dragging = None;
+        }
+        let mut changed = false;
+        if self.dragging == Some(id) {
+            let v = ((self.mouse.x - r.x) / r.w).clamp(0.0, 1.0);
+            changed = v != *value;
+            *value = v;
+        }
+        draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0.02, 0.02, 0.03, 0.95));
+        draw_rectangle(r.x, r.y, r.w * *value, r.h, ACCENT);
+        draw_rectangle_lines(r.x, r.y, r.w, r.h, 2.0, EDGE);
+        let kx = r.x + r.w * *value;
+        draw_rectangle(kx - self.px(4.0), r.y - self.px(5.0), self.px(8.0), r.h + self.px(10.0), INK);
+        changed
     }
 
     /// A single-line text box. `filter` maps typed characters (None = rejected). Returns true

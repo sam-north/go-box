@@ -53,7 +53,9 @@ const ROCK_DAMAGE: f32 = 10.0;
 /// Headshots multiply damage: rocks "hitting the right spot" are devastating.
 const HEADSHOT_MULT: f32 = 2.0;
 const ROCK_HEADSHOT_MULT: f32 = 3.0;
-pub const GRENADE_FUSE: u32 = 90;
+pub const GRENADE_FUSE: u32 = 60;
+/// A grenade dropped by someone who dies while holding it goes off this soon.
+const DROPPED_GRENADE_FUSE: u32 = 30;
 pub const GRENADE_RADIUS: f32 = 34.0;
 const GRENADE_DAMAGE: f32 = 85.0;
 /// Damage at the very edge of the blast, as a fraction of the full hit.
@@ -195,6 +197,9 @@ pub struct Action {
     pub grab: bool,
     /// Use the character's special (ignored when it's cooling down or there is none).
     pub special: bool,
+    /// Where a player is aiming (a direction from their hand, e.g. toward the mouse). Throws
+    /// go exactly this way and swings turn to face it; `aim` is ignored. Bots leave it None.
+    pub target: Option<Vec2>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -679,6 +684,7 @@ impl Match {
                 aim: out[5],
                 grab: out[6] > 0.0,
                 special: self.f[i].special_cd == 0 && self.f[i].character.special().is_some_and(|s| s.bot_wants(self, i)),
+                target: None,
             };
             self.f[i].memory.copy_from_slice(&out[OUT_MEM..]);
             self.f[i].action = actions[i];
@@ -800,7 +806,16 @@ impl Match {
         } else if a.throw {
             let k = self.held_item(i).unwrap();
             let f = &mut self.f[i];
-            let dir = f.aim_dir(a.aim);
+            let dir = match a.target {
+                // A player aiming (mouse or stick): throw that way, turning to face it.
+                Some(t) if t.length_squared() > 1e-6 => {
+                    if t.x.abs() > 1e-3 {
+                        f.facing = t.x.signum();
+                    }
+                    t.normalize()
+                }
+                _ => f.aim_dir(a.aim),
+            };
             f.holding = None;
             f.hand_cd = THROW_COOLDOWN;
             let it = &mut self.items[k];
@@ -970,10 +985,16 @@ impl Match {
         let died = !v.alive();
         self.events.push(Event::Hit { pos, dir, headshot, source });
         if died {
-            // Drop whatever was in hand.
+            // Drop whatever was in hand. A grenade goes off: it arms (if it wasn't already
+            // lit) and blows shortly after, on the fallen fighter's account.
             if let Some(k) = self.held_item(victim) {
-                self.items[k].held_by = None;
-                self.items[k].vel = Vec2::ZERO;
+                let it = &mut self.items[k];
+                it.held_by = None;
+                it.vel = Vec2::ZERO;
+                if it.kind == ItemKind::Grenade {
+                    it.fuse = Some(it.fuse.map_or(DROPPED_GRENADE_FUSE, |t| t.min(DROPPED_GRENADE_FUSE)));
+                    it.owner.get_or_insert(victim);
+                }
             }
             self.f[victim].holding = None;
             self.f[victim].died_at = Some(self.tick);
@@ -1159,6 +1180,12 @@ fn control(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
         if a.attack && f.atk_timer == 0 && f.cooldown == 0 {
             f.atk_timer = 1;
             f.hit_mask = 0;
+            // A player aiming swings toward their aim, whichever way they were running.
+            if let Some(t) = a.target
+                && t.x.abs() > 1e-3
+            {
+                f.facing = t.x.signum();
+            }
             events.push(Event::Swing { who });
         }
     }
@@ -1240,8 +1267,50 @@ mod tests {
         }
         assert_eq!(h, CLASSIC_HASH, "classic match fingerprint changed: {h:#018x}");
     }
-    // Last deliberately changed by seat-ordered spawns and more grenade spawns.
-    const CLASSIC_HASH: u64 = 0xbf48_80a8_2233_16f3;
+    // Last deliberately changed by the 1s grenade fuse and dropped grenades going off.
+    const CLASSIC_HASH: u64 = 0xee21_1d9a_de0d_50db;
+
+    /// Everyone on the floor, nothing lying around, nobody thinking (all-zero brains stand still).
+    fn quiet_match() -> (Match, Brain) {
+        let mut m = Match::new(&mut SmallRng::seed_from_u64(3), 0..=0);
+        m.items.clear();
+        m.next_item = u32::MAX;
+        for (i, x) in [60.0, 200.0, 300.0, 420.0].into_iter().enumerate() {
+            m.f[i].pos = vec2(x, FLOOR_Y);
+        }
+        (m, Brain { w: vec![0.0; Brain::N_WEIGHTS] })
+    }
+
+    #[test]
+    fn a_grenade_held_by_someone_who_dies_goes_off() {
+        let (mut m, z) = quiet_match();
+        m.items.push(Item { held_by: Some(1), ..Item::new(ItemKind::Grenade, m.f[1].hand()) });
+        m.f[1].holding = Some(ItemKind::Grenade);
+        m.f[2].pos.x = 220.0;
+        m.damage(0, 1, MAX_HP, Vec2::ZERO, 0, 1.0, Source::Fist, false);
+        assert!(!m.f[1].alive());
+        let mut boom = false;
+        for _ in 0..DROPPED_GRENADE_FUSE + 2 {
+            m.step([&z; N_FIGHTERS]);
+            boom |= m.events.iter().any(|e| matches!(e, Event::Explosion { .. }));
+        }
+        assert!(boom, "the dropped grenade exploded");
+        assert!(m.f[2].hp < MAX_HP, "and hurt the fighter standing next to it");
+    }
+
+    #[test]
+    fn a_player_throws_where_they_aim() {
+        let (mut m, z) = quiet_match();
+        m.items.push(Item { held_by: Some(0), ..Item::new(ItemKind::Rock, m.f[0].hand()) });
+        m.f[0].holding = Some(ItemKind::Rock);
+        m.f[0].facing = 1.0;
+        // Aim up and back over the shoulder.
+        let a = Action { throw: true, target: Some(vec2(-1.0, -1.0)), ..Action::default() };
+        m.step_with([&z; N_FIGHTERS], Some((0, a)));
+        let v = m.items[0].vel;
+        assert!(v.x < 0.0 && v.y < 0.0, "flew {v}");
+        assert_eq!(m.f[0].facing, -1.0, "turned to face the throw");
+    }
 
     #[test]
     fn fast_atan2_matches_std() {

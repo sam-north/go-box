@@ -359,7 +359,9 @@ fn results(r: &Running) -> Results {
 /// Inputs come off the network: never let a NaN or an out-of-range value into the sim.
 fn sanitize(a: Action) -> Action {
     let clamp = |v: f32| if v.is_finite() { v.clamp(-1.0, 1.0) } else { 0.0 };
-    Action { mv: clamp(a.mv), aim: clamp(a.aim), ..a }
+    // An aim direction must be a real, non-zero direction; only its direction matters.
+    let target = a.target.filter(|t| t.is_finite() && t.length_squared() > 1e-6).map(|t| t.normalize());
+    Action { mv: clamp(a.mv), aim: clamp(a.aim), target, ..a }
 }
 
 #[cfg(test)]
@@ -371,5 +373,9 @@ mod tests {
         let a = sanitize(Action { mv: f32::NAN, aim: 1e9, ..Action::default() });
         assert_eq!(a.mv, 0.0);
         assert_eq!(a.aim, 1.0);
+        let a = sanitize(Action { target: Some(glam::vec2(f32::INFINITY, 0.0)), ..Action::default() });
+        assert!(a.target.is_none());
+        let a = sanitize(Action { target: Some(glam::vec2(300.0, 400.0)), ..Action::default() });
+        assert!((a.target.unwrap().length() - 1.0).abs() < 1e-5);
     }
 }

@@ -334,7 +334,10 @@ pub struct Sounds {
     /// asynchronously, and a sound that never decodes must not hold up the game).
     sounds: Arc<Mutex<Vec<Option<Sound>>>>,
     pub muted: bool,
-    pub volume: f32,
+    /// Overall volume (0..1): everything the game plays (sound effects now, music later).
+    pub master: f32,
+    /// Sound-effects volume (0..1), under `master`.
+    pub effects: f32,
     /// When each sound last started (seconds), so a burst of identical events plays once.
     last: Vec<f64>,
     now: f64,
@@ -356,7 +359,7 @@ impl Sounds {
                 }
             }
         });
-        Self { sounds, muted: false, volume: 0.8, last: vec![-1.0; Sfx::ALL.len()], now: 0.0, step_dist: [0.0; N_FIGHTERS], fuse_acc: 0.0, special_cd: None }
+        Self { sounds, muted: false, master: 0.8, effects: 1.0, last: vec![-1.0; Sfx::ALL.len()], now: 0.0, step_dist: [0.0; N_FIGHTERS], fuse_acc: 0.0, special_cd: None }
     }
 
     /// How many sounds are ready to play.
@@ -372,7 +375,7 @@ impl Sounds {
         }
         self.last[k] = self.now;
         if let Some(sound) = &self.sounds.lock().unwrap()[k] {
-            play_sound(sound, PlaySoundParams { looped: false, volume: (vol * self.volume).clamp(0.0, 1.0) });
+            play_sound(sound, PlaySoundParams { looped: false, volume: (vol * self.master * self.effects).clamp(0.0, 1.0) });
         }
     }
 
@@ -450,6 +453,10 @@ impl Sounds {
     /// as they burn, and your special coming back.
     pub fn frame(&mut self, dt: f32, m: &Match, own: Option<usize>) {
         self.now += dt as f64;
+        // A finished match is a still frame behind the scoreboard: nothing in it makes sound.
+        if m.over {
+            return;
+        }
         let ear = own.map_or(vec2_mid(), |s| m.f[s].center());
         for i in 0..N_FIGHTERS {
             let f = &m.f[i];
@@ -467,7 +474,7 @@ impl Sounds {
         let burn = m.items.iter().filter_map(|it| it.fuse).map(|t| 1.0 - t as f32 / GRENADE_FUSE as f32).fold(None, |a: Option<f32>, b| Some(a.map_or(b, |a| a.max(b))));
         match burn {
             Some(b) => {
-                self.fuse_acc += dt * (3.0 + 13.0 * b);
+                self.fuse_acc += dt * (6.0 + 16.0 * b);
                 if self.fuse_acc >= 1.0 {
                     self.fuse_acc -= 1.0;
                     self.play(Sfx::FuseTick, 0.8);

@@ -36,7 +36,9 @@ const BOMB_EDGE: f32 = 0.4;
 const POPUP_COOLDOWN: u32 = 15 * SECOND;
 /// Austin never lands closer than this to a living opponent (if anywhere allows it).
 const POPUP_MIN_GAP: f32 = 40.0;
-/// Pop-Up only goes the way Austin is facing, at least this far.
+/// Pop-Up only goes the way Austin is facing: this far ahead (about a third of the arena),
+/// or when the wall is closer than that, anywhere ahead at least POPUP_MIN_AHEAD.
+const POPUP_DISTANCE: f32 = 160.0;
 const POPUP_MIN_AHEAD: f32 = 24.0;
 
 // Tyler — Release the Hounds.
@@ -130,20 +132,26 @@ impl Special for PopUp {
     }
     fn activate(&self, m: &mut Match, who: usize) {
         let from = m.f[who].center();
-        // Only somewhere ahead of him (at least POPUP_MIN_AHEAD), on any level. If he's up
-        // against the wall with nowhere ahead, he pops up where he stands.
+        // Only somewhere ahead of him, on any level: at least POPUP_DISTANCE ahead if there's
+        // room, else anywhere ahead at least POPUP_MIN_AHEAD. Up against the wall
+        // with nowhere ahead, he pops up where he stands.
         let (x, facing) = (m.f[who].pos.x, m.f[who].facing);
-        let (lo, hi) = if facing > 0.0 { (x + POPUP_MIN_AHEAD, W) } else { (0.0, x - POPUP_MIN_AHEAD) };
+        let ahead = |d: f32| if facing > 0.0 { (x + d, W) } else { (0.0, x - d) };
         // The best of a handful of random standing spots there: the first far enough from
         // everyone, else whichever is farthest from its nearest opponent.
         let mut best = (f32::MIN, m.f[who].pos);
-        for _ in 0..24 {
-            let Some(spot) = m.random_surface_spot_between(lo, hi) else { break };
-            let gap = foes(m, who).map(|f| f.pos.distance(spot)).fold(f32::MAX, f32::min);
-            if gap > best.0 {
-                best = (gap, spot);
+        for (lo, hi) in [ahead(POPUP_DISTANCE), ahead(POPUP_MIN_AHEAD)] {
+            for _ in 0..24 {
+                let Some(spot) = m.random_surface_spot_between(lo, hi) else { break };
+                let gap = foes(m, who).map(|f| f.pos.distance(spot)).fold(f32::MAX, f32::min);
+                if gap > best.0 {
+                    best = (gap, spot);
+                }
+                if gap >= POPUP_MIN_GAP {
+                    break;
+                }
             }
-            if gap >= POPUP_MIN_GAP {
+            if best.0 > f32::MIN {
                 break;
             }
         }
@@ -474,11 +482,23 @@ mod tests {
             m.rng_reseed(seed);
             step_idle(&mut m, &z, true);
             let a = &m.f[0];
-            assert!((a.pos.x - 240.0) * facing >= POPUP_MIN_AHEAD, "facing {facing}, landed at x {}", a.pos.x);
+            assert!((a.pos.x - 240.0) * facing >= POPUP_DISTANCE, "facing {facing}, landed at x {}", a.pos.x);
             let gap = m.f[1..].iter().map(|f| f.pos.distance(a.pos)).fold(f32::MAX, f32::min);
             assert!(gap >= POPUP_MIN_GAP, "landed {gap} from a foe");
             assert!(a.grounded && a.vel == Vec2::ZERO);
             assert_eq!(m.events.iter().filter(|e| matches!(e, Event::Poof { .. })).count(), 2);
+        }
+    }
+
+    #[test]
+    fn austin_near_the_wall_still_goes_ahead() {
+        let z = zero_brain();
+        for seed in 0..20 {
+            let mut m = staged([Character::Austin, Character::Classic, Character::Classic, Character::Classic], [400.0, 100.0, 150.0, 200.0]);
+            m.f[0].facing = 1.0;
+            m.rng_reseed(seed);
+            step_idle(&mut m, &z, true);
+            assert!(m.f[0].pos.x >= 400.0 + POPUP_MIN_AHEAD, "landed at x {}", m.f[0].pos.x);
         }
     }
 

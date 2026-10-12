@@ -103,6 +103,7 @@ fn player_action(holding: bool, throw: bool) -> Action {
         aim,
         grab: !holding && down(&[KeyCode::E]),
         special: down(&[KeyCode::F]),
+        target: None,
     }
 }
 

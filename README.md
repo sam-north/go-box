@@ -19,8 +19,19 @@ headshots, damage, when each fighter went down), everyone can switch character, 
 mark themselves ready, and the leader hits **Play again**. Someone who leaves mid-match is
 replaced by a bot; someone who joins mid-match watches until the next one.
 
-Keys: `A/D` move, `Shift` run, `Space` jump, `R` melee, `E` grab (press `E` again to throw), hold
-`W`/`S` to aim higher/lower, `F` special.
+Controls (you always run; **Esc** opens settings: volume sliders, mute, and this list):
+
+| | Keyboard + mouse | Controller (PS4/PS5/Xbox, in Chrome/Edge/Firefox) |
+|---|---|---|
+| Move | `A`/`D` | left stick or d-pad |
+| Jump | `W` or `Space` | Cross |
+| Aim | mouse (throws go toward the cursor) | right stick (else straight ahead) |
+| Grab / throw | left click (or `E`): picks up when empty-handed, throws when holding | R1 / R2 / Circle |
+| Melee | right click (or `R`), swings toward the cursor | Square |
+| Special | `Shift` (or `F`, `Q`) | Triangle / L1 / L2 |
+| Mute | `M` | |
+
+The browser only reports a controller after you press a button on it.
 
 The server only listens on `127.0.0.1` unless told otherwise (`GO_BOX_BIND`); see
 `crates/server/src/main.rs` for its settings.
@@ -33,7 +44,7 @@ Everyone has the same body; each character adds one special on a cooldown.
 |---|---|---|
 | Classic | none — the hooded fighter the brains were trained as | — |
 | Sam | **Gravity Bomb**: lobs a bomb ~90px ahead; it goes off when it lands or touches someone and yanks everyone on the map toward it for a quarter second (anyone within 76px right into the middle, the rest less the farther away they are), then explodes for up to 34 | 30s |
-| Austin | **Pop-Up**: teleports to a random spot in the direction he's facing (any level), at least 40px from everyone if possible | 15s |
+| Austin | **Pop-Up**: teleports in the direction he's facing, at least 160px ahead (a third of the arena) when there's room, else anywhere ahead; prefers spots 40px from everyone | 15s |
 | Tyler | **Release the Hounds**: three dogs run the floors for 5s, biting anyone but Tyler for 15 (each dog at most twice a second per victim) | 30s |
 
 Bots playing a character use its special by a simple rule (the brains never trained with
@@ -105,7 +116,8 @@ time; picking up is a deliberate **grab** (so choosing a spear over a rock is so
 
 A **headshot** is a hit on the top of the body. For melee that means striking from above — out of
 a jump or down from a ledge. Thrown items land where they stop and can be picked up again. A
-grenade's fuse (~1.5s) lights when thrown; a live one can be grabbed and thrown back.
+grenade's fuse (1s) lights when thrown; a live one can be grabbed and thrown back. A fighter who dies
+holding a grenade drops it armed: it goes off half a second later.
 
 Items: 2 spears and 4 rocks at the start; a new item appears every 5-8s (mostly rocks, some spears,
 rarely a grenade — at most one grenade at a time).

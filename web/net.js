@@ -14,6 +14,9 @@
     return bytes.length;
   };
 
+  // Right click is melee: don't open the browser's menu over the game.
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
   miniquad_add_plugin({
     name: "go_box_net",
     version: "1",
@@ -32,6 +35,21 @@
       env.go_ws_send = (ptr, len) => { if (state === 1) ws.send(mem(ptr, len).slice()); };
       env.go_ws_next_len = () => (inbox.length ? inbox[0].length : -1);
       env.go_ws_take = (ptr) => { const m = inbox.shift(); mem(ptr, m.length).set(m); };
+
+      // The first connected gamepad: writes [left x, left y, right x, right y, button bits]
+      // and returns 1, or returns 0 if there's none.
+      env.go_pad = (ptr) => {
+        const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+        for (const p of pads) {
+          if (!p || !p.connected) continue;
+          let bits = 0;
+          p.buttons.forEach((b, i) => { if (i < 24 && (b.pressed || b.value > 0.5)) bits |= 1 << i; });
+          const out = new Float32Array(wasm_memory.buffer, ptr, 5);
+          out.set([p.axes[0] || 0, p.axes[1] || 0, p.axes[2] || 0, p.axes[3] || 0, bits]);
+          return 1;
+        }
+        return 0;
+      };
 
       // kind 0: URL query parameter `key`; 1: localStorage `key`; 2: share link for room `key`.
       env.go_text = (kind, kp, kl, out, cap) => {
