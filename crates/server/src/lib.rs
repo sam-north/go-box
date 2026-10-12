@@ -5,13 +5,15 @@ mod room;
 
 use axum::Router;
 use axum::extract::ws::WebSocketUpgrade;
-use axum::extract::State;
-use axum::response::IntoResponse;
+use axum::extract::{ConnectInfo, State};
+use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use go_box_protocol::{CODE_ALPHABET, CODE_LEN, DEFAULT_PORT, WS_PATH};
 use go_box_sim::brain::Brain;
 use rand::Rng;
 use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -26,6 +28,15 @@ pub struct Config {
     pub web: PathBuf,
     pub max_rooms: usize,
     pub max_connections: usize,
+    /// At most this many connections from one address.
+    pub max_per_ip: usize,
+    /// Pages allowed to open a game connection (their `Origin`, e.g. `https://go-box.fly.dev`).
+    /// Empty: any (fine on your own machine).
+    pub origins: Vec<String>,
+    /// Behind a proxy (Fly), take the client's address from the `Fly-Client-IP` /
+    /// `X-Forwarded-For` header. Only set this when the proxy is the only way in, else anyone could
+    /// claim any address.
+    pub trust_proxy: bool,
 }
 
 impl Config {
@@ -37,6 +48,9 @@ impl Config {
             web: var("GO_BOX_WEB", "web").into(),
             max_rooms: num("GO_BOX_MAX_ROOMS", 16)?,
             max_connections: num("GO_BOX_MAX_CONNECTIONS", 64)?,
+            max_per_ip: num("GO_BOX_MAX_PER_IP", 8)?,
+            origins: var("GO_BOX_ORIGINS", "").split(',').map(|o| o.trim().trim_end_matches('/').to_string()).filter(|o| !o.is_empty()).collect(),
+            trust_proxy: var("GO_BOX_TRUST_PROXY", "") == "1",
         })
     }
 }
@@ -54,13 +68,15 @@ pub struct Hub {
     brain: Arc<Brain>,
     next_id: AtomicU32,
     connections: AtomicUsize,
+    /// Open connections per client address.
+    per_ip: Mutex<HashMap<IpAddr, usize>>,
     config: Config,
 }
 
 impl Hub {
     fn new(config: Config) -> Arc<Self> {
         let brain = bot_brain();
-        Arc::new(Self { rooms: Mutex::new(HashMap::new()), brain: Arc::new(brain), next_id: AtomicU32::new(1), connections: AtomicUsize::new(0), config })
+        Arc::new(Self { rooms: Mutex::new(HashMap::new()), brain: Arc::new(brain), next_id: AtomicU32::new(1), connections: AtomicUsize::new(0), per_ip: Mutex::new(HashMap::new()), config })
     }
 
     /// Opens a new room with a fresh code, or None if the server is at its room cap.
@@ -102,7 +118,7 @@ pub async fn serve(listener: tokio::net::TcpListener, config: Config, shutdown: 
     let web = config.web.clone();
     let hub = Hub::new(config);
     let app = Router::new().route(WS_PATH, get(ws_handler)).route("/healthz", get(healthz)).fallback_service(ServeDir::new(web)).with_state(hub);
-    axum::serve(listener, app).with_graceful_shutdown(shutdown).await.unwrap();
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).with_graceful_shutdown(shutdown).await.unwrap();
 }
 
 /// For the host's health checks: 200 and a little JSON while the server is up.
@@ -112,9 +128,63 @@ async fn healthz(State(hub): State<Arc<Hub>>) -> impl IntoResponse {
     ([(axum::http::header::CONTENT_TYPE, "application/json")], format!("{{\"rooms\":{rooms},\"connections\":{connections}}}"))
 }
 
-async fn ws_handler(ws: WebSocketUpgrade, State(hub): State<Arc<Hub>>) -> impl IntoResponse {
+async fn ws_handler(ws: WebSocketUpgrade, State(hub): State<Arc<Hub>>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap) -> Response {
+    // Only our own pages may connect (when the allowed pages are set): stops other sites from
+    // opening game connections from their visitors' browsers.
+    if !hub.config.origins.is_empty() {
+        let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()).unwrap_or("");
+        if !hub.config.origins.iter().any(|o| o == origin) {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
+    let ip = client_ip(&hub.config, peer, &headers);
+    let Some(ip_slot) = IpSlot::take(&hub, ip) else {
+        return (StatusCode::TOO_MANY_REQUESTS, "too many connections from your address").into_response();
+    };
     // Messages are small; anything big is garbage.
-    ws.max_message_size(4096).max_frame_size(4096).on_upgrade(move |socket| conn::run(socket, hub))
+    ws.max_message_size(4096).max_frame_size(4096)
+        .on_upgrade(move |socket| async move {
+            let _ip_slot = ip_slot;
+            conn::run(socket, hub).await;
+        })
+        .into_response()
+}
+
+/// Who's connecting: the peer address, or behind a trusted proxy the address it reports.
+fn client_ip(config: &Config, peer: SocketAddr, headers: &HeaderMap) -> IpAddr {
+    let header_ip = |name: &str| headers.get(name)?.to_str().ok()?.split(',').next()?.trim().parse::<IpAddr>().ok();
+    if config.trust_proxy {
+        header_ip("fly-client-ip").or_else(|| header_ip("x-forwarded-for")).unwrap_or(peer.ip())
+    } else {
+        peer.ip()
+    }
+}
+
+/// One of an address's connections; counts back down however the connection ends.
+struct IpSlot(Arc<Hub>, IpAddr);
+
+impl IpSlot {
+    fn take(hub: &Arc<Hub>, ip: IpAddr) -> Option<Self> {
+        let mut per_ip = hub.per_ip.lock().unwrap();
+        let n = per_ip.entry(ip).or_insert(0);
+        if *n >= hub.config.max_per_ip {
+            return None;
+        }
+        *n += 1;
+        Some(Self(hub.clone(), ip))
+    }
+}
+
+impl Drop for IpSlot {
+    fn drop(&mut self) {
+        let mut per_ip = self.0.per_ip.lock().unwrap();
+        if let Some(n) = per_ip.get_mut(&self.1) {
+            *n -= 1;
+            if *n == 0 {
+                per_ip.remove(&self.1);
+            }
+        }
+    }
 }
 
 /// Ensures the connection count goes back down however a connection ends.

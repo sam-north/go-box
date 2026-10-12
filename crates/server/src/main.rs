@@ -4,7 +4,10 @@
 //! `fly.toml` sets the cloud ones):
 //! - `GO_BOX_BIND`   address to listen on (default `127.0.0.1:7878`: this machine only).
 //! - `GO_BOX_WEB`    directory with the built browser client (default `web`).
-//! - `GO_BOX_MAX_ROOMS` / `GO_BOX_MAX_CONNECTIONS` caps (defaults 16 / 64).
+//! - `GO_BOX_MAX_ROOMS` / `GO_BOX_MAX_CONNECTIONS` / `GO_BOX_MAX_PER_IP` caps (defaults 16 / 64 / 8).
+//! - `GO_BOX_ORIGINS` comma-separated pages allowed to connect, e.g. `https://go-box.fly.dev`
+//!   (default: any).
+//! - `GO_BOX_TRUST_PROXY=1` behind Fly's proxy: take client addresses from its headers.
 //! - `RUST_LOG`      log filter (default `info`).
 
 use go_box_server::{Config, serve};

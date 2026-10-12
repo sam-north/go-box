@@ -13,10 +13,16 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 async fn start_server() -> String {
+    start_server_with(|_| {}).await
+}
+
+/// A server on a free local port, with test-sized limits adjusted by `tweak`.
+async fn start_server_with(tweak: impl FnOnce(&mut Config)) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let config = Config { bind: addr.to_string(), web: root.join("web"), max_rooms: 2, max_connections: 16 };
+    let mut config = Config { bind: addr.to_string(), web: root.join("web"), max_rooms: 2, max_connections: 16, max_per_ip: 16, origins: Vec::new(), trust_proxy: false };
+    tweak(&mut config);
     tokio::spawn(serve(listener, config, std::future::pending()));
     format!("ws://{addr}/ws")
 }
@@ -240,4 +246,28 @@ async fn guessing_room_codes_or_flooding_gets_you_cut_off() {
         b.send(ClientMsg::SetReady(true)).await;
     }
     assert!(b.closed().await, "40 messages at once is past the allowance");
+}
+
+#[tokio::test]
+async fn only_allowed_pages_may_connect() {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let url = start_server_with(|c| c.origins = vec!["https://go-box.example".into()]).await;
+    let from = |origin: &str| {
+        let mut req = url.as_str().into_client_request().unwrap();
+        req.headers_mut().insert("origin", origin.parse().unwrap());
+        req
+    };
+    assert!(tokio_tungstenite::connect_async(from("https://evil.example")).await.is_err(), "another site is refused");
+    assert!(tokio_tungstenite::connect_async(from("https://go-box.example")).await.is_ok());
+}
+
+#[tokio::test]
+async fn one_address_cant_take_every_connection() {
+    let url = start_server_with(|c| c.max_per_ip = 2).await;
+    let _a = Client::connect(&url, "A").await;
+    let b = Client::connect(&url, "B").await;
+    assert!(tokio_tungstenite::connect_async(&url).await.is_err(), "a third from the same address is refused");
+    drop(b);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let _c = Client::connect(&url, "C").await;
 }
