@@ -28,3 +28,16 @@ they are (`127.0.0.1` only); every cloud difference should be an env var in `ser
 - [ ] Chat messages / emoji reactions (new `ClientMsg`/`ServerMsg` variants; see the protocol
       crate's notes on adding message kinds).
 - [ ] More languages: add `crates/client/text/<lang>.txt` files with the same keys as `en-US.txt`.
+
+## From the architecture review, not done yet
+
+- [ ] Bot difficulty may need re-matching: in the bigger arena the Easy brain (gen 31k) wins about
+      as often as Hard (219k) on Tiers (`--example tournament 1000 tiers`); Hard is clearly
+      stronger on Bridges.
+- [ ] Replays: the server logs each match's seed; also record the players' inputs per tick
+      (e.g. `GO_BOX_RECORD`) so any reported bug can be replayed exactly.
+- [ ] Gamepad menu focus is matched by where a control is drawn; give controls ids if layout
+      shifts start dropping the focus.
+- [ ] Note in `web/gl.js` / `web/audio.js` which miniquad / quad-snd versions they're copied from
+      (re-copy them when bumping macroquad).
+- [ ] A game-mode picker once there's a second `Mode`.
