@@ -54,7 +54,8 @@ impl Sfx {
             Sfx::Jump => s.tone(0.0, 0.07, 260.0, 480.0, Wave::Tri, 0.004, 28.0, 0.12),
             Sfx::Land => s.noise(0.0, 0.06, 400.0, 120.0, 0.002, 50.0, 0.3),
             Sfx::Step => s.noise(0.0, 0.035, 700.0, 300.0, 0.002, 90.0, 0.22),
-            Sfx::Swing => s.noise(0.0, 0.14, 900.0, 3500.0, 0.05, 22.0, 0.3),
+            // A muffled puff of air: low-passed and quiet. Swings are constant; a hit is the loud part.
+            Sfx::Swing => s.noise(0.0, 0.09, 260.0, 520.0, 0.02, 35.0, 0.12),
             Sfx::Punch => {
                 s.noise(0.0, 0.11, 1600.0, 200.0, 0.001, 32.0, 0.7);
                 s.tone(0.0, 0.11, 130.0, 55.0, Wave::Sine, 0.001, 26.0, 0.7);
@@ -372,7 +373,7 @@ impl Sounds {
                 }
                 Event::Death { pos, .. } => self.at(Sfx::Death, pos, ear, 1.0),
                 Event::Jump { who, pos } if Some(who) != own => self.at(Sfx::Jump, pos, ear, 0.25),
-                Event::Swing { who } if Some(who) != own => self.at(Sfx::Swing, m.f[who].center(), ear, 0.7),
+                Event::Swing { who } if Some(who) != own => self.at(Sfx::Swing, m.f[who].center(), ear, 0.2),
                 Event::Jump { .. } | Event::Swing { .. } => {}
                 Event::Land { pos } => self.at(Sfx::Land, pos, ear, 0.4),
                 Event::Throw { who } => self.at(Sfx::Throw, m.f[who].center(), ear, 0.9),
@@ -406,7 +407,7 @@ impl Sounds {
         for e in events {
             match e {
                 Event::Jump { .. } => self.play(Sfx::Jump, 0.3),
-                Event::Swing { .. } => self.play(Sfx::Swing, 0.7),
+                Event::Swing { .. } => self.play(Sfx::Swing, 0.3),
                 _ => {}
             }
         }
