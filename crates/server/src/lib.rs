@@ -24,7 +24,6 @@ pub use room::RoomCmd;
 pub struct Config {
     pub bind: String,
     pub web: PathBuf,
-    pub brains: PathBuf,
     pub max_rooms: usize,
     pub max_connections: usize,
 }
@@ -36,15 +35,18 @@ impl Config {
         Ok(Self {
             bind: var("GO_BOX_BIND", &format!("127.0.0.1:{DEFAULT_PORT}")),
             web: var("GO_BOX_WEB", "web").into(),
-            brains: var("GO_BOX_BRAINS", "brains").into(),
             max_rooms: num("GO_BOX_MAX_ROOMS", 16)?,
             max_connections: num("GO_BOX_MAX_CONNECTIONS", 64)?,
         })
     }
 }
 
-/// The brain every bot plays with: the strongest committed champion.
-pub const BOT_BRAIN: &str = "gen_219000.json";
+/// The brain every bot plays with: the strongest committed champion, built into the server.
+const BOT_BRAIN: &str = include_str!("../../../brains/gen_219000.json");
+
+pub fn bot_brain() -> Brain {
+    Brain::from_json(BOT_BRAIN).expect("the built-in bot brain fits the network")
+}
 
 /// Shared by every connection: the rooms that exist and the bots' brain.
 pub struct Hub {
@@ -56,7 +58,8 @@ pub struct Hub {
 }
 
 impl Hub {
-    fn new(config: Config, brain: Brain) -> Arc<Self> {
+    fn new(config: Config) -> Arc<Self> {
+        let brain = bot_brain();
         Arc::new(Self { rooms: Mutex::new(HashMap::new()), brain: Arc::new(brain), next_id: AtomicU32::new(1), connections: AtomicUsize::new(0), config })
     }
 
@@ -93,20 +96,20 @@ impl Hub {
 
 /// Serves until `shutdown` resolves.
 pub async fn serve(listener: tokio::net::TcpListener, config: Config, shutdown: impl Future<Output = ()> + Send + 'static) {
-    let brain = match Brain::load(&config.brains.join(BOT_BRAIN)) {
-        Ok(b) => b,
-        Err(e) => {
-            tracing::error!("{e}");
-            return;
-        }
-    };
     if !config.web.join("index.html").exists() {
         tracing::warn!("no browser client in {} (build it with scripts/build-web.sh); only {WS_PATH} works", config.web.display());
     }
     let web = config.web.clone();
-    let hub = Hub::new(config, brain);
-    let app = Router::new().route(WS_PATH, get(ws_handler)).fallback_service(ServeDir::new(web)).with_state(hub);
+    let hub = Hub::new(config);
+    let app = Router::new().route(WS_PATH, get(ws_handler)).route("/healthz", get(healthz)).fallback_service(ServeDir::new(web)).with_state(hub);
     axum::serve(listener, app).with_graceful_shutdown(shutdown).await.unwrap();
+}
+
+/// For the host's health checks: 200 and a little JSON while the server is up.
+async fn healthz(State(hub): State<Arc<Hub>>) -> impl IntoResponse {
+    let rooms = hub.rooms.lock().unwrap().len();
+    let connections = hub.connections.load(Ordering::SeqCst);
+    ([(axum::http::header::CONTENT_TYPE, "application/json")], format!("{{\"rooms\":{rooms},\"connections\":{connections}}}"))
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(hub): State<Arc<Hub>>) -> impl IntoResponse {

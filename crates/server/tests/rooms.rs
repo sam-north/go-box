@@ -16,7 +16,7 @@ async fn start_server() -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let config = Config { bind: addr.to_string(), web: root.join("web"), brains: root.join("brains"), max_rooms: 2, max_connections: 16 };
+    let config = Config { bind: addr.to_string(), web: root.join("web"), max_rooms: 2, max_connections: 16 };
     tokio::spawn(serve(listener, config, std::future::pending()));
     format!("ws://{addr}/ws")
 }
@@ -192,4 +192,24 @@ async fn garbage_and_silence_dont_hurt() {
     let mut a = Client::connect(&url, "A").await;
     a.send(ClientMsg::CreateRoom).await;
     a.room().await;
+}
+
+/// A plain HTTP request to the server (no client library needed): the raw response.
+async fn http_get(ws_url: &str, path: &str, headers: &str) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let addr = ws_url.trim_start_matches("ws://").trim_end_matches(WS_PATH);
+    let mut s = TcpStream::connect(addr).await.unwrap();
+    s.write_all(format!("GET {path} HTTP/1.1\r\nHost: {addr}\r\n{headers}Connection: close\r\n\r\n").as_bytes()).await.unwrap();
+    let mut out = Vec::new();
+    s.read_to_end(&mut out).await.unwrap();
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+#[tokio::test]
+async fn health_check() {
+    let url = start_server().await;
+    let _a = Client::connect(&url, "A").await;
+    let r = http_get(&url, "/healthz", "").await;
+    assert!(r.starts_with("HTTP/1.1 200"), "{r}");
+    assert!(r.ends_with(r#"{"rooms":0,"connections":1}"#), "{r}");
 }

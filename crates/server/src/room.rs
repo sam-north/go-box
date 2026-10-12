@@ -394,8 +394,7 @@ mod tests {
 
     /// A room on its own (no server, sockets or timers), stepped by hand.
     fn room() -> Room {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../brains");
-        Room::new("TEST".into(), Arc::new(Brain::load(&dir.join(crate::BOT_BRAIN)).unwrap()), 7)
+        Room::new("TEST".into(), Arc::new(crate::bot_brain()), 7)
     }
 
     /// Player `id` joins; returns what the room sends them.
