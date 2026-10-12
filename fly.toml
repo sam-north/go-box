@@ -1,0 +1,52 @@
+# Fly.io config: `fly deploy` builds the Dockerfile on Fly's builders and runs it. docs/DEPLOY.md
+# has the one-time setup. The cloud-only settings are all here; the code's defaults stay the
+# safe local ones.
+
+# The app's name (also its address: https://<app>.fly.dev). Set when the app is created.
+app = "go-box"
+# Run near the players: `fly platform regions` lists them (e.g. ord Chicago, iad Virginia,
+# dfw Dallas, sjc San Jose, lhr London).
+primary_region = "ord"
+
+kill_signal = "SIGTERM"
+kill_timeout = "10s"
+
+[env]
+  # Room for 4 matches at once, 32 connections, 8 per address.
+  GO_BOX_MAX_ROOMS = "4"
+  GO_BOX_MAX_CONNECTIONS = "32"
+  GO_BOX_MAX_PER_IP = "8"
+  # Fly's proxy is the only way in, so its client-address header can be trusted.
+  GO_BOX_TRUST_PROXY = "1"
+  # Only the game's own page may open game connections. Must match the app's address.
+  GO_BOX_ORIGINS = "https://go-box.fly.dev"
+  RUST_LOG = "info"
+  # GO_BOX_CREATE_PASSPHRASE is a secret, not set here: `fly secrets set GO_BOX_CREATE_PASSPHRASE=...`
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Stop the machine when nobody's connected (it costs next to nothing stopped) and start it when
+  # someone opens the page (that first visit waits a few seconds).
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  # A little over the server's own cap, so the server (not the proxy) says "full".
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 32
+    hard_limit = 40
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    timeout = "5s"
+    method = "GET"
+    path = "/healthz"
+
+# The smallest machine is plenty: a match uses well under 1% of a CPU and ~8MB of memory.
+# Rooms live in this one machine's memory, so there must only ever be one (deploy with
+# --ha=false; `fly scale count 1` if a second ever appears).
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

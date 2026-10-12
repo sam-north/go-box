@@ -1,0 +1,48 @@
+# On every push and pull request: run all the tests. On a push to main, if they pass: deploy to
+# Fly.io (the image is built on Fly's builders). Deploying needs the FLY_API_TOKEN repository
+# secret (docs/DEPLOY.md); until it's set, pushes just test.
+name: Test and deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # The native test client links against the desktop's audio and graphics libraries.
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libx11-dev libxi-dev libgl1-mesa-dev
+      - name: Tests
+        run: cargo test --release --locked --workspace
+      - name: Browser client builds
+        run: cargo build --release --locked -p go-box-client --target wasm32-unknown-unknown
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # One deploy at a time; a newer push waits for the one in progress.
+    concurrency: deploy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy to Fly.io
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "::notice::No FLY_API_TOKEN secret yet, so not deploying (see docs/DEPLOY.md)."
+            exit 0
+          fi
+          # One machine only: rooms live in its memory.
+          flyctl deploy --remote-only --ha=false

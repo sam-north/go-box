@@ -1,0 +1,10 @@
+# Only the sources go into the image build; everything here is rebuilt or not needed.
+target
+**/target
+save
+.git
+docs
+web/*.wasm
+web/*.gz
+web/*.br
+*.png

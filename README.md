@@ -32,7 +32,8 @@ The leader also picks the **map** (Tiers or Bridges). In the lobby the leader se
 anywhere from 1 to 4 fighters (alone, it runs until the clock or you run out).
 
 The server only listens on `127.0.0.1` unless told otherwise (`GO_BOX_BIND`); see
-`crates/server/src/main.rs` for its settings.
+`crates/server/src/main.rs` for its settings. To put it online for friends, see **`docs/DEPLOY.md`** (Fly.io).
+
 
 ### Characters
 
