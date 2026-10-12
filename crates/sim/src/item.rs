@@ -14,6 +14,8 @@ crate::enum_all! {
         Spear,
         Rock,
         Grenade,
+        /// Justin's sushi: only ever served on his table, thrown like a rock, and gone in a splat.
+        Sushi,
     }
 }
 
@@ -63,6 +65,9 @@ pub struct ItemDef {
     /// Chance (0..1) that a new item is this kind, and how many can exist at once.
     pub spawn_chance: f32,
     pub max_alive: Option<usize>,
+    /// Thrown, it's used up when it hits anyone or anything (a splat), and left lying around
+    /// it spoils after this many ticks.
+    pub splats: Option<u32>,
 }
 
 // Headshots multiply damage: rocks "hitting the right spot" are devastating.
@@ -78,8 +83,9 @@ const SPEAR: ItemDef = ItemDef {
     melee: Some((14.0, Hit { damage: 16.0, headshot_mult: HEADSHOT_MULT, source: Source::Stab })),
     fuse: None,
     blast: None,
-    spawn_chance: 0.35,
+    spawn_chance: 0.30,
     max_alive: None,
+    splats: None,
 };
 
 const ROCK: ItemDef = ItemDef {
@@ -92,8 +98,9 @@ const ROCK: ItemDef = ItemDef {
     fuse: None,
     blast: None,
     // Whatever's left over.
-    spawn_chance: 0.30,
+    spawn_chance: 0.20,
     max_alive: None,
+    splats: None,
 };
 
 const GRENADE: ItemDef = ItemDef {
@@ -105,8 +112,24 @@ const GRENADE: ItemDef = ItemDef {
     melee: None,
     fuse: Some(secs(1)),
     blast: Some(Blast { radius: 34.0, damage: 85.0, edge: 0.35 }),
-    spawn_chance: 0.35,
-    max_alive: Some(2),
+    spawn_chance: 0.50,
+    max_alive: Some(4),
+    splats: None,
+};
+
+const SUSHI: ItemDef = ItemDef {
+    sensed_as: Sensed::Rock,
+    throw_speed: 230.0,
+    flight_gravity: 0.8,
+    bounce: 0.0,
+    thrown: Some(Hit { damage: 10.0, headshot_mult: 3.0, source: Source::Sushi }),
+    melee: None,
+    fuse: None,
+    blast: None,
+    // Never spawns on its own: Justin serves it.
+    spawn_chance: 0.0,
+    max_alive: None,
+    splats: Some(secs(15)),
 };
 
 /// Fists, when not holding something with its own melee: (reach, hit).
@@ -127,6 +150,7 @@ impl ItemKind {
             ItemKind::Spear => &SPEAR,
             ItemKind::Rock => &ROCK,
             ItemKind::Grenade => &GRENADE,
+            ItemKind::Sushi => &SUSHI,
         }
     }
 }
@@ -147,7 +171,7 @@ mod tests {
 
     #[test]
     fn every_kind_spawns_from_the_table() {
-        for k in ItemKind::ALL {
+        for k in ItemKind::ALL.into_iter().filter(|k| k.def().spawn_chance > 0.0) {
             assert!(SPAWN_ORDER.contains(&k), "{k:?} isn't in SPAWN_ORDER");
         }
         let total: f32 = SPAWN_ORDER.iter().map(|k| k.def().spawn_chance).sum();

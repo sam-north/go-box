@@ -1,7 +1,7 @@
 # Go Box
 
-Four fighters locked in a 480×270 box with four tiers of ledges, free-for-all. Everyone starts **empty-handed**; spears, rocks, the
-odd grenade and health lie around the arena. The bots aren't scripted: each is a small recurrent
+Four fighters locked in a 480×270 box with four tiers of ledges, free-for-all. Everyone starts **empty-handed**; spears, rocks,
+grenades and health lie around the arena. The bots aren't scripted: each is a small recurrent
 neural net evolved with a genetic algorithm (see [The bots](#the-bots)). Play it with friends in the
 browser; any empty seat is filled by a trained bot.
 
@@ -46,11 +46,15 @@ Everyone has the same body; each character adds one special on a cooldown.
 | Austin | **Pop-Up**: teleports in the direction he's facing, at least 160px ahead (a third of the arena) when there's room, else anywhere ahead; prefers spots 40px from everyone | 15s |
 | Tyler | **Release the Hounds**: three dogs run the floors for 5s, biting anyone but Tyler for 15 (each dog at most twice a second per victim) | 30s |
 | Seth | **Mini Me**: two half-size clones hop out in front of him for 15s. They fight like bots (grabbing and throwing too), die to one hit, and their kills count as his; they vanish if he goes down | 30s |
+| Corwin | **Cat Herder**: twenty cats pour out and run the floors for 5s; each scratch is only 2 (once a second per cat per victim) but they come as a swarm | 30s |
+| Justin | **Sushi Table**: a table drops in front of him (onto him, if he's facing a wall) with three pieces of sushi on it. Solid from the sides and on top but never from below, so it can't pin anyone; sushi throws like a rock (10) and splats on whatever it hits. Lasts 15s, one at a time | 10s |
+| Ryan | **Yanking Your Chain**: throws a chain up to 110px the way he aims; the first foe it hooks takes 6 and is yanked to just in front of him, dazed for 0.4s | 8s |
 
 Bots playing a character use its special by a simple rule (the brains never trained with
 specials): Sam works out where his bomb would land and throws only if it would catch two people,
 finish one off, or turn a fight he's losing; Austin pops away from incoming projectiles, grenades
-about to blow, or a crowd when hurt; Tyler releases the hounds at someone on his level ahead; Seth splits when a foe is close. Tuning lives at the top of `crates/sim/src/character.rs`.
+about to blow, or a crowd when hurt; Tyler releases the hounds at someone on his level ahead; Seth splits when a foe is close; Corwin lets the cats go at someone on his level ahead; Justin
+serves a table when he has nothing to throw; Ryan throws the chain at someone level with him, in reach. Tuning lives at the top of `crates/sim/src/character.rs`.
 
 **Adding a map** is a variant in `ArenaId` with its platforms (`crates/sim/src/arena.rs`) and its
 name in the text file; check the bots cope with it using `--example tournament 400 <map id>`.
@@ -114,8 +118,8 @@ a jump or down from a ledge. Thrown items land where they stop and can be picked
 grenade's fuse (1s) lights when thrown; a live one can be grabbed and thrown back. A fighter who dies
 holding a grenade drops it armed: it goes off half a second later.
 
-Items: 2 spears and 4 rocks at the start; a new item appears every 5-8s (rocks, spears, and
-grenades — at most two grenades at a time). **Health pickups** (glowing blue bulbs) restore 50 HP
+Items: 2 spears and 4 rocks at the start; a new item appears every 5-8s (half the time a
+grenade, while there are fewer than four; else a spear or a rock). **Health pickups** (glowing blue bulbs) restore 50 HP
 and are taken by touch when hurt; 1-2 appear per match.
 
 A match ends with the **last one standing**, or after 45s, when the fighter with the most health

@@ -58,8 +58,41 @@ const HOUNDS: [f32; 3] = [165.0, 180.0, 195.0];
 const HOUND_TICKS: u32 = 5 * SECOND;
 const BITE_DAMAGE: f32 = 15.0;
 const BITE_EVERY: u32 = SECOND / 2;
-pub const DOG_HALF_W: f32 = 3.0;
-pub const DOG_H: f32 = 5.0;
+// Corwin — Cat Herder: like the hounds, but twenty smaller cats with a lighter scratch, so they
+// hurt as a swarm rather than one by one.
+const CATS_COOLDOWN: u32 = 30 * SECOND;
+const CATS: usize = 20;
+/// The slowest and fastest cat (px/s); the rest are spread between, so the pack strings out.
+const CAT_SPEEDS: (f32, f32) = (110.0, 205.0);
+const CAT_TICKS: u32 = 5 * SECOND;
+const SCRATCH_DAMAGE: f32 = 2.0;
+/// A cat scratches each fighter at most once a second (in practice once per pass).
+const SCRATCH_EVERY: u32 = SECOND;
+
+// Justin — Sushi Table: a table drops in front of him (onto him, if he's facing a wall) and
+// serves sushi to throw. It's solid from the sides and on top, never from below (see
+// `sim::collide`), so it can't pin anyone.
+const TABLE_COOLDOWN: u32 = 10 * SECOND;
+const TABLE_TICKS: u32 = 15 * SECOND;
+pub const TABLE_W: f32 = 26.0;
+pub const TABLE_H: f32 = 9.0;
+/// How far above the floor it appears, to drop into place.
+const TABLE_DROP: f32 = 18.0;
+const SUSHI_PER_TABLE: usize = 3;
+
+// Ryan — Yanking Your Chain: a chain flies out (the way he aims, or faces) and hooks the first foe
+// it touches, reeling them in to just in front of him, dazed for a moment. A miss reels back.
+const CHAIN_COOLDOWN: u32 = 8 * SECOND;
+pub const CHAIN_RANGE: f32 = 110.0;
+const CHAIN_SPEED: f32 = 660.0;
+const CHAIN_PULL_SPEED: f32 = 380.0;
+const CHAIN_DAMAGE: f32 = 6.0;
+/// How long the reeled-in fighter is left dazed (ticks).
+const CHAIN_DAZE: u32 = 24;
+/// Where a reeled-in fighter ends up: this far in front of Ryan.
+const CHAIN_STOP: f32 = 10.0;
+/// It gives up (and lets go) after this long, whatever is in the way.
+const CHAIN_TICKS: u32 = 90;
 
 crate::enum_all! {
     /// Who you play. Everyone has the same body; a character adds a special (see `def`).
@@ -72,6 +105,9 @@ crate::enum_all! {
         Austin,
         Tyler,
         Seth,
+        Corwin,
+        Justin,
+        Ryan,
     }
 }
 
@@ -95,6 +131,9 @@ impl Character {
             Character::Austin => &CharacterDef { id: "austin", special: Some(&PopUp) },
             Character::Tyler => &CharacterDef { id: "tyler", special: Some(&Hounds) },
             Character::Seth => &CharacterDef { id: "seth", special: Some(&MiniMe) },
+            Character::Corwin => &CharacterDef { id: "corwin", special: Some(&CatHerder) },
+            Character::Justin => &CharacterDef { id: "justin", special: Some(&SushiTable) },
+            Character::Ryan => &CharacterDef { id: "ryan", special: Some(&YankChain) },
         }
     }
 
@@ -252,15 +291,7 @@ impl Special for Hounds {
     fn activate(&self, m: &mut Match, who: usize) {
         let f = &m.f[who];
         for (k, &speed) in HOUNDS.iter().enumerate() {
-            m.effects.push(Effect::Dog(Dog {
-                pos: f.pos + vec2(f.facing * (2.0 + 4.0 * k as f32), 0.0),
-                dir: f.facing,
-                speed,
-                vy: 0.0,
-                owner: who,
-                ticks: HOUND_TICKS,
-                bite_cd: [0; N_BODIES],
-            }));
+            m.effects.push(Effect::Pet(Pet::new(Breed::Hound, f.pos + vec2(f.facing * (2.0 + 4.0 * k as f32), 0.0), f.facing, speed, who, HOUND_TICKS)));
         }
     }
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
@@ -268,6 +299,142 @@ impl Special for Hounds {
         // Someone on my level, ahead of me, within a run's reach.
         foes(m, who).any(|f| (f.pos.y - me.pos.y).abs() < 10.0 && (f.pos.x - me.pos.x) * me.facing > 0.0 && (f.pos.x - me.pos.x).abs() < 160.0)
     }
+}
+
+struct CatHerder;
+
+impl Special for CatHerder {
+    fn id(&self) -> &'static str {
+        "cat_herder"
+    }
+    fn cooldown(&self) -> u32 {
+        CATS_COOLDOWN
+    }
+    fn activate(&self, m: &mut Match, who: usize) {
+        let f = &m.f[who];
+        for k in 0..CATS {
+            // Speeds shuffled across the pack (k * 7 mod 20), so neighbours don't run in step.
+            let t = ((k * 7) % CATS) as f32 / (CATS - 1) as f32;
+            let speed = CAT_SPEEDS.0 + (CAT_SPEEDS.1 - CAT_SPEEDS.0) * t;
+            let x = (f.pos.x + f.facing * (1.0 + 0.6 * k as f32)).clamp(12.0, W - 12.0);
+            m.effects.push(Effect::Pet(Pet::new(Breed::Cat(k as u8), vec2(x, f.pos.y), f.facing, speed, who, CAT_TICKS)));
+        }
+    }
+    fn bot_wants(&self, m: &Match, who: usize) -> bool {
+        let me = &m.f[who];
+        // Someone on my level ahead of me; the pack sweeps the whole floor.
+        foes(m, who).any(|f| (f.pos.y - me.pos.y).abs() < 12.0 && (f.pos.x - me.pos.x) * me.facing > 0.0 && (f.pos.x - me.pos.x).abs() < 220.0)
+    }
+}
+
+struct SushiTable;
+
+impl Special for SushiTable {
+    fn id(&self) -> &'static str {
+        "sushi_table"
+    }
+    fn cooldown(&self) -> u32 {
+        TABLE_COOLDOWN
+    }
+    fn activate(&self, m: &mut Match, who: usize) {
+        // One table each: a new one clears away the last (and whatever's left on it).
+        let mine = |e: &Effect| matches!(e, Effect::Table(t) if t.owner == who);
+        if let Some(Effect::Table(old)) = m.effects.iter().find(|e| mine(e)) {
+            let old = old.clone();
+            m.clear_table(&old);
+        }
+        m.effects.retain(|e| !mine(e));
+        let f = &m.f[who];
+        let half = TABLE_W / 2.0;
+        let ahead = f.pos.x + f.facing * (f.half_w() + 3.0 + half);
+        // Facing a wall (no room ahead): it drops onto him instead, from just over his head.
+        let fits = ahead - half >= crate::sim::WALL && ahead + half <= W - crate::sim::WALL;
+        let (x, y) = if fits { (ahead, f.pos.y - TABLE_DROP) } else { (f.pos.x.clamp(crate::sim::WALL + half, W - crate::sim::WALL - half), f.pos.y - f.height() - 2.0) };
+        let t = Table { pos: vec2(x, y), vy: 0.0, owner: who, ticks: TABLE_TICKS, landed: false };
+        m.events.push(Event::Poof { pos: vec2(x, y - TABLE_H / 2.0) });
+        m.effects.push(Effect::Table(t));
+    }
+    fn bot_wants(&self, m: &Match, who: usize) -> bool {
+        // When empty-handed with nothing lying close by to throw, and someone to throw it at.
+        let me = &m.f[who];
+        let near_item = m.items.iter().any(|it| it.loose() && it.pos.distance(me.pos) < 60.0);
+        me.holding.is_none() && !near_item && foes(m, who).any(|f| f.pos.distance(me.pos) < 220.0)
+    }
+}
+
+/// Justin's table: drops, lands on whatever's below (fighters don't hold it up), serves sushi,
+/// and is cleared away after a while.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Table {
+    /// Bottom centre.
+    pub pos: Vec2,
+    pub vy: f32,
+    pub owner: usize,
+    pub ticks: u32,
+    pub landed: bool,
+}
+
+impl Table {
+    pub fn body(&self) -> Aabb {
+        Aabb::new(self.pos.x - TABLE_W / 2.0, self.pos.y - TABLE_H, TABLE_W, TABLE_H)
+    }
+}
+
+struct YankChain;
+
+impl Special for YankChain {
+    fn id(&self) -> &'static str {
+        "yank_chain"
+    }
+    fn cooldown(&self) -> u32 {
+        CHAIN_COOLDOWN
+    }
+    fn activate(&self, m: &mut Match, who: usize) {
+        let f = &mut m.f[who];
+        // A player throws it where they aim; a bot straight ahead.
+        let dir = match f.action.target {
+            Some(t) if t.length_squared() > 1e-6 => t.normalize(),
+            _ => vec2(f.facing, 0.0),
+        };
+        if dir.x.abs() > 1e-3 {
+            f.facing = dir.x.signum();
+        }
+        let tip = chain_anchor(f);
+        m.effects.push(Effect::Chain(Chain { tip, dir, owner: who, out: 0.0, hooked: None, back: false, ticks: CHAIN_TICKS }));
+    }
+    fn bot_wants(&self, m: &Match, who: usize) -> bool {
+        let me = &m.f[who];
+        // Someone level with me, ahead, in reach but not already in my face.
+        foes(m, who).any(|f| {
+            let dx = (f.pos.x - me.pos.x) * me.facing;
+            (f.center().y - me.center().y).abs() < 8.0 && dx > 30.0 && dx < CHAIN_RANGE - 10.0
+        })
+    }
+}
+
+/// Ryan's chain: flying out, reeling back after a miss, or hauling in whoever it hooked.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Chain {
+    /// The hook end.
+    pub tip: Vec2,
+    pub dir: Vec2,
+    pub owner: usize,
+    /// How far it's flown.
+    pub out: f32,
+    pub hooked: Option<usize>,
+    /// Missed: reeling back in.
+    pub back: bool,
+    pub ticks: u32,
+}
+
+/// Where the chain leaves Ryan (his chest): what the renderer draws it from, too.
+pub fn chain_anchor(f: &Fighter) -> Vec2 {
+    vec2(f.pos.x + f.facing * 2.0, f.pos.y - 9.0 * f.scale)
+}
+
+/// The solid things specials have put in the arena (Justin's tables), for `sim::collide`.
+pub fn props(effects: &[Effect]) -> Vec<Aabb> {
+    effects.iter().filter_map(|e| if let Effect::Table(t) = e { Some(t.body()) } else { None }).collect()
 }
 
 /// Sam's gravity bomb: flying, then (once it goes off) crunching everyone nearby together.
@@ -285,9 +452,30 @@ pub struct Bomb {
     pub pull: [f32; N_BODIES],
 }
 
-/// One of Tyler's dogs: runs along floors, turns at walls, bites anyone but Tyler.
+/// What kind of animal a `Pet` is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum Breed {
+    /// One of Tyler's dogs.
+    Hound,
+    /// One of Corwin's cats (the number picks its coat).
+    Cat(u8),
+}
+
+impl Breed {
+    /// Half width and height (px).
+    pub fn size(self) -> (f32, f32) {
+        match self {
+            Breed::Hound => (3.0, 5.0),
+            Breed::Cat(_) => (2.0, 4.0),
+        }
+    }
+}
+
+/// One of Tyler's dogs or Corwin's cats: runs along floors, turns at walls, and bites (or
+/// scratches) anyone not on its owner's side.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Dog {
+pub struct Pet {
+    pub breed: Breed,
     /// Feet centre.
     pub pos: Vec2,
     pub dir: f32,
@@ -299,12 +487,16 @@ pub struct Dog {
     bite_cd: [u32; N_BODIES],
 }
 
-impl Dog {
+impl Pet {
+    fn new(breed: Breed, pos: Vec2, dir: f32, speed: f32, owner: usize, ticks: u32) -> Self {
+        Self { breed, pos, dir, speed, vy: 0.0, owner, ticks, bite_cd: [0; N_BODIES] }
+    }
     pub fn body(&self) -> Aabb {
-        Aabb::new(self.pos.x - DOG_HALF_W, self.pos.y - DOG_H, DOG_HALF_W * 2.0, DOG_H)
+        let (hw, h) = self.breed.size();
+        Aabb::new(self.pos.x - hw, self.pos.y - h, hw * 2.0, h)
     }
     pub fn center(&self) -> Vec2 {
-        vec2(self.pos.x, self.pos.y - DOG_H * 0.5)
+        vec2(self.pos.x, self.pos.y - self.breed.size().1 * 0.5)
     }
 }
 
@@ -358,26 +550,133 @@ impl Match {
             let mut effect = self.effects[e].clone();
             match &mut effect {
                 Effect::Bomb(b) => self.step_bomb(b),
-                Effect::Dog(d) => self.step_dog(d),
+                Effect::Pet(p) => self.step_pet(p),
+                Effect::Table(t) => self.step_table(t),
+                Effect::Chain(c) => self.step_chain(c),
             }
             self.effects[e] = effect;
+        }
+        let finished: Vec<Table> = self.effects.iter().filter_map(|e| if let Effect::Table(t) = e { (t.ticks == 0).then(|| t.clone()) } else { None }).collect();
+        for t in &finished {
+            self.clear_table(t);
         }
         self.effects.retain(|e| !e.done());
     }
 
-    fn step_dog(&mut self, dog: &mut Dog) {
-        run_dog(dog, self.arena());
-        let (body, owner, dir) = (dog.body(), dog.owner, dog.dir);
+    fn step_pet(&mut self, pet: &mut Pet) {
+        run_pet(pet, self.arena());
+        let (body, owner, dir) = (pet.body(), pet.owner, pet.dir);
         for j in 0..N_BODIES {
-            if !self.foes(owner, j) || dog.bite_cd[j] > 0 || !body.overlaps(&self.f[j].body()) {
+            if !self.foes(owner, j) || pet.bite_cd[j] > 0 || !body.overlaps(&self.f[j].body()) {
                 continue;
             }
-            dog.bite_cd[j] = BITE_EVERY;
-            self.events.push(Event::Bite { pos: self.f[j].center() });
-            self.damage(owner, j, BITE_DAMAGE, vec2(dir * 120.0, -90.0), 8, dir, Source::Special, false);
+            let pos = self.f[j].center();
+            match pet.breed {
+                Breed::Hound => {
+                    pet.bite_cd[j] = BITE_EVERY;
+                    self.events.push(Event::Bite { pos });
+                    self.damage(owner, j, BITE_DAMAGE, vec2(dir * 120.0, -90.0), 8, dir, Source::Special, false);
+                }
+                // A scratch barely moves you: twenty of them shouldn't juggle you about.
+                Breed::Cat(_) => {
+                    pet.bite_cd[j] = SCRATCH_EVERY;
+                    self.events.push(Event::Scratch { pos });
+                    let v = self.f[j].vel;
+                    self.damage(owner, j, SCRATCH_DAMAGE, vec2(v.x + dir * 25.0, v.y.min(-30.0)), 0, dir, Source::Special, false);
+                }
+            }
         }
-        dog.bite_cd.iter_mut().for_each(|t| *t = t.saturating_sub(1));
-        dog.ticks -= 1;
+        pet.bite_cd.iter_mut().for_each(|t| *t = t.saturating_sub(1));
+        pet.ticks -= 1;
+    }
+
+    fn step_chain(&mut self, c: &mut Chain) {
+        c.ticks -= 1;
+        let owner = c.owner;
+        if !self.f[owner].alive() {
+            c.ticks = 0;
+            return;
+        }
+        let anchor = chain_anchor(&self.f[owner]);
+        match c.hooked {
+            Some(j) => {
+                if !self.f[j].alive() {
+                    c.ticks = 0;
+                    return;
+                }
+                // Haul them to just in front of Ryan, on whichever side they're coming from.
+                let side = if self.f[j].pos.x >= self.f[owner].pos.x { 1.0 } else { -1.0 };
+                let dest = self.f[owner].center() + vec2(side * CHAIN_STOP, 0.0);
+                let to = dest - self.f[j].center();
+                let v = &mut self.f[j];
+                if to.length() < 4.0 || c.ticks == 0 {
+                    v.vel = Vec2::ZERO;
+                    v.hitstun = CHAIN_DAZE;
+                    c.ticks = 0;
+                } else {
+                    v.vel = (to / DT).clamp_length_max(CHAIN_PULL_SPEED);
+                    v.grounded = false;
+                    v.hitstun = v.hitstun.max(2);
+                    v.atk_timer = 0;
+                }
+                c.tip = self.f[j].center();
+            }
+            None if c.back => {
+                let to = anchor - c.tip;
+                if to.length() <= CHAIN_SPEED * DT {
+                    c.ticks = 0;
+                } else {
+                    c.tip += to.normalize() * CHAIN_SPEED * DT;
+                }
+            }
+            None => {
+                c.tip += c.dir * CHAIN_SPEED * DT;
+                c.out += CHAIN_SPEED * DT;
+                let hook = Aabb::around(c.tip, 2.0);
+                let caught = (0..N_BODIES).filter(|&j| self.foes(owner, j) && hook.overlaps(&self.f[j].body())).min_by(|&a, &b| self.f[a].center().distance(anchor).total_cmp(&self.f[b].center().distance(anchor)));
+                // (Nobody can be hooked during the protected start.)
+                if let Some(j) = caught.filter(|_| !self.protected()) {
+                    c.hooked = Some(j);
+                    c.tip = self.f[j].center();
+                    self.events.push(Event::Hook { pos: c.tip });
+                    self.damage(owner, j, CHAIN_DAMAGE, Vec2::ZERO, 2, c.dir.x.signum(), Source::Special, false);
+                } else if c.out >= CHAIN_RANGE || SOLIDS.iter().any(|s| s.contains(c.tip)) {
+                    c.back = true;
+                }
+            }
+        }
+    }
+
+    /// A table falls until it lands on terrain (not on fighters), then serves its sushi.
+    fn step_table(&mut self, t: &mut Table) {
+        t.ticks -= 1;
+        if t.landed {
+            return;
+        }
+        let prev = t.pos.y;
+        t.vy = (t.vy + 640.0 * DT).min(320.0);
+        t.pos.y += t.vy * DT;
+        let over = |x0: f32, x1: f32| t.pos.x + TABLE_W / 2.0 > x0 && t.pos.x - TABLE_W / 2.0 < x1;
+        let floor = SOLIDS.iter().filter(|s| t.body().overlaps(s) && prev <= s.y + 0.01).map(|s| s.y);
+        let ledge = self.arena().platforms.iter().filter(|p| over(p.x, p.x + p.w) && prev <= p.y + 0.01 && t.pos.y >= p.y).map(|p| p.y);
+        let Some(top) = floor.chain(ledge).reduce(f32::min) else { return };
+        t.pos.y = top;
+        t.vy = 0.0;
+        t.landed = true;
+        self.events.push(Event::Land { pos: t.pos });
+        let y = top - TABLE_H - crate::sim::ITEM_R;
+        for k in 0..SUSHI_PER_TABLE {
+            let dx = (k as f32 - (SUSHI_PER_TABLE - 1) as f32 / 2.0) * 7.0;
+            self.items.push(crate::sim::Item::new(crate::sim::ItemKind::Sushi, vec2(t.pos.x + dx, y)));
+        }
+    }
+
+    /// A table going away takes the sushi still sitting on it (nobody's touched it).
+    pub(crate) fn clear_table(&mut self, t: &Table) {
+        let top = t.body();
+        let on_it = Aabb::new(top.x - 1.0, top.y - 4.0, top.w + 2.0, 5.0);
+        self.items.retain(|it| !(it.kind == crate::sim::ItemKind::Sushi && it.held_by.is_none() && it.owner.is_none() && on_it.contains(it.pos)));
+        self.events.push(Event::Poof { pos: vec2(t.pos.x, t.pos.y - TABLE_H / 2.0) });
     }
 
     fn step_bomb(&mut self, bomb: &mut Bomb) {
@@ -395,8 +694,12 @@ impl Match {
 pub enum Effect {
     /// Sam's gravity bomb.
     Bomb(Bomb),
-    /// One of Tyler's dogs.
-    Dog(Dog),
+    /// One of Tyler's dogs or Corwin's cats.
+    Pet(Pet),
+    /// Justin's sushi table.
+    Table(Table),
+    /// Ryan's chain.
+    Chain(Chain),
 }
 
 impl Effect {
@@ -404,23 +707,29 @@ impl Effect {
     pub fn owner(&self) -> usize {
         match self {
             Effect::Bomb(b) => b.owner,
-            Effect::Dog(d) => d.owner,
+            Effect::Pet(p) => p.owner,
+            Effect::Table(t) => t.owner,
+            Effect::Chain(c) => c.owner,
         }
     }
 
-    /// Where the bots see it (as a threat).
-    pub fn threat_pos(&self) -> Vec2 {
+    /// Where the bots see it as a threat (None: harmless, like a table).
+    pub fn threat_pos(&self) -> Option<Vec2> {
         match self {
-            Effect::Bomb(b) => b.pos,
-            Effect::Dog(d) => d.center(),
+            Effect::Bomb(b) => Some(b.pos),
+            Effect::Pet(p) => Some(p.center()),
+            Effect::Table(_) => None,
+            Effect::Chain(c) => Some(c.tip),
         }
     }
 
-    /// Its position (a dog's feet).
+    /// Its position (a pet's feet, a table's bottom centre).
     pub fn pos(&self) -> Vec2 {
         match self {
             Effect::Bomb(b) => b.pos,
-            Effect::Dog(d) => d.pos,
+            Effect::Pet(p) => p.pos,
+            Effect::Table(t) => t.pos,
+            Effect::Chain(c) => c.tip,
         }
     }
 
@@ -428,14 +737,18 @@ impl Effect {
     pub fn pos_mut(&mut self) -> &mut Vec2 {
         match self {
             Effect::Bomb(b) => &mut b.pos,
-            Effect::Dog(d) => &mut d.pos,
+            Effect::Pet(p) => &mut p.pos,
+            Effect::Table(t) => &mut t.pos,
+            Effect::Chain(c) => &mut c.tip,
         }
     }
 
     fn done(&self) -> bool {
         match self {
             Effect::Bomb(b) => b.crunch == Some(0),
-            Effect::Dog(d) => d.ticks == 0,
+            Effect::Pet(p) => p.ticks == 0,
+            Effect::Table(t) => t.ticks == 0,
+            Effect::Chain(c) => c.ticks == 0,
         }
     }
 }
@@ -541,22 +854,23 @@ fn pull_strength(d: f32) -> f32 {
     if d <= BOMB_PULL_RADIUS { 1.0 } else { libm::powf(BOMB_PULL_RADIUS / d, BOMB_PULL_FALLOFF) }
 }
 
-fn run_dog(dog: &mut Dog, arena: &Arena) {
+fn run_pet(dog: &mut Pet, arena: &Arena) {
+    let (half_w, h) = dog.breed.size();
     dog.pos.x += dog.dir * dog.speed * DT;
     if let Some(s) = SOLIDS.iter().find(|s| dog.body().overlaps(s)) {
-        dog.pos.x = if dog.dir > 0.0 { s.x - DOG_HALF_W } else { s.x + s.w + DOG_HALF_W };
+        dog.pos.x = if dog.dir > 0.0 { s.x - half_w } else { s.x + s.w + half_w };
         dog.dir = -dog.dir;
     }
     let prev = dog.pos.y;
     dog.vy = (dog.vy + 640.0 * DT).min(320.0);
     dog.pos.y += dog.vy * DT;
     if let Some(s) = SOLIDS.iter().find(|s| dog.body().overlaps(s)) {
-        dog.pos.y = if dog.vy > 0.0 { s.y } else { s.y + s.h + DOG_H };
+        dog.pos.y = if dog.vy > 0.0 { s.y } else { s.y + s.h + h };
         dog.vy = 0.0;
     }
     if dog.vy >= 0.0 {
         for p in arena.platforms {
-            let over = dog.pos.x + DOG_HALF_W > p.x && dog.pos.x - DOG_HALF_W < p.x + p.w;
+            let over = dog.pos.x + half_w > p.x && dog.pos.x - half_w < p.x + p.w;
             if over && prev <= p.y + 0.01 && dog.pos.y >= p.y {
                 dog.pos.y = p.y;
                 dog.vy = 0.0;
@@ -787,7 +1101,7 @@ mod tests {
         let mut m = staged([Character::Tyler, Character::Classic, Character::Classic, Character::Classic], [40.0, 120.0, 200.0, 280.0]);
         m.f[0].facing = 1.0;
         step_idle(&mut m, &z, true);
-        assert_eq!(m.effects.iter().filter(|e| matches!(e, Effect::Dog(_))).count(), 3);
+        assert_eq!(m.effects.iter().filter(|e| matches!(e, Effect::Pet(_))).count(), 3);
         for _ in 0..HOUND_TICKS {
             step_idle(&mut m, &z, false);
         }
@@ -795,5 +1109,188 @@ mod tests {
         assert_eq!(m.f[0].hp, MAX_HP, "dogs never bite Tyler");
         assert!(m.f[1].hp < MAX_HP, "the fighter in their path got bitten");
         assert!(m.f[0].dmg_dealt > 0.0);
+    }
+
+    #[test]
+    fn corwins_cats_swarm_but_each_scratch_is_light() {
+        let z = zero_brain();
+        let mut m = staged([Character::Corwin, Character::Classic, Character::Classic, Character::Classic], [40.0, 120.0, 200.0, 280.0]);
+        m.f[0].facing = 1.0;
+        step_idle(&mut m, &z, true);
+        assert_eq!(m.effects.iter().filter(|e| matches!(e, Effect::Pet(Pet { breed: Breed::Cat(_), .. }))).count(), CATS);
+        let mut scratches = 0;
+        for _ in 0..CAT_TICKS {
+            step_idle(&mut m, &z, false);
+            scratches += m.events.iter().filter(|e| matches!(e, Event::Scratch { .. })).count();
+        }
+        assert!(m.effects.is_empty(), "gone after 5s");
+        assert_eq!(m.f[0].hp, MAX_HP, "cats never scratch Corwin");
+        assert!(scratches >= CATS, "the pack ran over people: {scratches} scratches");
+        let lost = MAX_HP - m.f[1].hp;
+        assert!(lost > 0.0 && lost < 80.0, "swarmed, not wiped out: lost {lost}");
+    }
+
+    /// A match with just Justin (seat 0) and one other fighter, standing where given.
+    fn justin_and(x0: f32, x1: f32) -> Match {
+        let mut m = staged([Character::Justin, Character::Classic, Character::Classic, Character::Classic], [x0, x1, 300.0, 400.0]);
+        m.remove(2);
+        m.remove(3);
+        m.f[0].facing = 1.0;
+        m
+    }
+
+    fn table(m: &Match) -> Table {
+        m.effects.iter().find_map(|e| if let Effect::Table(t) = e { Some(t.clone()) } else { None }).expect("a table")
+    }
+
+    #[test]
+    fn justins_table_lands_ahead_serves_sushi_and_is_solid_from_the_side_and_top() {
+        let z = zero_brain();
+        let mut m = justin_and(100.0, 300.0);
+        step_idle(&mut m, &z, true);
+        for _ in 0..30 {
+            step_idle(&mut m, &z, false);
+        }
+        let t = table(&m);
+        assert!(t.landed && t.pos.y == crate::sim::FLOOR_Y, "landed on the floor");
+        assert!(t.pos.x > 100.0 + TABLE_W / 2.0, "in front of him");
+        let sushi = m.items.iter().filter(|it| it.kind == crate::sim::ItemKind::Sushi).count();
+        assert_eq!(sushi, SUSHI_PER_TABLE);
+        // Running at it from the right: stopped at its side.
+        let run_left = Action { mv: -1.0, run: true, ..Action::default() };
+        for _ in 0..120 {
+            m.step_with([&z; N_FIGHTERS], Some((1, run_left)));
+        }
+        let side = t.body().x + TABLE_W + m.f[1].half_w();
+        assert!((m.f[1].pos.x - side).abs() < 0.01, "blocked at the table's side: x {}", m.f[1].pos.x);
+        // Jumping on: stands on top.
+        let hop = Action { mv: -1.0, jump: true, ..Action::default() };
+        for _ in 0..40 {
+            m.step_with([&z; N_FIGHTERS], Some((1, hop)));
+        }
+        for _ in 0..10 {
+            m.step_with([&z; N_FIGHTERS], Some((1, Action::default())));
+        }
+        assert!(m.f[1].grounded && m.f[1].pos.y == t.body().y, "standing on the table: {:?}", m.f[1].pos);
+    }
+
+    #[test]
+    fn nobody_is_ever_pinned_under_a_table() {
+        let z = zero_brain();
+        // The table drops right onto the fighter standing just ahead of Justin.
+        let trapped = || {
+            let mut m = justin_and(100.0, 100.0 + 4.0 + 3.0 + TABLE_W / 2.0);
+            step_idle(&mut m, &z, true);
+            for _ in 0..30 {
+                step_idle(&mut m, &z, false);
+            }
+            m
+        };
+        let mut m = trapped();
+        let t = table(&m);
+        assert!(t.landed && m.f[1].body().overlaps(&t.body()), "it fell around them");
+        // They can walk out either way...
+        let mut out = trapped();
+        for _ in 0..60 {
+            out.step_with([&z; N_FIGHTERS], Some((1, Action { mv: 1.0, ..Action::default() })));
+        }
+        assert!(!out.f[1].body().overlaps(&t.body()), "walked out");
+        // ...or jump straight up out of it, and land on top.
+        let jump = Action { jump: true, ..Action::default() };
+        for _ in 0..12 {
+            m.step_with([&z; N_FIGHTERS], Some((1, jump)));
+        }
+        for _ in 0..60 {
+            m.step_with([&z; N_FIGHTERS], Some((1, Action::default())));
+        }
+        assert_eq!(m.f[1].pos.y, t.body().y, "jumped out and landed on top");
+    }
+
+    #[test]
+    fn facing_a_wall_the_table_drops_onto_justin_and_he_walks_out() {
+        let z = zero_brain();
+        let mut m = justin_and(16.0, 300.0);
+        m.f[0].facing = -1.0;
+        step_idle(&mut m, &z, true);
+        for _ in 0..30 {
+            step_idle(&mut m, &z, false);
+        }
+        let t = table(&m);
+        assert!(t.landed && m.f[0].body().overlaps(&t.body()), "on top of him");
+        for _ in 0..60 {
+            m.step_with([&z; N_FIGHTERS], Some((0, Action { mv: 1.0, ..Action::default() })));
+        }
+        assert!(!m.f[0].body().overlaps(&t.body()), "walked out from under it");
+    }
+
+    #[test]
+    fn thrown_sushi_splats_and_is_gone() {
+        let z = zero_brain();
+        let mut m = justin_and(100.0, 200.0);
+        step_idle(&mut m, &z, true);
+        for _ in 0..30 {
+            step_idle(&mut m, &z, false);
+        }
+        // Justin walks to the table and grabs a piece.
+        let grab = Action { mv: 1.0, jump: true, grab: true, ..Action::default() };
+        for _ in 0..60 {
+            if m.f[0].holding.is_some() {
+                break;
+            }
+            m.step_with([&z; N_FIGHTERS], Some((0, grab)));
+        }
+        assert_eq!(m.f[0].holding, Some(crate::sim::ItemKind::Sushi));
+        for _ in 0..40 {
+            step_idle(&mut m, &z, false);
+        }
+        // At the fighter to his right.
+        let throw = Action { throw: true, target: Some(vec2(1.0, -0.3)), ..Action::default() };
+        m.step_with([&z; N_FIGHTERS], Some((0, throw)));
+        let mut splat = false;
+        for _ in 0..60 {
+            step_idle(&mut m, &z, false);
+            splat |= m.events.iter().any(|e| matches!(e, Event::Splat { .. }));
+        }
+        assert!(splat, "it splatted");
+        assert!(m.f[1].hp < MAX_HP, "and hit them");
+        assert_eq!(m.items.iter().filter(|it| it.kind == crate::sim::ItemKind::Sushi).count(), SUSHI_PER_TABLE - 1, "the thrown piece is gone");
+    }
+
+    #[test]
+    fn ryans_chain_hauls_in_the_first_foe_ahead_and_dazes_them() {
+        let z = zero_brain();
+        let mut m = staged([Character::Ryan, Character::Classic, Character::Classic, Character::Classic], [100.0, 180.0, 300.0, 400.0]);
+        m.f[0].facing = 1.0;
+        step_idle(&mut m, &z, true);
+        let mut hooked = false;
+        for _ in 0..CHAIN_TICKS {
+            step_idle(&mut m, &z, false);
+            hooked |= m.events.iter().any(|e| matches!(e, Event::Hook { .. }));
+            if m.effects.is_empty() {
+                break;
+            }
+        }
+        assert!(hooked, "hooked the fighter 80px ahead");
+        assert!(m.effects.is_empty(), "the chain let go once they arrived");
+        let gap = m.f[1].pos.x - m.f[0].pos.x;
+        assert!(gap > 0.0 && gap < CHAIN_STOP + 6.0, "reeled in to just in front: {gap}px away");
+        assert!(m.f[1].hitstun > CHAIN_DAZE / 2, "dazed");
+        assert_eq!(m.f[1].hp, MAX_HP - CHAIN_DAMAGE);
+        assert_eq!(m.f[2].hp, MAX_HP, "only the first one");
+        assert_eq!(m.f[0].hp, MAX_HP);
+    }
+
+    #[test]
+    fn ryans_chain_reels_back_after_a_miss() {
+        let z = zero_brain();
+        let mut m = staged([Character::Ryan, Character::Classic, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
+        m.f[0].facing = 1.0;
+        step_idle(&mut m, &z, true);
+        for _ in 0..CHAIN_TICKS {
+            step_idle(&mut m, &z, false);
+            assert!(!m.events.iter().any(|e| matches!(e, Event::Hook { .. })), "nobody in reach");
+        }
+        assert!(m.effects.is_empty(), "reeled back in");
+        assert!((1..N_FIGHTERS).all(|j| m.f[j].hp == MAX_HP && m.f[j].pos.x > 290.0));
     }
 }

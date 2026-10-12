@@ -65,10 +65,16 @@ character.sam = Sam
 character.austin = Austin
 character.tyler = Tyler
 character.seth = Seth
+character.corwin = Corwin
+character.justin = Justin
+character.ryan = Ryan
 special.gravity_bomb = Gravity Bomb
 special.pop_up = Pop-Up
 special.hounds = Release the Hounds
 special.mini_me = Mini Me
+special.cat_herder = Cat Herder
+special.sushi_table = Sushi Table
+special.yank_chain = Yanking Your Chain
 
 # Maps (by id)
 arena.tiers = Tiers
@@ -174,3 +180,6 @@ about.sam = Lobs a bomb ahead. When it lands or touches someone it yanks everyon
 about.austin = Teleports a third of the arena ahead in the direction he's facing, away from the crowd.
 about.tyler = Three dogs run the floors for 5 seconds, biting anyone but Tyler.
 about.seth = Two half-size clones hop out and fight beside him for 15 seconds. One hit kills them; their kills count as his.
+about.corwin = Twenty cats pour out and run the floors for 5 seconds. Each scratch is light, but there are a lot of them.
+about.justin = A table drops in front of him, serving three pieces of sushi to throw. It's solid: run into it or jump on top.
+about.ryan = Throws a chain a short way ahead. Whoever it hooks gets yanked right up to him, dazed for a moment.

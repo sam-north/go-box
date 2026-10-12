@@ -7,7 +7,7 @@
 //! applied yet are replayed on top. Small corrections are smoothed out rather than snapped.
 
 use go_box_protocol::{MatchStart, Snapshot};
-use go_box_sim::character::Effect;
+use go_box_sim::character::{Effect, props};
 use go_box_sim::sim::{Action, Event, Fighter, Match, MatchView, N_BODIES, TICK_RATE, predict};
 use macroquad::math::Vec2;
 use std::collections::VecDeque;
@@ -67,8 +67,9 @@ impl Game {
         if let Some(seat) = self.seat() {
             self.pending.retain(|&(seq, _)| seq > s.ack);
             let mut f = s.view.f[seat].clone();
+            let props = props(&s.view.effects);
             for &(_, a) in &self.pending {
-                predict(self.start.config.arena.def(), &mut f, seat, a, &mut Vec::new());
+                predict(self.start.config.arena.def(), &props, &mut f, seat, a, &mut Vec::new());
             }
             if let Some(old) = &self.me {
                 self.offset += old.pos - f.pos;
@@ -95,7 +96,9 @@ impl Game {
         if self.snaps.back().is_some_and(|s| s.view.over) {
             return;
         }
-        predict(self.start.config.arena.def(), me, seat, a, events);
+        // (Justin's tables, as of the newest snapshot.)
+        let props = self.snaps.back().map(|s| props(&s.view.effects)).unwrap_or_default();
+        predict(self.start.config.arena.def(), &props, me, seat, a, events);
         self.pending.push_back((seq, a));
         while self.pending.len() > 120 {
             self.pending.pop_front();
@@ -221,7 +224,7 @@ mod tests {
         // Where you'll be once the server applies the other 4 too.
         let mut ahead = m.f[0].clone();
         for _ in 0..4 {
-            predict(m.arena(), &mut ahead, 0, RIGHT, &mut Vec::new());
+            predict(m.arena(), &[], &mut ahead, 0, RIGHT, &mut Vec::new());
         }
         assert!((g.me().unwrap().pos - ahead.pos).length() < 1e-4, "predicted {} vs {}", g.me().unwrap().pos, ahead.pos);
         assert!(ahead.pos.x > m.f[0].pos.x, "and that's ahead of the snapshot");

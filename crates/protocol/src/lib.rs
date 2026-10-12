@@ -28,7 +28,7 @@ use go_box_sim::sim::{Action, ArenaId, Event, MatchConfig, MatchView, N_FIGHTERS
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 15;
+pub const PROTOCOL_VERSION: u16 = 16;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -234,33 +234,45 @@ mod tests {
         assert_eq!(s.view.f[2].pos, m.f[2].pos);
     }
 
-    /// A match of bots playing every character, with a snapshot taken while a gravity bomb is
-    /// out, another while Tyler's dogs are running and another with Seth's minis about, so their
-    /// layouts are on the wire too.
+    /// Matches of bots playing every character, with a snapshot taken the first time each
+    /// special's leftovers are about (a gravity bomb, dogs, minis, cats, a table and its sushi,
+    /// a chain), so their layouts are on the wire too.
     fn sample_snapshots() -> Vec<Snapshot> {
         use go_box_sim::brain::Brain;
+        use go_box_sim::character::{Breed, Effect};
+        use go_box_sim::sim::ItemKind;
         let brain = Brain::from_json(include_str!("../../../brains/gen_219000.json")).unwrap();
-        let mut m = Match::new(5, &MatchConfig::default());
-        let cast = [Character::Seth, Character::Sam, Character::Austin, Character::Tyler];
-        for (f, c) in m.f.iter_mut().zip(cast) {
-            f.character = c;
+        type Seen = fn(&Match) -> bool;
+        let wanted: [(&str, Seen); 7] = [
+            ("bomb", |m| m.effects.iter().any(|e| matches!(e, Effect::Bomb(_)))),
+            ("dogs", |m| m.effects.iter().any(|e| matches!(e, Effect::Pet(p) if p.breed == Breed::Hound))),
+            ("minis", |m| m.f[N_FIGHTERS..].iter().any(|f| !f.absent)),
+            ("cats", |m| m.effects.iter().any(|e| matches!(e, Effect::Pet(p) if matches!(p.breed, Breed::Cat(_))))),
+            ("table", |m| m.effects.iter().any(|e| matches!(e, Effect::Table(_)))),
+            ("sushi", |m| m.items.iter().any(|it| it.kind == ItemKind::Sushi)),
+            ("chain", |m| m.effects.iter().any(|e| matches!(e, Effect::Chain(_)))),
+        ];
+        let mut found: Vec<Option<Snapshot>> = vec![None; wanted.len()];
+        let casts = [
+            [Character::Seth, Character::Sam, Character::Austin, Character::Tyler],
+            [Character::Corwin, Character::Justin, Character::Ryan, Character::Classic],
+        ];
+        for (seed, cast) in casts.into_iter().enumerate() {
+            let mut m = Match::new(5 + seed as u64, &MatchConfig::default());
+            for (f, c) in m.f.iter_mut().zip(cast) {
+                f.character = c;
+            }
+            while !m.over {
+                m.step([&brain; N_FIGHTERS]);
+                for (k, (_, seen)) in wanted.iter().enumerate() {
+                    if found[k].is_none() && seen(&m) {
+                        found[k] = Some(Snapshot { ack: m.tick, view: m.view(), events: m.events.clone() });
+                    }
+                }
+            }
         }
-        use go_box_sim::character::Effect;
-        let (mut bomb, mut dogs, mut minis) = (None, None, None);
-        while (bomb.is_none() || dogs.is_none() || minis.is_none()) && !m.over {
-            m.step([&brain; N_FIGHTERS]);
-            let snap = || Snapshot { ack: m.tick, view: m.view(), events: m.events.clone() };
-            if bomb.is_none() && m.effects.iter().any(|e| matches!(e, Effect::Bomb(_))) {
-                bomb = Some(snap());
-            }
-            if dogs.is_none() && m.effects.iter().any(|e| matches!(e, Effect::Dog(_))) {
-                dogs = Some(snap());
-            }
-            if minis.is_none() && m.f[N_FIGHTERS..].iter().any(|f| !f.absent) {
-                minis = Some(snap());
-            }
-        }
-        vec![Snapshot { ack: 0, view: Match::new(1, &MatchConfig::default()).view(), events: Vec::new() }, bomb.expect("a bomb was thrown"), dogs.expect("dogs ran"), minis.expect("minis came out")]
+        let first = Snapshot { ack: 0, view: Match::new(1, &MatchConfig::default()).view(), events: Vec::new() };
+        std::iter::once(first).chain(found.into_iter().zip(wanted).map(|(s, (name, _))| s.unwrap_or_else(|| panic!("no {name} in the sample matches")))).collect()
     }
 
     /// One of every message, with fixed contents. The `match`es have no wildcard arm, so a new
@@ -338,7 +350,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (15, 0xa8a3_e7d6_9bc7_de9d);
+    const WIRE: (u16, u64) = (16, 0xb601_22fd_ffb4_faf0);
 
     #[test]
     fn every_sample_round_trips() {

@@ -3,7 +3,7 @@
 //! expose physical abilities; brains decide what to do with them.
 
 use crate::brain::{Brain, IN_EXTRA, IN_HEAL, IN_ITEMS, IN_MEM, IN_NEAREST, IN_OPP, IN_SELF, IN_THREAT, MEM, N_IN, N_OUT, OUT_MEM};
-use crate::character::{Character, Effect};
+use crate::character::{Character, Effect, props};
 use glam::{vec2, Vec2};
 use serde::{Deserialize, Serialize};
 use rand::{Rng, SeedableRng};
@@ -113,6 +113,8 @@ pub enum Source {
     Grenade,
     /// A character's special.
     Special,
+    /// A piece of Justin's sushi.
+    Sushi,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -336,7 +338,7 @@ pub struct Item {
 }
 
 impl Item {
-    fn new(kind: ItemKind, pos: Vec2) -> Self {
+    pub(crate) fn new(kind: ItemKind, pos: Vec2) -> Self {
         Self { kind, pos, vel: Vec2::ZERO, held_by: None, owner: None, lethal: false, fuse: None, age: 0 }
     }
     /// On the ground and safe to pick up.
@@ -368,6 +370,12 @@ pub enum Event {
     BombBlast { pos: Vec2 },
     /// One of Tyler's dogs biting.
     Bite { pos: Vec2 },
+    /// One of Corwin's cats scratching.
+    Scratch { pos: Vec2 },
+    /// Thrown sushi hitting someone or something (and that's the end of it).
+    Splat { pos: Vec2 },
+    /// Ryan's chain hooking someone.
+    Hook { pos: Vec2 },
     /// A thrown item hitting terrain hard.
     Clatter { pos: Vec2, kind: ItemKind },
 }
@@ -683,7 +691,9 @@ impl Match {
         }
         // Brains never saw specials in training; someone else's dog or bomb reads as a threat.
         for e in self.effects.iter().filter(|e| e.owner() != i) {
-            mark(&mut s, IN_THREAT, glimpse(arena, eye, e.threat_pos()));
+            if let Some(p) = e.threat_pos() {
+                mark(&mut s, IN_THREAT, glimpse(arena, eye, p));
+            }
         }
         let k = IN_SELF;
         s[k] = me.vel.x / SENSE_SPEED;
@@ -788,6 +798,7 @@ impl Match {
         }
 
         // 2. Move.
+        let props = props(&self.effects);
         for i in 0..N_BODIES {
             if self.f[i].absent {
                 continue;
@@ -795,7 +806,7 @@ impl Match {
             let was_grounded = self.f[i].grounded;
             let f = &mut self.f[i];
             control(f, i, actions[i], &mut self.events);
-            collide(f, self.config.arena.def());
+            collide(f, self.config.arena.def(), &props);
             if f.grounded && !was_grounded {
                 self.events.push(Event::Land { pos: f.pos });
             }
@@ -913,17 +924,34 @@ impl Match {
     }
 
     fn step_items(&mut self) {
-        let mut explode = Vec::new();
+        // Items to remove: (index, explodes) — grenades going off, sushi splatting or spoiling.
+        let mut gone = Vec::new();
+        let props = props(&self.effects);
         for k in 0..self.items.len() {
+            let splats = self.items[k].kind.def().splats;
             if let Some(h) = self.items[k].held_by {
                 self.items[k].pos = self.f[h].hand();
-            } else if step_item(&mut self.items[k], self.config.arena.def()) {
+            } else {
+                let (struck, touched) = step_item(&mut self.items[k], self.config.arena.def(), &props);
                 let it = &self.items[k];
-                self.events.push(Event::Clatter { pos: it.pos, kind: it.kind });
+                if let Some(spoil) = splats {
+                    // Thrown sushi is done the moment it touches anything; uneaten, it spoils.
+                    if it.owner.is_some() && touched {
+                        self.events.push(Event::Splat { pos: it.pos });
+                        gone.push((k, false));
+                        continue;
+                    }
+                    if it.age > spoil {
+                        gone.push((k, false));
+                        continue;
+                    }
+                } else if struck {
+                    self.events.push(Event::Clatter { pos: it.pos, kind: it.kind });
+                }
             }
             if let Some(t) = self.items[k].fuse {
                 if t == 0 {
-                    explode.push(k);
+                    gone.push((k, true));
                     continue;
                 }
                 self.items[k].fuse = Some(t - 1);
@@ -948,17 +976,22 @@ impl Match {
                 let it = &mut self.items[k];
                 it.vel *= -0.2;
                 it.lethal = false;
+                let pos = it.pos;
                 self.damage(src, j, dmg, vec2(dir * 110.0, -100.0), 10, dir, hit.source, headshot);
+                if splats.is_some() {
+                    self.events.push(Event::Splat { pos });
+                    gone.push((k, false));
+                }
             }
         }
-        // Explode back-to-front so indices stay valid.
-        explode.sort_unstable_by(|a, b| b.cmp(a));
-        for k in explode {
+        // Remove back-to-front so indices stay valid.
+        gone.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+        for (k, explodes) in gone {
             let it = self.items.swap_remove(k);
             if let Some(h) = it.held_by {
                 self.f[h].holding = None;
             }
-            if let Some(blast) = it.kind.def().blast {
+            if let Some(blast) = it.kind.def().blast.filter(|_| explodes) {
                 self.explode(it.pos, it.owner, blast);
             }
         }
@@ -1012,8 +1045,7 @@ impl Match {
         }
     }
 
-    /// Every few seconds a new item appears somewhere reachable: mostly rocks, some spears,
-    /// and rarely a grenade.
+    /// Every few seconds a new item appears somewhere reachable (the odds are in `item.rs`).
     fn spawn_items(&mut self) {
         if self.tick < self.next_item {
             return;
@@ -1136,12 +1168,13 @@ impl Match {
 /// One tick of a fighter's own movement and swing timing, exactly as `Match::step` does it, but
 /// without anyone else: a client runs this on its own fighter (seat `who`) to show its input
 /// immediately, and the server's snapshots correct it. Its jumps and swings go in `events`.
-pub fn predict(arena: &Arena, f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
+/// `props` are the tables in the arena (`props(&view.effects)`).
+pub fn predict(arena: &Arena, props: &[Aabb], f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
     if f.absent {
         return;
     }
     control(f, who, a, events);
-    collide(f, arena);
+    collide(f, arena, props);
     if f.atk_timer > 0 {
         f.atk_timer += 1;
         if f.atk_timer > ATK_TOTAL {
@@ -1157,8 +1190,9 @@ pub fn predict(arena: &Arena, f: &mut Fighter, who: usize, a: Action, events: &m
     f.action = a;
 }
 
-/// Moves a loose or flying item. True if it struck terrain hard this tick (for the sound).
-fn step_item(it: &mut Item, arena: &Arena) -> bool {
+/// Moves a loose or flying item (it can rest on `props`, Justin's tables). Returns whether it
+/// struck terrain hard this tick (for the sound), and whether it touched terrain at all.
+fn step_item(it: &mut Item, arena: &Arena, props: &[Aabb]) -> (bool, bool) {
     it.age += 1;
     let mut struck = false;
     // Flying fast enough to hurt, an item falls at its own rate (spears fly flat); else it arcs.
@@ -1187,7 +1221,7 @@ fn step_item(it: &mut Item, arena: &Arena) -> bool {
         }
     }
     if it.vel.y > 0.0 {
-        for p in arena.platforms {
+        for p in arena.platforms.iter().chain(props) {
             let over_x = it.pos.x + ITEM_R > p.x && it.pos.x - ITEM_R < p.x + p.w;
             if over_x && prev_bottom <= p.y + 0.01 && it.pos.y + ITEM_R >= p.y {
                 landed = Some(p.y);
@@ -1206,10 +1240,11 @@ fn step_item(it: &mut Item, arena: &Arena) -> bool {
     if it.vel.length() < LETHAL_SPEED {
         it.lethal = false;
     }
+    let touched = landed.is_some() || struck || SOLIDS.iter().any(|s| Aabb::around(it.pos, ITEM_R + 0.5).overlaps(s));
     // Belt and braces: items can never leave the box.
     it.pos.x = it.pos.x.clamp(WALL + ITEM_R, W - WALL - ITEM_R);
     it.pos.y = it.pos.y.clamp(WALL + ITEM_R, FLOOR_Y - ITEM_R);
-    struck
+    (struck, touched)
 }
 
 fn approach(v: f32, target: f32, step: f32) -> f32 {
@@ -1267,7 +1302,12 @@ fn control(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
     f.vel.y = (f.vel.y + g * DT).min(MAX_FALL);
 }
 
-fn collide(f: &mut Fighter, arena: &Arena) {
+/// Moves a fighter and stops it at terrain. `props` (Justin's tables) block you from the sides
+/// and hold you up on top, but only stop you entering them: anyone already inside one (it fell
+/// on them) walks or jumps straight out, and there's no underside to bump into, so nobody can
+/// ever be pinned under one.
+fn collide(f: &mut Fighter, arena: &Arena, props: &[Aabb]) {
+    let before = f.body();
     f.pos.x += f.vel.x * DT;
     for s in SOLIDS.iter() {
         if f.body().overlaps(s) {
@@ -1276,6 +1316,12 @@ fn collide(f: &mut Fighter, arena: &Arena) {
             } else if f.vel.x < 0.0 {
                 f.pos.x = s.x + s.w + f.half_w();
             }
+            f.vel.x = 0.0;
+        }
+    }
+    for p in props {
+        if f.body().overlaps(p) && !before.overlaps(p) {
+            f.pos.x = if before.x + before.w <= p.x { p.x - f.half_w() } else { p.x + p.w + f.half_w() };
             f.vel.x = 0.0;
         }
     }
@@ -1295,7 +1341,7 @@ fn collide(f: &mut Fighter, arena: &Arena) {
         }
     }
     if f.vel.y >= 0.0 {
-        for p in arena.platforms {
+        for p in arena.platforms.iter().chain(props) {
             let over_x = f.pos.x + f.half_w() > p.x && f.pos.x - f.half_w() < p.x + p.w;
             if over_x && prev_bottom <= p.y + 0.01 && f.pos.y >= p.y {
                 f.pos.y = p.y;
@@ -1336,9 +1382,9 @@ mod tests {
         }
         assert_eq!(h, CLASSIC_HASH, "classic match fingerprint changed: {h:#018x}");
     }
-    // Last deliberately changed by the 3-2-1 countdown and the protected start. It must
+    // Last deliberately changed by grenades spawning more often (50%, up to 4). It must
     // come out the same on 32-bit targets too: `cargo test -p go-box-sim --target i686-pc-windows-msvc`.
-    const CLASSIC_HASH: u64 = 0x33d1_c375_e71c_7c94;
+    const CLASSIC_HASH: u64 = 0xe188_d844_a974_c410;
 
     /// Everyone on the floor, nothing lying around, nobody thinking (all-zero brains stand still).
     fn quiet_match() -> (Match, Brain) {
@@ -1414,7 +1460,7 @@ mod tests {
         let run = Action { mv: 1.0, run: true, ..Action::default() };
         let speed_after = |f: &mut Fighter, a: Action, ticks: u32| {
             for _ in 0..ticks {
-                predict(arena, f, 0, a, &mut Vec::new());
+                predict(arena, &[], f, 0, a, &mut Vec::new());
             }
             f.vel.x
         };

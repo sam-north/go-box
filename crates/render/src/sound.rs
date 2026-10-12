@@ -40,6 +40,12 @@ go_box_sim::enum_all! {
         Ready,
         Count,
         Split,
+        Meow,
+        Scratch,
+        Serve,
+        Splat,
+        ChainThrow,
+        Hook,
         Start,
         Win,
         Lose,
@@ -142,6 +148,36 @@ impl Sfx {
             Sfx::Split => {
                 s.tone(0.0, 0.08, 520.0, 1040.0, Wave::Tri, 0.003, 18.0, 0.25);
                 s.tone(0.09, 0.08, 620.0, 1240.0, Wave::Tri, 0.003, 18.0, 0.25);
+            }
+            // Corwin's cats let loose: a couple of rising-falling meows.
+            Sfx::Meow => {
+                s.tone(0.0, 0.22, 700.0, 1100.0, Wave::Saw, 0.02, 9.0, 0.16);
+                s.tone(0.18, 0.25, 900.0, 600.0, Wave::Saw, 0.02, 8.0, 0.14);
+            }
+            Sfx::Scratch => s.noise(0.0, 0.04, 6000.0, 3500.0, 0.001, 70.0, 0.22),
+            // Justin's table: a bright "ding" of service.
+            Sfx::Serve => {
+                s.tone(0.0, 0.5, 1568.0, 1568.0, Wave::Sine, 0.001, 7.0, 0.25);
+                s.tone(0.0, 0.5, 3136.0, 3136.0, Wave::Sine, 0.001, 10.0, 0.08);
+            }
+            // Squishy: a low wet thud with a soft smear of noise.
+            Sfx::Splat => {
+                s.tone(0.0, 0.12, 180.0, 70.0, Wave::Sine, 0.002, 22.0, 0.55);
+                s.noise(0.0, 0.14, 900.0, 300.0, 0.004, 20.0, 0.45);
+                s.wobble(0.0, 0.1, 120.0, 40.0, 0.2);
+            }
+            // Ryan's chain: a fast metallic rattle.
+            Sfx::ChainThrow => {
+                for k in 0..5 {
+                    s.tone(k as f32 * 0.03, 0.03, 2400.0 + k as f32 * 150.0, 1800.0, Wave::Square, 0.001, 60.0, 0.08);
+                }
+                s.noise(0.0, 0.16, 6000.0, 3000.0, 0.005, 20.0, 0.18);
+            }
+            // The hook biting: a clank.
+            Sfx::Hook => {
+                s.tone(0.0, 0.18, 980.0, 900.0, Wave::Square, 0.001, 18.0, 0.18);
+                s.tone(0.0, 0.18, 1470.0, 1400.0, Wave::Sine, 0.001, 16.0, 0.18);
+                s.noise(0.0, 0.05, 5000.0, 2000.0, 0.001, 60.0, 0.3);
             }
             Sfx::Start => {
                 s.tone(0.0, 0.12, 440.0, 440.0, Wave::Square, 0.003, 10.0, 0.14);
@@ -374,6 +410,7 @@ impl Sounds {
                         Source::Stab => Sfx::Stab,
                         Source::SpearThrow => Sfx::SpearHit,
                         Source::Rock => Sfx::RockHit,
+                        Source::Sushi => Sfx::Splat,
                         // The blast or the bite is the sound; just add a thump.
                         Source::Grenade | Source::Special => Sfx::Punch,
                     };
@@ -401,11 +438,15 @@ impl Sounds {
                 Event::BombCrunch { pos } => self.at(Sfx::BombCrunch, pos, ear, 1.0),
                 Event::BombBlast { pos } => self.play(Sfx::BombBlast, 1.0 - (pos.distance(ear) / W * 0.3)),
                 Event::Bite { pos } => self.at(Sfx::Bite, pos, ear, 0.9),
+                Event::Scratch { pos } => self.at(Sfx::Scratch, pos, ear, 0.6),
+                Event::Splat { pos } => self.at(Sfx::Splat, pos, ear, 1.0),
+                Event::Hook { pos } => self.at(Sfx::Hook, pos, ear, 1.0),
                 Event::Clatter { pos, kind } => {
                     let s = match kind {
                         ItemKind::Rock => Sfx::ClatterRock,
                         ItemKind::Spear => Sfx::ClatterSpear,
                         ItemKind::Grenade => Sfx::ClatterGrenade,
+                        ItemKind::Sushi => Sfx::Splat,
                     };
                     self.at(s, pos, ear, 0.7);
                 }

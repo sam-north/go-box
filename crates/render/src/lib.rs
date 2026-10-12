@@ -33,6 +33,19 @@ pub const ACCENTS: [Color; N_FIGHTERS] = [
 const SKIN: Color = Color::new(0.86, 0.70, 0.58, 1.0);
 const DOG_FUR: Color = Color::new(0.55, 0.38, 0.22, 1.0);
 const DOG_DARK: Color = Color::new(0.28, 0.19, 0.12, 1.0);
+const RICE: Color = Color::new(0.96, 0.95, 0.90, 1.0);
+const SALMON: Color = Color::new(1.0, 0.52, 0.34, 1.0);
+const NORI: Color = Color::new(0.10, 0.16, 0.12, 1.0);
+const WOOD: Color = Color::new(0.52, 0.34, 0.20, 1.0);
+const WOOD_DARK: Color = Color::new(0.34, 0.22, 0.13, 1.0);
+/// Cat coats: ginger, grey, black, cream, and a tabby brown.
+const COATS: [(Color, Color); 5] = [
+    (Color::new(0.90, 0.55, 0.22, 1.0), Color::new(0.70, 0.38, 0.14, 1.0)),
+    (Color::new(0.58, 0.60, 0.64, 1.0), Color::new(0.40, 0.42, 0.46, 1.0)),
+    (Color::new(0.14, 0.13, 0.15, 1.0), Color::new(0.05, 0.05, 0.06, 1.0)),
+    (Color::new(0.92, 0.88, 0.78, 1.0), Color::new(0.75, 0.68, 0.56, 1.0)),
+    (Color::new(0.55, 0.42, 0.30, 1.0), Color::new(0.32, 0.24, 0.17, 1.0)),
+];
 const GRAV: Color = Color::new(0.45, 0.85, 0.55, 1.0);
 const SMOKE: Color = Color::new(0.75, 0.74, 0.70, 0.8);
 /// The protected-start shield.
@@ -56,6 +69,21 @@ pub struct Look {
     pub accent: Color,
     /// Tyler's running sweatband, in his accent colour.
     pub headband: bool,
+    pub skin: Color,
+    pub hair_style: HairStyle,
+    pub beard: bool,
+    pub glasses: bool,
+}
+
+/// How hair is cut (drawn over a bare head).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum HairStyle {
+    /// Over the top and down the back of the head.
+    Short,
+    /// Down past the neck to the shoulders (Corwin).
+    Long,
+    /// Straight, with a fringe, covering the ears (Justin).
+    OverEars,
 }
 
 /// How a character looks and sounds: one row per character in `art`.
@@ -68,13 +96,17 @@ pub struct CharacterArt {
     pub arms: Color,
     pub hair: Option<Color>,
     pub headband: bool,
+    pub skin: Color,
+    pub hair_style: HairStyle,
+    pub beard: bool,
+    pub glasses: bool,
     /// Played when it uses its special (None: the special's own effects make the sound).
     pub special_sound: Option<Sfx>,
 }
 
 pub fn art(c: Character) -> &'static CharacterArt {
     match c {
-        Character::Classic => &CharacterArt { color: None, body: CLOAK, legs: [HOOD, CLOAK], arms: HOOD, hair: None, headband: false, special_sound: None },
+        Character::Classic => &CharacterArt { color: None, body: CLOAK, legs: [HOOD, CLOAK], arms: HOOD, hair: None, headband: false, skin: SKIN, hair_style: HairStyle::Short, beard: false, glasses: false, special_sound: None },
         // Brown hair, green-grey jacket; forest green.
         Character::Sam => {
             const ART: CharacterArt = CharacterArt {
@@ -84,6 +116,10 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 arms: rgb(50, 64, 52),
                 hair: Some(rgb(96, 62, 36)),
                 headband: false,
+                skin: SKIN,
+                hair_style: HairStyle::Short,
+                beard: false,
+                glasses: false,
                 special_sound: Some(Sfx::BombThrow),
             };
             &ART
@@ -97,6 +133,10 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 arms: rgb(70, 63, 55),
                 hair: Some(rgb(128, 58, 34)),
                 headband: false,
+                skin: SKIN,
+                hair_style: HairStyle::Short,
+                beard: false,
+                glasses: false,
                 special_sound: None,
             };
             &ART
@@ -110,6 +150,10 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 arms: SKIN,
                 hair: Some(rgb(168, 132, 84)),
                 headband: true,
+                skin: SKIN,
+                hair_style: HairStyle::Short,
+                beard: false,
+                glasses: false,
                 special_sound: Some(Sfx::Hounds),
             };
             &ART
@@ -123,7 +167,62 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 arms: rgb(50, 52, 58),
                 hair: Some(rgb(34, 28, 24)),
                 headband: false,
+                skin: SKIN,
+                hair_style: HairStyle::Short,
+                beard: false,
+                glasses: false,
                 special_sound: Some(Sfx::Split),
+            };
+            &ART
+        }
+        // Long black hair and a full beard (no braids), a leather jerkin; crimson.
+        Character::Corwin => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(0.86, 0.22, 0.24, 1.0)),
+                body: rgb(98, 70, 48),
+                legs: [rgb(40, 36, 34), rgb(54, 48, 44)],
+                arms: rgb(84, 60, 42),
+                hair: Some(rgb(22, 20, 22)),
+                headband: false,
+                skin: SKIN,
+                hair_style: HairStyle::Long,
+                beard: true,
+                glasses: false,
+                special_sound: Some(Sfx::Meow),
+            };
+            &ART
+        }
+        // Pale, straight blonde hair over the ears, a light shirt; violet.
+        Character::Justin => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(0.68, 0.48, 1.0, 1.0)),
+                body: rgb(196, 198, 206),
+                legs: [rgb(46, 50, 66), rgb(60, 64, 82)],
+                arms: rgb(176, 178, 188),
+                hair: Some(rgb(226, 196, 112)),
+                headband: false,
+                skin: rgb(240, 214, 196),
+                hair_style: HairStyle::OverEars,
+                beard: false,
+                glasses: false,
+                special_sound: Some(Sfx::Serve),
+            };
+            &ART
+        }
+        // Glasses, short brown hair, a hoodie; orange.
+        Character::Ryan => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(1.0, 0.50, 0.12, 1.0)),
+                body: rgb(70, 74, 86),
+                legs: [rgb(36, 38, 46), rgb(48, 50, 60)],
+                arms: rgb(60, 64, 74),
+                hair: Some(rgb(112, 76, 46)),
+                headband: false,
+                skin: SKIN,
+                hair_style: HairStyle::Short,
+                beard: false,
+                glasses: true,
+                special_sound: Some(Sfx::ChainThrow),
             };
             &ART
         }
@@ -138,7 +237,7 @@ pub fn character_color(c: Character) -> Color {
 
 pub fn look(c: Character, seat: usize) -> Look {
     let a = art(c);
-    Look { body: a.body, legs: a.legs, arms: a.arms, hair: a.hair, accent: a.color.unwrap_or(ACCENTS[seat]), headband: a.headband }
+    Look { body: a.body, legs: a.legs, arms: a.arms, hair: a.hair, accent: a.color.unwrap_or(ACCENTS[seat]), headband: a.headband, skin: a.skin, hair_style: a.hair_style, beard: a.beard, glasses: a.glasses }
 }
 
 const fn rgb(r: u8, g: u8, b: u8) -> Color {
@@ -516,6 +615,16 @@ impl Art {
                 Event::Bite { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 2.0, 6, Color::new(0.9, 0.9, 0.85, 0.9), false, 50.0, 0.2, 200.0);
                 }
+                Event::Scratch { pos } => {
+                    self.burst(pos, vec2(0.0, -1.0), 2.0, 3, Color::new(0.95, 0.85, 0.80, 0.9), false, 40.0, 0.15, 200.0);
+                }
+                Event::Hook { pos } => {
+                    self.burst(pos, vec2(0.0, -1.0), 6.3, 8, Color::new(1.0, 0.95, 0.8, 1.0), false, 90.0, 0.2, 0.0);
+                }
+                Event::Splat { pos } => {
+                    self.burst(pos, vec2(0.0, -1.0), 3.0, 10, RICE, true, 70.0, 0.5, 380.0);
+                    self.burst(pos, vec2(0.0, -1.0), 3.0, 5, SALMON, true, 60.0, 0.5, 380.0);
+                }
                 Event::Swing { .. } | Event::Clatter { .. } => {}
             }
         }
@@ -627,7 +736,12 @@ impl Art {
         for e in &m.effects {
             match e {
                 Effect::Bomb(b) => draw_bomb(b, self.time),
-                Effect::Dog(d) => draw_dog(d),
+                Effect::Pet(p) => match p.breed {
+                    Breed::Hound => draw_dog(p),
+                    Breed::Cat(coat) => draw_cat(p, coat),
+                },
+                Effect::Table(t) => draw_table(t),
+                Effect::Chain(c) => draw_chain(c, chain_anchor(&m.f[c.owner])),
             }
         }
         // Loose and flying items (held spears are drawn with their holder).
@@ -727,6 +841,12 @@ fn draw_item(it: &Item, time: f32) {
                     draw_circle(p.x, p.y, 3.5, Color::new(1.0, 0.2, 0.1, 0.25));
                 }
             }
+        }
+        ItemKind::Sushi => {
+            // A piece of salmon nigiri: rice, fish on top, a band of nori.
+            draw_rectangle(x - 1.0, y + 1.0, 4.0, 2.0, RICE);
+            draw_rectangle(x - 1.0, y, 4.0, 1.0, SALMON);
+            draw_rectangle(x + 1.0, y, 1.0, 3.0, NORI);
         }
     }
 }
@@ -833,19 +953,44 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
         Some(hair) => {
             // Bare head: hair over the top and down the back of the head.
             let (hx, hy) = (head.x.round(), head.y.round());
-            draw_circle(head.x, head.y, 2.4, tint(SKIN, flash));
-            draw_rectangle(hx - 2.0, hy - 3.0, 5.0, 2.0, tint(hair, flash));
-            draw_rectangle(if s > 0.0 { hx - 3.0 } else { hx + 2.0 }, hy - 2.0, 2.0, 3.0, tint(hair, flash));
+            let hair = tint(hair, flash);
+            // A rectangle relative to the head, drawn as if facing right and mirrored when not.
+            let px = |dx: f32, dy: f32, w: f32, h: f32, c: Color| draw_rectangle(if s > 0.0 { hx + dx } else { hx + 1.0 - dx - w }, hy + dy, w, h, c);
+            draw_circle(head.x, head.y, 2.4, tint(look.skin, flash));
+            px(-2.0, -3.0, 5.0, 2.0, hair);
+            match look.hair_style {
+                HairStyle::Short => px(-3.0, -2.0, 2.0, 3.0, hair),
+                HairStyle::Long => {
+                    px(-3.0, -2.0, 2.0, 6.0, hair);
+                    px(-4.0, 0.0, 1.0, 4.0, hair);
+                }
+                HairStyle::OverEars => {
+                    px(-3.0, -2.0, 2.0, 3.0, hair);
+                    px(-1.0, -1.0, 2.0, 2.0, hair);
+                    px(2.0, -2.0, 1.0, 1.0, hair);
+                }
+            }
+            if look.beard {
+                px(-1.0, 1.0, 4.0, 2.0, hair);
+                px(0.0, 3.0, 3.0, 1.0, hair);
+            }
             if look.headband {
                 draw_rectangle(hx - 2.0, hy - 2.0, 5.0, 1.0, tint(look.accent, flash));
             }
         }
     }
     draw_rectangle((head.x + s * 1.5).round(), head.y.round() - 1.0, 1.0, 1.0, Color::new(0.05, 0.05, 0.06, 1.0));
+    if look.glasses {
+        // A dark frame across the eye and a pale glint of lens in front of it.
+        let (hx, hy) = (head.x.round(), head.y.round());
+        let px = |dx: f32, w: f32, c: Color| draw_rectangle(if s > 0.0 { hx + dx } else { hx + 1.0 - dx - w }, hy - 1.0, w, 1.0, c);
+        px(-1.0, 2.0, tint(Color::new(0.10, 0.10, 0.12, 1.0), flash));
+        px(2.0, 1.0, tint(Color::new(0.80, 0.90, 1.0, 1.0), flash));
+    }
 }
 
 /// One of Tyler's dogs, mid-gallop.
-fn draw_dog(d: &Dog) {
+fn draw_dog(d: &Pet) {
     let (x, y, s) = (d.pos.x.round(), d.pos.y.round(), d.dir);
     let stride = ((d.pos.x * 0.6).sin() > 0.0) as u8 as f32;
     // Front and back legs take turns lifting.
@@ -859,6 +1004,52 @@ fn draw_dog(d: &Dog) {
     draw_rectangle(if s > 0.0 { hx } else { hx + 1.0 }, y - 7.0, 1.0, 1.0, DOG_DARK);
     draw_rectangle(if s > 0.0 { hx + 1.0 } else { hx }, y - 6.0, 1.0, 1.0, Color::new(0.05, 0.05, 0.06, 1.0));
     draw_rectangle(if s > 0.0 { x - 4.0 } else { x + 3.0 }, y - 5.0 - stride, 1.0, 1.0, DOG_FUR);
+}
+
+/// One of Corwin's cats, tail up, scampering.
+fn draw_cat(c: &Pet, coat: u8) {
+    let (x, y, s) = (c.pos.x.round(), c.pos.y.round(), c.dir);
+    let (fur, dark) = COATS[coat as usize % COATS.len()];
+    let stride = ((c.pos.x * 0.8).sin() > 0.0) as u8 as f32;
+    for (lx, up) in [(-2.0, stride), (1.0, 1.0 - stride)] {
+        draw_rectangle(x + lx * s, y - 1.0, 1.0, 1.0 - up, dark);
+    }
+    draw_rectangle(x - 2.0, y - 3.0, 4.0, 2.0, fur);
+    // Head with two ears out front, and a tall tail behind.
+    let hx = if s > 0.0 { x + 1.0 } else { x - 3.0 };
+    draw_rectangle(hx, y - 4.0, 2.0, 2.0, fur);
+    draw_rectangle(hx, y - 5.0, 1.0, 1.0, dark);
+    draw_rectangle(hx + 1.0, y - 5.0, 1.0, 1.0, dark);
+    let tx = if s > 0.0 { x - 3.0 } else { x + 2.0 };
+    draw_rectangle(tx, y - 5.0 - stride, 1.0, 3.0, dark);
+}
+
+/// Ryan's chain: steel links from his chest to the hook.
+fn draw_chain(c: &Chain, from: Vec2) {
+    let d = c.tip - from;
+    let n = (d.length() / 2.0) as i32;
+    for k in 0..n {
+        let p = from + d * (k as f32 / n.max(1) as f32);
+        let col = if k % 2 == 0 { Color::new(0.72, 0.74, 0.78, 1.0) } else { Color::new(0.42, 0.44, 0.48, 1.0) };
+        draw_rectangle(p.x.floor(), p.y.floor(), 1.0, 1.0, col);
+    }
+    // The hook: a little barbed point.
+    let (x, y) = (c.tip.x.floor(), c.tip.y.floor());
+    let s = if d.x >= 0.0 { 1.0 } else { -1.0 };
+    draw_rectangle(x - 1.0, y - 1.0, 2.0, 2.0, Color::new(0.85, 0.87, 0.90, 1.0));
+    draw_rectangle(x - s, y + 1.0, 1.0, 1.0, Color::new(0.85, 0.87, 0.90, 1.0));
+}
+
+/// Justin's table: a wooden top on two legs, with a little cloth runner.
+fn draw_table(t: &Table) {
+    let b = t.body();
+    let (x, y) = (b.x.round(), b.y.round());
+    draw_rectangle(x, y, b.w, 2.0, WOOD);
+    draw_rectangle(x, y + 2.0, b.w, 1.0, WOOD_DARK);
+    draw_rectangle(x + b.w * 0.5 - 4.0, y, 8.0, 1.0, Color::new(0.85, 0.20, 0.22, 1.0));
+    for lx in [x + 2.0, x + b.w - 4.0] {
+        draw_rectangle(lx, y + 3.0, 2.0, b.h - 3.0, WOOD_DARK);
+    }
 }
 
 /// Sam's gravity bomb: a dark, pulsing orb in flight; once it goes off, a ring collapsing from
