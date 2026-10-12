@@ -1034,6 +1034,40 @@ fn collide(f: &mut Fighter) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// Plays fixed-seed matches between the committed brains and hashes every fighter's state
+    /// every tick. Any change to physics, senses, the brain or the RNG stream changes the hash,
+    /// so refactors (and new characters) must leave classic matches bit-identical.
+    #[test]
+    fn classic_matches_are_unchanged() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("brains");
+        let mut names: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "json")).collect();
+        names.sort();
+        let brains: Vec<Brain> = names.iter().map(|p| serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap()).collect();
+        assert_eq!(brains.len(), 5);
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut mix = |x: u64| h = (h ^ x).wrapping_mul(0x100_0000_01b3);
+        for seed in 0..8u64 {
+            let mut rng = SmallRng::seed_from_u64(seed);
+            let mut m = Match::new(&mut rng, HEALS_PER_ROUND);
+            let lineup: [&Brain; N_FIGHTERS] = std::array::from_fn(|i| &brains[(seed as usize + i) % brains.len()]);
+            while !m.over {
+                m.step(lineup);
+                for f in &m.f {
+                    for v in [f.pos.x, f.pos.y, f.vel.x, f.vel.y, f.hp] {
+                        mix(v.to_bits() as u64);
+                    }
+                }
+                mix(m.items.len() as u64);
+            }
+            mix(m.tick as u64);
+            mix(m.winner.map_or(9, |w| w as u64));
+        }
+        assert_eq!(h, CLASSIC_HASH, "classic match fingerprint changed: {h:#018x}");
+    }
+    const CLASSIC_HASH: u64 = 0x9fec_dcd7_3934_23f2;
+
     #[test]
     fn fast_atan2_matches_std() {
         let mut worst = 0.0f32;
