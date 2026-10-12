@@ -67,6 +67,16 @@ impl Client {
     async fn error(&mut self) -> Refusal {
         self.until(|m| if let ServerMsg::Error(e) = m { Some(e) } else { None }).await
     }
+
+    /// True once the server has closed the connection (reading past anything it sent first).
+    async fn closed(&mut self) -> bool {
+        loop {
+            match tokio::time::timeout(Duration::from_secs(5), self.ws.next()).await.expect("timed out waiting for the server") {
+                None | Some(Err(_)) | Some(Ok(Message::Close(_))) => return true,
+                Some(Ok(_)) => {}
+            }
+        }
+    }
 }
 
 #[tokio::test]
@@ -212,4 +222,22 @@ async fn health_check() {
     let r = http_get(&url, "/healthz", "").await;
     assert!(r.starts_with("HTTP/1.1 200"), "{r}");
     assert!(r.ends_with(r#"{"rooms":0,"connections":1}"#), "{r}");
+}
+
+#[tokio::test]
+async fn guessing_room_codes_or_flooding_gets_you_cut_off() {
+    let url = start_server().await;
+    let mut a = Client::connect(&url, "Guesser").await;
+    for _ in 0..5 {
+        a.send(ClientMsg::JoinRoom { code: "QQQQ".into() }).await;
+        assert_eq!(a.error().await, Refusal::NoSuchRoom);
+    }
+    a.send(ClientMsg::JoinRoom { code: "QQQR".into() }).await;
+    assert!(a.closed().await, "the 6th guess ends the connection");
+
+    let mut b = Client::connect(&url, "Spammer").await;
+    for _ in 0..40 {
+        b.send(ClientMsg::SetReady(true)).await;
+    }
+    assert!(b.closed().await, "40 messages at once is past the allowance");
 }

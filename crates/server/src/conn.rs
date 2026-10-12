@@ -10,6 +10,15 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 
+/// The server pings every connection this often; one silent for IDLE_TIMEOUT is dropped.
+const PING_EVERY: Duration = Duration::from_secs(15);
+const IDLE_TIMEOUT: Duration = Duration::from_secs(45);
+/// Per-connection message limits (see `Limits`).
+const INPUTS_PER_SEC: f32 = 120.0;
+const OTHER_PER_SEC: f32 = 10.0;
+const OTHER_BURST: f32 = 20.0;
+const MAX_BAD_CODES: u32 = 5;
+
 /// Outgoing messages queued per client. Snapshots are dropped if a client falls this far behind.
 pub const OUTBOX: usize = 64;
 
@@ -40,8 +49,18 @@ pub async fn run(socket: WebSocket, hub: Arc<Hub>) {
 
     let (out, mut outbox) = mpsc::channel::<Vec<u8>>(OUTBOX);
     let writer = tokio::spawn(async move {
-        while let Some(bytes) = outbox.recv().await {
-            if sink.send(Message::Binary(bytes.into())).await.is_err() {
+        // Also pings now and then, so a connection that's gone quiet (a closed laptop, a dead
+        // phone tab) shows up as silence and gets dropped. Browsers answer pings by themselves.
+        let mut ping = tokio::time::interval(PING_EVERY);
+        loop {
+            let msg = tokio::select! {
+                bytes = outbox.recv() => match bytes {
+                    Some(bytes) => Message::Binary(bytes.into()),
+                    None => break,
+                },
+                _ = ping.tick() => Message::Ping(Default::default()),
+            };
+            if sink.send(msg).await.is_err() {
                 break;
             }
         }
@@ -53,7 +72,12 @@ pub async fn run(socket: WebSocket, hub: Arc<Hub>) {
     let _ = out.send(encode(&ServerMsg::Welcome { you: id })).await;
 
     let mut room: Option<mpsc::Sender<RoomCmd>> = None;
+    let mut limits = Limits::new();
     while let Some(msg) = next_msg(&mut stream).await {
+        if let Err(why) = limits.allow(&msg) {
+            tracing::info!(id, why, "dropping a connection over its limits");
+            break;
+        }
         match msg {
             ClientMsg::Hello { .. } => {}
             ClientMsg::CreateRoom | ClientMsg::JoinRoom { .. } => {
@@ -72,6 +96,9 @@ pub async fn run(socket: WebSocket, hub: Arc<Hub>) {
                 match joined {
                     Ok(tx) => room = Some(tx),
                     Err(e) => {
+                        if e == Refusal::NoSuchRoom {
+                            limits.bad_codes += 1;
+                        }
                         let _ = out.send(encode(&ServerMsg::Error(e))).await;
                     }
                 }
@@ -131,9 +158,11 @@ async fn close(sink: &mut futures_util::stream::SplitSink<WebSocket, Message>, c
     let _ = sink.send(Message::Close(Some(frame))).await;
 }
 
+/// The next message, or None when the connection closes or has been silent for IDLE_TIMEOUT
+/// (anything counts as a sign of life, including the answers to our pings).
 async fn next_msg(stream: &mut futures_util::stream::SplitStream<WebSocket>) -> Option<ClientMsg> {
     loop {
-        match stream.next().await? {
+        match tokio::time::timeout(IDLE_TIMEOUT, stream.next()).await.ok()?? {
             Ok(Message::Binary(bytes)) => {
                 if let Some(msg) = decode::<ClientMsg>(&bytes) {
                     return Some(msg);
@@ -159,5 +188,55 @@ mod tests {
         assert_eq!(super::clean_name("  Sam\n "), "Sam");
         assert_eq!(super::clean_name("\u{7}\u{8}"), "Player");
         assert_eq!(super::clean_name("abcdefghijklmnopqrstuvwxyz").chars().count(), 16);
+    }
+}
+
+/// Each connection's allowance. Going over it closes the connection: no honest client comes close
+/// (inputs arrive 60 times a second; everything else is clicks).
+struct Limits {
+    inputs: Bucket,
+    other: Bucket,
+    /// Room codes tried that don't exist (guessing codes would let strangers into rooms).
+    bad_codes: u32,
+}
+
+impl Limits {
+    fn new() -> Self {
+        Self { inputs: Bucket::new(INPUTS_PER_SEC, INPUTS_PER_SEC), other: Bucket::new(OTHER_PER_SEC, OTHER_BURST), bad_codes: 0 }
+    }
+
+    /// Ok if `msg` is within the limits, else why not.
+    fn allow(&mut self, msg: &ClientMsg) -> Result<(), &'static str> {
+        if self.bad_codes >= MAX_BAD_CODES {
+            return Err("too many wrong room codes");
+        }
+        let bucket = if matches!(msg, ClientMsg::Input { .. }) { &mut self.inputs } else { &mut self.other };
+        if bucket.take() { Ok(()) } else { Err("too many messages") }
+    }
+}
+
+/// A token bucket: `rate` tokens a second, holding at most `burst`.
+struct Bucket {
+    tokens: f32,
+    rate: f32,
+    burst: f32,
+    last: tokio::time::Instant,
+}
+
+impl Bucket {
+    fn new(rate: f32, burst: f32) -> Self {
+        Self { tokens: burst, rate, burst, last: tokio::time::Instant::now() }
+    }
+
+    fn take(&mut self) -> bool {
+        let now = tokio::time::Instant::now();
+        self.tokens = (self.tokens + (now - self.last).as_secs_f32() * self.rate).min(self.burst);
+        self.last = now;
+        if self.tokens >= 1.0 {
+            self.tokens -= 1.0;
+            true
+        } else {
+            false
+        }
     }
 }
