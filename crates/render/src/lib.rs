@@ -27,7 +27,6 @@ pub const ACCENTS: [Color; N_FIGHTERS] = [
     Color::new(0.82, 0.68, 0.24, 1.0),
     Color::new(0.58, 0.36, 0.72, 1.0),
 ];
-pub const NAMES: [&str; N_FIGHTERS] = ["RED", "BLUE", "GOLD", "VIOLET"];
 
 const SKIN: Color = Color::new(0.86, 0.70, 0.58, 1.0);
 const DOG_FUR: Color = Color::new(0.55, 0.38, 0.22, 1.0);
@@ -485,7 +484,7 @@ impl Art {
         }
     }
 
-    pub fn draw(&mut self, m: &Match, debug: bool) {
+    pub fn draw(&mut self, m: &Match) {
         if self.stain_dirty {
             self.stain_tex.update(&self.stain_img);
             self.stain_dirty = false;
@@ -496,25 +495,6 @@ impl Art {
         }
         draw_texture(&self.terrain, 0.0, 0.0, WHITE);
         draw_texture(&self.stain_tex, 0.0, 0.0, WHITE);
-
-        if debug {
-            for f in m.f.iter().filter(|f| f.alive()) {
-                let eye = f.eye();
-                for i in 0..N_RAYS {
-                    let d = ray_dir(i);
-                    let t = terrain_ray(eye, d, RAY_MAX);
-                    draw_line(eye.x, eye.y, eye.x + d.x * t, eye.y + d.y * t, 1.0, Color::new(0.3, 0.9, 1.0, 0.12));
-                }
-                if f.atk_timer > 0 {
-                    let b = f.attack_box();
-                    let c = if f.attack_active() { Color::new(1.0, 0.2, 0.2, 0.5) } else { Color::new(1.0, 1.0, 0.2, 0.3) };
-                    draw_rectangle_lines(b.x, b.y, b.w, b.h, 1.0, c);
-                }
-            }
-            for it in m.items.iter().filter(|it| it.fuse.is_some()) {
-                draw_circle_lines(it.pos.x, it.pos.y, GRENADE_RADIUS, 1.0, Color::new(1.0, 0.5, 0.2, 0.3));
-            }
-        }
 
         for b in &m.bombs {
             draw_bomb(b, self.time);

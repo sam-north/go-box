@@ -93,7 +93,6 @@ pub const N_RAYS: usize = 12;
 pub const N_SECTORS: usize = 12;
 pub const RAY_MAX: f32 = 200.0;
 const VIS_MAX: f32 = 370.0;
-const CLOSE_DIST: f32 = 40.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum ItemKind {
@@ -115,7 +114,7 @@ impl ItemKind {
     }
 }
 
-/// Where damage came from, for stats.
+/// Where damage came from (hit sounds differ by weapon).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Source {
     Fist,
@@ -123,26 +122,8 @@ pub enum Source {
     SpearThrow,
     Rock,
     Grenade,
-    /// A character's special. Tracked in `Fighter::dmg_special`, not `dmg_by_source` (whose
-    /// five slots are the trainer's saved stats format), so it's not in `ALL`.
+    /// A character's special.
     Special,
-}
-
-impl Source {
-    pub const ALL: [Source; 5] = [Source::Fist, Source::Stab, Source::SpearThrow, Source::Rock, Source::Grenade];
-    pub fn index(self) -> usize {
-        self as usize
-    }
-    pub fn name(self) -> &'static str {
-        match self {
-            Source::Fist => "fists",
-            Source::Stab => "spear stab",
-            Source::SpearThrow => "spear throw",
-            Source::Rock => "rock",
-            Source::Grenade => "grenade",
-            Source::Special => "special",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -233,19 +214,12 @@ pub struct Fighter {
     pub character: Character,
     /// Ticks until the special can be used again (0 = ready).
     pub special_cd: u32,
-    // Stats.
+    // Stats for the scoreboard.
     pub died_at: Option<u32>,
-    pub dmg_special: f32,
     pub dmg_dealt: f32,
     pub dmg_taken: f32,
-    pub self_dmg: f32,
-    pub dmg_by_source: [f32; 5],
-    pub hits: u32,
     pub headshots: u32,
     pub kills: u32,
-    pub close_ticks: u32,
-    pub healed: f32,
-    pub heals_taken: u32,
 }
 
 impl Fighter {
@@ -268,17 +242,10 @@ impl Fighter {
             character: Character::Classic,
             special_cd: 0,
             died_at: None,
-            dmg_special: 0.0,
             dmg_dealt: 0.0,
             dmg_taken: 0.0,
-            self_dmg: 0.0,
-            dmg_by_source: [0.0; 5],
-            hits: 0,
             headshots: 0,
             kills: 0,
-            close_ticks: 0,
-            healed: 0.0,
-            heals_taken: 0,
         }
     }
 
@@ -489,7 +456,6 @@ pub struct Match {
     pub heals: Vec<Vec2>,
     /// Remaining heal spawn times this round, latest first.
     heal_schedule: Vec<u32>,
-    pub heals_spawned: u32,
     next_item: u32,
     rng: SmallRng,
     pub tick: u32,
@@ -524,7 +490,6 @@ impl Match {
             items,
             heals: Vec::new(),
             heal_schedule,
-            heals_spawned: 0,
             next_item,
             rng: SmallRng::seed_from_u64(rng.r#gen()),
             tick: 0,
@@ -538,14 +503,6 @@ impl Match {
 
     pub(crate) fn random_surface_spot_between(&mut self, lo: f32, hi: f32) -> Option<Vec2> {
         random_surface_spot_between(&mut self.rng, lo, hi)
-    }
-
-    /// A 1v1 in seats 0 and 2; the other two seats are empty.
-    pub fn duel(rng: &mut impl Rng, heals: RangeInclusive<usize>) -> Self {
-        let mut m = Self::new(rng, heals);
-        m.remove(1);
-        m.remove(3);
-        m
     }
 
     /// Empties seat `i` (before the match starts): nobody plays there.
@@ -765,13 +722,6 @@ impl Match {
         self.spawn_items();
 
         // 6. Bookkeeping.
-        for i in 0..N_FIGHTERS {
-            let close = (0..N_FIGHTERS)
-                .any(|j| j != i && self.f[j].alive() && self.f[i].center().distance(self.f[j].center()) < CLOSE_DIST);
-            if close && self.f[i].alive() {
-                self.f[i].close_ticks += 1;
-            }
-        }
         self.tick += 1;
         let alive: Vec<usize> = (0..N_FIGHTERS).filter(|&i| self.f[i].alive()).collect();
         // A match with only one fighter in it (practice) runs until they die or time runs out.
@@ -790,11 +740,6 @@ impl Match {
                 }
             };
         }
-    }
-
-    /// True if the match ended on the clock rather than with one survivor.
-    pub fn timed_out(&self) -> bool {
-        self.over && self.f.iter().filter(|f| f.alive()).count() > 1
     }
 
     fn hands(&mut self, i: usize, a: Action) {
@@ -924,7 +869,6 @@ impl Match {
             self.heal_schedule.pop();
             let pos = random_surface_spot(&mut self.rng) - vec2(0.0, HEAL_R + 1.0);
             self.heals.push(pos);
-            self.heals_spawned += 1;
             self.events.push(Event::Spawn { pos });
         }
         let mut hi = 0;
@@ -937,10 +881,7 @@ impl Match {
             match taker {
                 Some(j) => {
                     let f = &mut self.f[j];
-                    let gained = HEAL_AMOUNT.min(MAX_HP - f.hp);
-                    f.hp += gained;
-                    f.healed += gained;
-                    f.heals_taken += 1;
+                    f.hp += HEAL_AMOUNT.min(MAX_HP - f.hp);
                     self.events.push(Event::Heal { who: j, pos: self.heals[hi] });
                     self.heals.swap_remove(hi);
                 }
@@ -976,16 +917,9 @@ impl Match {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn damage(&mut self, src: usize, victim: usize, dmg: f32, knockback: Vec2, stun: u32, dir: f32, source: Source, headshot: bool) {
-        if src == victim {
-            self.f[victim].self_dmg += dmg;
-        } else {
+        if src != victim {
             let a = &mut self.f[src];
             a.dmg_dealt += dmg;
-            match a.dmg_by_source.get_mut(source.index()) {
-                Some(d) => *d += dmg,
-                None => a.dmg_special += dmg,
-            }
-            a.hits += 1;
             a.headshots += headshot as u32;
         }
         let v = &mut self.f[victim];
@@ -1019,21 +953,6 @@ impl Match {
         }
     }
 
-    /// Outcome-based score: damage dealt, damage taken (offset by health restored), kills,
-    /// dying, and winning (last one standing, or most health at the timeout). Nothing rewards
-    /// any particular weapon or style. `shaping` (0..1) is an optional "get close to someone"
-    /// hint the trainer fades out early on.
-    pub fn fitness(&self, i: usize, shaping: f32) -> f32 {
-        let me = &self.f[i];
-        let mut s = me.dmg_dealt - 0.5 * (me.dmg_taken - me.healed) + 60.0 * me.kills as f32;
-        if !me.alive() {
-            s -= 40.0;
-        }
-        if self.winner == Some(i) {
-            s += 80.0 + 40.0 * (1.0 - self.tick as f32 / MAX_TICKS as f32);
-        }
-        s + shaping * me.close_ticks as f32 * 0.03
-    }
 }
 
 /// Everything a viewer needs to draw a match (and the scoreboard): what the server sends
@@ -1071,7 +990,6 @@ impl Match {
             items: v.items,
             heals: v.heals,
             heal_schedule: Vec::new(),
-            heals_spawned: 0,
             next_item: u32::MAX,
             rng: SmallRng::seed_from_u64(0),
             tick: v.tick,

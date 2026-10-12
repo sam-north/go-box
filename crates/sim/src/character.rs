@@ -561,7 +561,7 @@ mod tests {
         let dragged = 440.0 - m.f[3].pos.x;
         assert!(dragged > 25.0 && dragged < 70.0, "far fighter dragged {dragged}px");
         assert_eq!(m.f[0].hp, MAX_HP, "Sam is unaffected");
-        assert!(m.f[0].dmg_special > 0.0);
+        assert!(m.f[0].dmg_dealt > 0.0);
     }
 
     #[test]
@@ -595,6 +595,6 @@ mod tests {
         assert!(m.dogs.is_empty(), "gone after 5s");
         assert_eq!(m.f[0].hp, MAX_HP, "dogs never bite Tyler");
         assert!(m.f[1].hp < MAX_HP, "the fighter in their path got bitten");
-        assert!(m.f[0].dmg_special > 0.0);
+        assert!(m.f[0].dmg_dealt > 0.0);
     }
 }

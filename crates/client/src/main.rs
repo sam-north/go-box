@@ -404,7 +404,7 @@ async fn main() {
         art.update(dt, m);
         set_camera(&cam);
         clear_background(BLACK);
-        art.draw(m, false);
+        art.draw(m);
         if let (true, Some(seat)) = (playing, seat) {
             draw_aim(m, seat, app.controls.target(&m.f[seat], mouse_arena));
         }
