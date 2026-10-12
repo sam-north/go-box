@@ -6,4 +6,4 @@ edition.workspace = true
 
 [dependencies]
 go-box-sim.workspace = true
-macroquad.workspace = true
+macroquad = { workspace = true, features = ["audio"] }

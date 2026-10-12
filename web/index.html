@@ -11,8 +11,9 @@
 </head>
 <body>
   <canvas id="glcanvas" tabindex="1"></canvas>
-  <!-- miniquad's loader (copied from the miniquad crate), then our WebSocket/page bridge. -->
+  <!-- miniquad's loader and macroquad's audio plugin (copied from their crates), then our WebSocket/page bridge. -->
   <script src="gl.js"></script>
+  <script src="audio.js"></script>
   <script src="net.js"></script>
   <script>load("go-box-client.wasm");</script>
 </body>

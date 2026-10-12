@@ -4,26 +4,28 @@
 //!
 //! All tuning lives in the constants at the top of this file.
 
-use crate::sim::{Aabb, Event, Fighter, Match, Source, BODY_H, DT, N_FIGHTERS, PLATFORMS, SOLIDS};
+use crate::sim::{Aabb, Event, Fighter, Match, Source, DT, N_FIGHTERS, PLATFORMS, SOLIDS};
 use glam::{vec2, Vec2};
 use serde::{Deserialize, Serialize};
 
 const SECOND: u32 = 60;
 
-// Sam — Gravity Well.
-const WELL_COOLDOWN: u32 = 30 * SECOND;
-const WELL_TICKS: u32 = SECOND;
-/// Fighters farther than this from the well feel nothing.
-pub const WELL_RADIUS: f32 = 90.0;
-/// Pull speed (px/s) for someone right next to Sam when he fires, falling off linearly to 0
-/// at WELL_RADIUS. Each fighter's pull is fixed by where they stood at that moment, so the
-/// far edge gets a ~25px nudge over the second and the near ones a strong tug.
-/// Walking is 45 and running 85, so you can run out of the outer part but not the middle.
-const WELL_PULL: f32 = 150.0;
-/// The pull stops this far from the well: it tugs people in, it never stacks them on Sam.
-const WELL_STOP: f32 = 8.0;
-pub const WELL_POP_RADIUS: f32 = 16.0;
-const WELL_POP_DAMAGE: f32 = 12.0;
+// Sam — Gravity Bomb. Lobbed ahead of him; it goes off when it lands, touches someone, or its
+// fuse runs out. Going off, it yanks everyone within BOMB_PULL_RADIUS into the middle over
+// BOMB_CRUNCH ticks (no outrunning it), then explodes.
+const BOMB_COOLDOWN: u32 = 30 * SECOND;
+/// Throw velocity (px/s, x is along Sam's facing): lands ~90px ahead on flat ground.
+const BOMB_THROW: Vec2 = Vec2::new(170.0, -150.0);
+const BOMB_GRAVITY: f32 = 520.0;
+const BOMB_FUSE: u32 = SECOND;
+pub const BOMB_PULL_RADIUS: f32 = 76.0;
+/// The yank: a quarter second from the edge to the middle.
+pub const BOMB_CRUNCH: u32 = 15;
+const BOMB_PULL_MAX_SPEED: f32 = 420.0;
+pub const BOMB_BLAST_RADIUS: f32 = 30.0;
+const BOMB_DAMAGE: f32 = 34.0;
+/// Damage at the blast's edge, as a fraction of the full hit.
+const BOMB_EDGE: f32 = 0.4;
 
 // Austin — Pop-Up.
 const POPUP_COOLDOWN: u32 = 15 * SECOND;
@@ -64,7 +66,7 @@ impl Character {
     pub fn special(self) -> Option<&'static dyn Special> {
         match self {
             Character::Classic => None,
-            Character::Sam => Some(&GravityWell),
+            Character::Sam => Some(&GravityBomb),
             Character::Austin => Some(&PopUp),
             Character::Tyler => Some(&Hounds),
         }
@@ -86,27 +88,27 @@ fn foes(m: &Match, who: usize) -> impl Iterator<Item = &Fighter> {
     m.f.iter().enumerate().filter(move |&(j, f)| j != who && f.alive()).map(|(_, f)| f)
 }
 
-struct GravityWell;
+struct GravityBomb;
 
-impl Special for GravityWell {
+impl Special for GravityBomb {
     fn name(&self) -> &'static str {
-        "Gravity Well"
+        "Gravity Bomb"
     }
     fn cooldown(&self) -> u32 {
-        WELL_COOLDOWN
+        BOMB_COOLDOWN
     }
     fn activate(&self, m: &mut Match, who: usize) {
-        let pos = m.f[who].pos;
-        let pull = std::array::from_fn(|j| {
-            let d = m.f[j].pos.distance(pos);
-            if j == who || !m.f[j].alive() || d >= WELL_RADIUS { 0.0 } else { WELL_PULL * (1.0 - d / WELL_RADIUS) }
-        });
-        m.wells.push(Well { pos, owner: who, ticks: WELL_TICKS, pull });
+        let f = &m.f[who];
+        let vel = vec2(BOMB_THROW.x * f.facing, BOMB_THROW.y) + f.vel * 0.5;
+        m.bombs.push(Bomb { pos: f.hand(), vel, owner: who, fuse: BOMB_FUSE, crunch: None, caught: [false; N_FIGHTERS] });
     }
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
-        let me = m.f[who].center();
-        let near = foes(m, who).map(|f| f.center().distance(me)).filter(|&d| d < WELL_RADIUS * 0.8).count();
-        near >= 2 || foes(m, who).any(|f| f.center().distance(me) < 30.0)
+        let me = &m.f[who];
+        // Someone roughly where the bomb would land, or right in my face.
+        foes(m, who).any(|f| {
+            let (dx, dy) = ((f.pos.x - me.pos.x) * me.facing, f.pos.y - me.pos.y);
+            (dx > 30.0 && dx < 140.0 && dy.abs() < 50.0) || f.pos.distance(me.pos) < 16.0
+        })
     }
 }
 
@@ -183,14 +185,18 @@ impl Special for Hounds {
     }
 }
 
-/// Sam's well: pulls nearby fighters in for a second, then pops.
+/// Sam's gravity bomb: flying, then (once it goes off) crunching everyone nearby together.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Well {
+pub struct Bomb {
     pub pos: Vec2,
+    pub vel: Vec2,
     pub owner: usize,
-    pub ticks: u32,
-    /// Pull speed on each fighter, fixed when the well opened.
-    pub pull: [f32; N_FIGHTERS],
+    /// Ticks of flight left before it goes off on its own.
+    pub fuse: u32,
+    /// None while flying; once it's gone off, the ticks left before it explodes.
+    pub crunch: Option<u32>,
+    /// Who was in range when it went off (they're the ones being pulled).
+    pub caught: [bool; N_FIGHTERS],
 }
 
 /// One of Tyler's dogs: runs along floors, turns at walls, bites anyone but Tyler.
@@ -233,32 +239,16 @@ impl Match {
         }
     }
 
-    /// Advances wells and dogs. Nothing happens (and nothing is drawn from the RNG) when there
+    /// Advances bombs and dogs. Nothing happens (and nothing is drawn from the RNG) when there
     /// are none, so classic matches are unchanged.
     pub(crate) fn step_effects(&mut self) {
-        for w in 0..self.wells.len() {
-            let Well { pos, owner, pull: strength, .. } = self.wells[w];
-            for j in 0..N_FIGHTERS {
-                if strength[j] > 0.0 && self.f[j].alive() {
-                    pull(&mut self.f[j], pos, strength[j]);
-                }
-            }
-            self.wells[w].ticks -= 1;
-            if self.wells[w].ticks == 0 {
-                self.events.push(Event::WellPop { pos });
-                for j in 0..N_FIGHTERS {
-                    if j == owner || !self.f[j].alive() {
-                        continue;
-                    }
-                    let to = self.f[j].center() - pos;
-                    if to.length() < WELL_POP_RADIUS {
-                        let dir = if to.x == 0.0 { 1.0 } else { to.x.signum() };
-                        self.damage(owner, j, WELL_POP_DAMAGE, vec2(dir * 90.0, -120.0), 10, dir, Source::Special, false);
-                    }
-                }
+        for b in 0..self.bombs.len() {
+            match self.bombs[b].crunch {
+                None => self.fly_bomb(b),
+                Some(t) => self.crunch_bomb(b, t),
             }
         }
-        self.wells.retain(|w| w.ticks > 0);
+        self.bombs.retain(|b| b.crunch != Some(0));
 
         for d in 0..self.dogs.len() {
             run_dog(&mut self.dogs[d]);
@@ -269,6 +259,7 @@ impl Match {
                     continue;
                 }
                 self.dogs[d].bite_cd[j] = BITE_EVERY;
+                self.events.push(Event::Bite { pos: self.f[j].center() });
                 self.damage(owner, j, BITE_DAMAGE, vec2(dir * 120.0, -90.0), 8, dir, Source::Special, false);
             }
             let dog = &mut self.dogs[d];
@@ -279,26 +270,77 @@ impl Match {
     }
 }
 
-/// Drags a fighter toward the well at `strength` px/s. Horizontal pull moves them
-/// directly (so it works against their footing), stopping short of the well; in the air it
-/// also bends their fall toward it.
-fn pull(f: &mut Fighter, well: Vec2, strength: f32) {
-    let to = well - f.pos;
-    let d = to.length();
-    if d <= WELL_STOP {
-        return;
+impl Match {
+    /// A bomb in flight: arcs under gravity and goes off on terrain, on a foe, or when its
+    /// fuse runs out.
+    fn fly_bomb(&mut self, b: usize) {
+        let bomb = &mut self.bombs[b];
+        bomb.vel.y += BOMB_GRAVITY * DT;
+        let prev = bomb.pos;
+        bomb.pos += bomb.vel * DT;
+        bomb.fuse = bomb.fuse.saturating_sub(1);
+        let mut hit = bomb.fuse == 0;
+        if let Some(s) = SOLIDS.iter().find(|s| s.contains(bomb.pos)) {
+            // Stop on the surface it hit.
+            bomb.pos = vec2(bomb.pos.x.clamp(s.x - 0.5, s.x + s.w + 0.5), bomb.pos.y);
+            if prev.y <= s.y {
+                bomb.pos.y = s.y - 0.5;
+            } else if prev.x < s.x || prev.x > s.x + s.w {
+                bomb.pos.x = prev.x;
+            } else {
+                bomb.pos.y = prev.y;
+            }
+            hit = true;
+        }
+        if bomb.vel.y > 0.0 && PLATFORMS.iter().any(|p| bomb.pos.x > p.x && bomb.pos.x < p.x + p.w && prev.y <= p.y && bomb.pos.y >= p.y) {
+            bomb.pos.y = PLATFORMS.iter().find(|p| bomb.pos.x > p.x && bomb.pos.x < p.x + p.w && prev.y <= p.y).map_or(bomb.pos.y, |p| p.y - 0.5);
+            hit = true;
+        }
+        let (pos, owner) = (bomb.pos, bomb.owner);
+        hit |= (0..N_FIGHTERS).any(|j| j != owner && self.f[j].alive() && self.f[j].body().overlaps(&Aabb::around(pos, 2.0)));
+        if !hit {
+            return;
+        }
+        let caught = std::array::from_fn(|j| j != owner && self.f[j].alive() && self.f[j].center().distance(pos) < BOMB_PULL_RADIUS);
+        let bomb = &mut self.bombs[b];
+        bomb.vel = Vec2::ZERO;
+        bomb.crunch = Some(BOMB_CRUNCH);
+        bomb.caught = caught;
+        self.events.push(Event::BombCrunch { pos });
     }
-    let dir = to / d;
-    let room = (to.x.abs() - WELL_STOP).max(0.0);
-    let dx = (dir.x * strength * DT).clamp(-room, room);
-    let mut moved = f.pos.x + dx;
-    let body = |x: f32| Aabb::new(x - crate::sim::HALF_W, f.pos.y - BODY_H, crate::sim::HALF_W * 2.0, BODY_H);
-    if let Some(s) = SOLIDS.iter().find(|s| body(moved).overlaps(s)) {
-        moved = if dx > 0.0 { s.x - crate::sim::HALF_W } else { s.x + s.w + crate::sim::HALF_W };
-    }
-    f.pos.x = moved;
-    if !f.grounded {
-        f.vel.y += dir.y * strength * 4.0 * DT;
+
+    /// A bomb that's gone off: hauls everyone it caught into the middle (they can't fight it),
+    /// then explodes.
+    fn crunch_bomb(&mut self, b: usize, left: u32) {
+        let Bomb { pos, owner, caught, .. } = self.bombs[b];
+        let left = left - 1;
+        self.bombs[b].crunch = Some(left);
+        for j in 0..N_FIGHTERS {
+            let f = &mut self.f[j];
+            if !caught[j] || !f.alive() {
+                continue;
+            }
+            // Aim to arrive just as it blows; speed is capped so it's a yank, not a teleport.
+            let to = pos - f.center();
+            let secs = (left.max(1)) as f32 * DT;
+            f.vel = (to / secs).clamp_length_max(BOMB_PULL_MAX_SPEED);
+            f.grounded = false;
+            f.hitstun = f.hitstun.max(2);
+            f.atk_timer = 0;
+        }
+        if left > 0 {
+            return;
+        }
+        self.events.push(Event::BombBlast { pos });
+        for j in 0..N_FIGHTERS {
+            let d = self.f[j].center().distance(pos);
+            if j == owner || !self.f[j].alive() || d >= BOMB_BLAST_RADIUS {
+                continue;
+            }
+            let away = (self.f[j].center() - pos).normalize_or(vec2(0.0, -1.0));
+            let dmg = BOMB_DAMAGE * (1.0 - d / BOMB_BLAST_RADIUS).max(BOMB_EDGE);
+            self.damage(owner, j, dmg, away * 240.0 + vec2(0.0, -110.0), 14, if away.x == 0.0 { 1.0 } else { away.x.signum() }, Source::Special, false);
+        }
     }
 }
 
@@ -347,7 +389,7 @@ mod tests {
         m.items.clear();
         for i in 0..N_FIGHTERS {
             m.f[i].character = cast[i];
-            m.f[i].pos = vec2(xs[i], 164.0);
+            m.f[i].pos = vec2(xs[i], crate::sim::FLOOR_Y);
         }
         m
     }
@@ -420,28 +462,34 @@ mod tests {
     }
 
     #[test]
-    fn sam_pulls_nearby_harder_than_far_and_pops() {
+    fn sams_bomb_yanks_everyone_nearby_together_then_blows() {
         let z = zero_brain();
-        let mut m = staged([Character::Sam, Character::Classic, Character::Classic, Character::Classic], [160.0, 130.0, 85.0, 300.0]);
-        let start: Vec<f32> = m.f.iter().map(|f| f.pos.x).collect();
+        // Sam faces right; the bomb lands on (or hits) the fighter ~100px ahead, the next one
+        // is 45px past that, the last is far away.
+        let mut m = staged([Character::Sam, Character::Classic, Character::Classic, Character::Classic], [100.0, 200.0, 245.0, 440.0]);
+        m.f[0].facing = 1.0;
         step_idle(&mut m, &z, true);
-        for _ in 0..WELL_TICKS - 2 {
+        assert_eq!(m.bombs.len(), 1);
+        let mut went_off = None;
+        for t in 0..BOMB_FUSE + BOMB_CRUNCH + 2 {
             step_idle(&mut m, &z, false);
+            if let Some(Event::BombCrunch { pos }) = m.events.iter().find(|e| matches!(e, Event::BombCrunch { .. })) {
+                went_off = Some((t, *pos));
+            }
+            if m.events.iter().any(|e| matches!(e, Event::BombBlast { .. })) {
+                break;
+            }
         }
-        let near_moved = m.f[1].pos.x - start[1];
-        let far_moved = m.f[2].pos.x - start[2];
-        // Near (30px out) is hauled in to the stop distance; far (75px out) only nudged.
-        assert!((160.0 - m.f[1].pos.x - WELL_STOP).abs() < 0.5, "near ended {} from Sam", 160.0 - m.f[1].pos.x);
-        assert!(near_moved > 15.0, "near {near_moved}");
-        assert!(far_moved > 10.0 && far_moved < 30.0, "far should be nudged, moved {far_moved}");
-        assert_eq!(m.f[3].pos.x, start[3], "out of range: untouched");
-        // Let it pop; the near fighter is in the blast.
-        for _ in 0..4 {
-            step_idle(&mut m, &z, false);
-        }
-        assert!(m.wells.is_empty());
-        assert!(m.f[1].hp < MAX_HP && m.f[0].dmg_special > 0.0);
+        let (t, pos) = went_off.expect("the bomb went off");
+        assert!(t < BOMB_FUSE, "it went off on contact, not on the fuse");
+        assert!(m.bombs.is_empty(), "it exploded");
+        // The second fighter was dragged right in and caught the blast too.
+        assert!(m.f[2].center().distance(pos) < BOMB_BLAST_RADIUS, "second fighter ended {} away", m.f[2].center().distance(pos));
+        assert!(m.f[1].hp < MAX_HP && m.f[2].hp < MAX_HP, "both near fighters hurt: {} {}", m.f[1].hp, m.f[2].hp);
+        assert_eq!(m.f[3].hp, MAX_HP, "out of range: untouched");
+        assert_eq!(m.f[3].pos.x, 440.0);
         assert_eq!(m.f[0].hp, MAX_HP, "Sam is unaffected");
+        assert!(m.f[0].dmg_special > 0.0);
     }
 
     #[test]

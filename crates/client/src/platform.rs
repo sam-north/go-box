@@ -39,6 +39,14 @@ mod imp {
         set(1, "go-box-name", name);
     }
 
+    pub fn load_muted() -> bool {
+        get(1, "go-box-muted") == "1"
+    }
+
+    pub fn save_muted(muted: bool) {
+        set(1, "go-box-muted", if muted { "1" } else { "0" });
+    }
+
     pub fn share_link(code: &str) -> String {
         get(2, code)
     }
@@ -63,6 +71,12 @@ mod imp {
     }
 
     pub fn save_name(_name: &str) {}
+
+    pub fn load_muted() -> bool {
+        Options::get().mute
+    }
+
+    pub fn save_muted(_muted: bool) {}
 
     pub fn share_link(code: &str) -> String {
         format!("{}/?room={code}", Options::get().server.trim_end_matches("/ws").replace("ws://", "http://").replace("wss://", "https://"))

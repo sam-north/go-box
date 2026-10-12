@@ -3,17 +3,20 @@
 //! expose physical abilities; brains decide what to do with them.
 
 use crate::brain::{Brain, IN_EXTRA, IN_HEAL, IN_ITEMS, IN_MEM, IN_NEAREST, IN_OPP, IN_SELF, IN_THREAT, MEM, N_IN, N_OUT, OUT_MEM};
-use crate::character::{Character, Dog, Well};
+use crate::character::{Bomb, Character, Dog};
 use glam::{vec2, Vec2};
 use serde::{Deserialize, Serialize};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use std::ops::{Range, RangeInclusive};
 
-pub const W: f32 = 320.0;
-pub const H: f32 = 180.0;
+pub const W: f32 = 480.0;
+pub const H: f32 = 270.0;
+/// Top of the floor (where everyone stands at the start); walls and ceiling are WALL thick.
+pub const FLOOR_Y: f32 = 254.0;
+pub const WALL: f32 = 8.0;
 pub const DT: f32 = 1.0 / 60.0;
-pub const MAX_TICKS: u32 = 60 * 30;
+pub const MAX_TICKS: u32 = 60 * 45;
 pub const N_FIGHTERS: usize = 4;
 
 // Body.
@@ -51,8 +54,10 @@ const ROCK_DAMAGE: f32 = 10.0;
 const HEADSHOT_MULT: f32 = 2.0;
 const ROCK_HEADSHOT_MULT: f32 = 3.0;
 pub const GRENADE_FUSE: u32 = 90;
-pub const GRENADE_RADIUS: f32 = 28.0;
-const GRENADE_DAMAGE: f32 = 45.0;
+pub const GRENADE_RADIUS: f32 = 34.0;
+const GRENADE_DAMAGE: f32 = 85.0;
+/// Damage at the very edge of the blast, as a fraction of the full hit.
+const GRENADE_EDGE: f32 = 0.35;
 pub const ITEM_R: f32 = 1.5;
 const LETHAL_SPEED: f32 = 110.0;
 const OWN_GRACE: u32 = 15;
@@ -154,17 +159,27 @@ impl Aabb {
 
 /// Fully solid terrain: ceiling, floor, walls.
 pub const SOLIDS: [Aabb; 4] = [
-    Aabb::new(0.0, 0.0, W, 8.0),
-    Aabb::new(0.0, 164.0, W, 16.0),
-    Aabb::new(0.0, 0.0, 8.0, H),
-    Aabb::new(312.0, 0.0, 8.0, H),
+    Aabb::new(0.0, 0.0, W, WALL),
+    Aabb::new(0.0, FLOOR_Y, W, H - FLOOR_Y),
+    Aabb::new(0.0, 0.0, WALL, H),
+    Aabb::new(W - WALL, 0.0, WALL, H),
 ];
 
-/// One-way platforms: you can jump up through them and land on top.
-pub const PLATFORMS: [Aabb; 3] = [
-    Aabb::new(52.0, 124.0, 64.0, 5.0),
-    Aabb::new(204.0, 124.0, 64.0, 5.0),
-    Aabb::new(128.0, 88.0, 64.0, 5.0),
+/// One-way platforms: you can jump up through them and land on top. Four tiers, each 36-40px
+/// above the last (a full jump clears ~48), mirrored left/right.
+pub const PLATFORMS: [Aabb; 8] = [
+    // Low ledges off the floor.
+    Aabb::new(40.0, 214.0, 72.0, 5.0),
+    Aabb::new(368.0, 214.0, 72.0, 5.0),
+    // Second tier.
+    Aabb::new(124.0, 178.0, 72.0, 5.0),
+    Aabb::new(284.0, 178.0, 72.0, 5.0),
+    // Side perches and the centre.
+    Aabb::new(44.0, 142.0, 64.0, 5.0),
+    Aabb::new(372.0, 142.0, 64.0, 5.0),
+    Aabb::new(204.0, 142.0, 72.0, 5.0),
+    // The top bridge.
+    Aabb::new(168.0, 106.0, 144.0, 5.0),
 ];
 
 #[derive(Clone, Copy, Default, Debug, Serialize, Deserialize)]
@@ -222,7 +237,7 @@ pub struct Fighter {
 impl Fighter {
     pub fn new(x: f32, facing: f32) -> Self {
         Self {
-            pos: vec2(x, 164.0),
+            pos: vec2(x, FLOOR_Y),
             vel: Vec2::ZERO,
             facing,
             grounded: true,
@@ -326,9 +341,11 @@ impl Item {
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum Event {
-    Hit { pos: Vec2, dir: f32, headshot: bool },
+    Hit { pos: Vec2, dir: f32, headshot: bool, source: Source },
     Death { pos: Vec2 },
-    Jump { pos: Vec2 },
+    Jump { who: usize, pos: Vec2 },
+    /// Fighter `who` started a melee swing.
+    Swing { who: usize },
     Land { pos: Vec2 },
     Throw { who: usize },
     Grab { pos: Vec2 },
@@ -339,8 +356,14 @@ pub enum Event {
     Special { who: usize },
     /// Austin vanishing or appearing.
     Poof { pos: Vec2 },
-    /// Sam's well popping.
-    WellPop { pos: Vec2 },
+    /// Sam's gravity bomb going off: everyone nearby is yanked in...
+    BombCrunch { pos: Vec2 },
+    /// ...then it explodes.
+    BombBlast { pos: Vec2 },
+    /// One of Tyler's dogs biting.
+    Bite { pos: Vec2 },
+    /// A thrown item hitting terrain hard.
+    Clatter { pos: Vec2, kind: ItemKind },
 }
 
 /// Distance along a normalised ray to the nearest terrain, capped at `max`.
@@ -417,12 +440,20 @@ fn one_hot(kind: Option<ItemKind>) -> [f32; 3] {
     v
 }
 
-/// A random spot on top of the floor or a platform — everywhere a fighter can stand.
+/// A random spot on top of the floor or a platform — everywhere a fighter can stand. Wider
+/// surfaces are proportionally more likely.
 fn random_surface_spot(rng: &mut impl Rng) -> Vec2 {
-    let floor = (14.0, 306.0, 164.0);
+    let floor = (WALL + 6.0, W - WALL - 6.0, FLOOR_Y);
     let surfaces = std::iter::once(floor).chain(PLATFORMS.iter().map(|p| (p.x + 3.0, p.x + p.w - 3.0, p.y)));
-    let (x0, x1, y) = surfaces.clone().nth(rng.gen_range(0..1 + PLATFORMS.len())).unwrap();
-    vec2(rng.gen_range(x0..x1), y)
+    let total: f32 = surfaces.clone().map(|(x0, x1, _)| x1 - x0).sum();
+    let mut pick = rng.gen_range(0.0..total);
+    for (x0, x1, y) in surfaces {
+        if pick < x1 - x0 {
+            return vec2(x0 + pick, y);
+        }
+        pick -= x1 - x0;
+    }
+    vec2(W / 2.0, FLOOR_Y)
 }
 
 pub struct Match {
@@ -439,7 +470,7 @@ pub struct Match {
     pub over: bool,
     pub winner: Option<usize>,
     pub events: Vec<Event>,
-    pub wells: Vec<Well>,
+    pub bombs: Vec<Bomb>,
     pub dogs: Vec<Dog>,
 }
 
@@ -447,12 +478,12 @@ impl Match {
     /// Four humans spread across the floor, empty-handed. `heals` is how many health pickups
     /// this round gets (picked at random from the range).
     pub fn new(rng: &mut impl Rng, heals: RangeInclusive<usize>) -> Self {
-        let mut zones = [20.0, 95.0, 175.0, 250.0];
+        let mut zones = [20.0, 135.0, 250.0, 365.0];
         for i in (1..zones.len()).rev() {
             zones.swap(i, rng.gen_range(0..=i));
         }
         let f = std::array::from_fn(|i| {
-            let x = zones[i] + rng.gen_range(0.0..50.0);
+            let x = zones[i] + rng.gen_range(0.0..90.0);
             Fighter::new(x, if x < W / 2.0 { 1.0 } else { -1.0 })
         });
         let mut items = Vec::new();
@@ -476,7 +507,7 @@ impl Match {
             over: false,
             winner: None,
             events: Vec::new(),
-            wells: Vec::new(),
+            bombs: Vec::new(),
             dogs: Vec::new(),
         }
     }
@@ -538,6 +569,9 @@ impl Match {
         // Brains never saw specials in training; a dog charging at you reads as a threat.
         for d in self.dogs.iter().filter(|d| d.owner != i) {
             mark(&mut s, IN_THREAT, glimpse(eye, d.center()));
+        }
+        for b in self.bombs.iter().filter(|b| b.owner != i) {
+            mark(&mut s, IN_THREAT, glimpse(eye, b.pos));
         }
         let k = IN_SELF;
         s[k] = me.vel.x / RUN;
@@ -645,7 +679,7 @@ impl Match {
             }
             let was_grounded = self.f[i].grounded;
             let f = &mut self.f[i];
-            control(f, actions[i], &mut self.events);
+            control(f, i, actions[i], &mut self.events);
             collide(f);
             if f.grounded && !was_grounded {
                 self.events.push(Event::Land { pos: f.pos });
@@ -777,8 +811,9 @@ impl Match {
         for k in 0..self.items.len() {
             if let Some(h) = self.items[k].held_by {
                 self.items[k].pos = self.f[h].hand();
-            } else {
-                step_item(&mut self.items[k]);
+            } else if step_item(&mut self.items[k]) {
+                let it = &self.items[k];
+                self.events.push(Event::Clatter { pos: it.pos, kind: it.kind });
             }
             if let Some(t) = self.items[k].fuse {
                 if t == 0 {
@@ -830,7 +865,7 @@ impl Match {
                 continue;
             }
             let away = (self.f[j].center() - pos).normalize_or(vec2(0.0, -1.0));
-            let dmg = GRENADE_DAMAGE * (1.0 - d / GRENADE_RADIUS).max(0.15);
+            let dmg = GRENADE_DAMAGE * (1.0 - d / GRENADE_RADIUS).max(GRENADE_EDGE);
             self.damage(owner.unwrap_or(j), j, dmg, away * 220.0 + vec2(0.0, -80.0), 14, away.x.signum(), Source::Grenade, false);
         }
         for it in self.items.iter_mut().filter(|it| it.held_by.is_none()) {
@@ -921,7 +956,7 @@ impl Match {
         v.atk_timer = 0;
         let pos = v.center();
         let died = !v.alive();
-        self.events.push(Event::Hit { pos, dir, headshot });
+        self.events.push(Event::Hit { pos, dir, headshot, source });
         if died {
             // Drop whatever was in hand.
             if let Some(k) = self.held_item(victim) {
@@ -962,7 +997,7 @@ pub struct MatchView {
     pub f: [Fighter; N_FIGHTERS],
     pub items: Vec<Item>,
     pub heals: Vec<Vec2>,
-    pub wells: Vec<Well>,
+    pub bombs: Vec<Bomb>,
     pub dogs: Vec<Dog>,
     pub over: bool,
     pub winner: Option<usize>,
@@ -975,7 +1010,7 @@ impl Match {
             f: self.f.clone(),
             items: self.items.clone(),
             heals: self.heals.clone(),
-            wells: self.wells.clone(),
+            bombs: self.bombs.clone(),
             dogs: self.dogs.clone(),
             over: self.over,
             winner: self.winner,
@@ -996,20 +1031,20 @@ impl Match {
             over: v.over,
             winner: v.winner,
             events,
-            wells: v.wells,
+            bombs: v.bombs,
             dogs: v.dogs,
         }
     }
 }
 
 /// One tick of a fighter's own movement and swing timing, exactly as `Match::step` does it, but
-/// without anyone else: a client runs this on its own fighter to show its input immediately,
-/// and the server's snapshots correct it.
-pub fn predict(f: &mut Fighter, a: Action) {
+/// without anyone else: a client runs this on its own fighter (seat `who`) to show its input
+/// immediately, and the server's snapshots correct it. Its jumps and swings go in `events`.
+pub fn predict(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
     if f.absent {
         return;
     }
-    control(f, a, &mut Vec::new());
+    control(f, who, a, events);
     collide(f);
     if f.atk_timer > 0 {
         f.atk_timer += 1;
@@ -1026,8 +1061,10 @@ pub fn predict(f: &mut Fighter, a: Action) {
     f.action = a;
 }
 
-fn step_item(it: &mut Item) {
+/// Moves a loose or flying item. True if it struck terrain hard this tick (for the sound).
+fn step_item(it: &mut Item) -> bool {
     it.age += 1;
+    let mut struck = false;
     // Thrown spears fly flat; everything else arcs.
     let g = if it.kind == ItemKind::Spear && it.lethal { 0.35 } else { 0.8 };
     it.vel.y = (it.vel.y + GRAVITY * g * DT).min(MAX_FALL);
@@ -1041,6 +1078,7 @@ fn step_item(it: &mut Item) {
     it.pos.x += it.vel.x * DT;
     if let Some(s) = SOLIDS.iter().find(|s| rb(it.pos).overlaps(s)) {
         it.pos.x = if it.vel.x > 0.0 { s.x - ITEM_R } else { s.x + s.w + ITEM_R };
+        struck |= it.vel.x.abs() > 60.0;
         it.vel.x *= -bounce;
     }
 
@@ -1064,6 +1102,7 @@ fn step_item(it: &mut Item) {
         }
     }
     if let Some(top) = landed {
+        struck |= it.vel.y > 60.0;
         it.pos.y = top - ITEM_R;
         it.vel.y = if it.vel.y > 60.0 { -it.vel.y * bounce } else { 0.0 };
         it.vel.x *= 0.7;
@@ -1075,15 +1114,16 @@ fn step_item(it: &mut Item) {
         it.lethal = false;
     }
     // Belt and braces: items can never leave the box.
-    it.pos.x = it.pos.x.clamp(8.0 + ITEM_R, 312.0 - ITEM_R);
-    it.pos.y = it.pos.y.clamp(8.0 + ITEM_R, 164.0 - ITEM_R);
+    it.pos.x = it.pos.x.clamp(WALL + ITEM_R, W - WALL - ITEM_R);
+    it.pos.y = it.pos.y.clamp(WALL + ITEM_R, FLOOR_Y - ITEM_R);
+    struck
 }
 
 fn approach(v: f32, target: f32, step: f32) -> f32 {
     if v < target { (v + step).min(target) } else { (v - step).max(target) }
 }
 
-fn control(f: &mut Fighter, a: Action, events: &mut Vec<Event>) {
+fn control(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
     if !f.alive() {
         f.vel.x *= 0.9;
     } else if f.hitstun > 0 {
@@ -1102,11 +1142,12 @@ fn control(f: &mut Fighter, a: Action, events: &mut Vec<Event>) {
         if a.jump && f.grounded {
             f.vel.y = -JUMP_V;
             f.grounded = false;
-            events.push(Event::Jump { pos: f.pos });
+            events.push(Event::Jump { who, pos: f.pos });
         }
         if a.attack && f.atk_timer == 0 && f.cooldown == 0 {
             f.atk_timer = 1;
             f.hit_mask = 0;
+            events.push(Event::Swing { who });
         }
     }
     // Releasing jump early cuts the arc short.
@@ -1187,7 +1228,8 @@ mod tests {
         }
         assert_eq!(h, CLASSIC_HASH, "classic match fingerprint changed: {h:#018x}");
     }
-    const CLASSIC_HASH: u64 = 0x9fec_dcd7_3934_23f2;
+    // Last deliberately changed by the bigger arena (480x270), 45s matches and stronger grenades.
+    const CLASSIC_HASH: u64 = 0xeede_084e_f81e_f0da;
 
     #[test]
     fn fast_atan2_matches_std() {

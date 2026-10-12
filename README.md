@@ -1,6 +1,6 @@
 # Go Box
 
-Four fighters locked in a box, free-for-all. Everyone starts **empty-handed**; spears, rocks, the
+Four fighters locked in a 480×270 box with four tiers of ledges, free-for-all. Everyone starts **empty-handed**; spears, rocks, the
 odd grenade and health lie around the arena. The bots aren't scripted: each is a small recurrent
 neural net evolved with a genetic algorithm (see [Training](#training)). Play it with friends in the
 browser; any empty seat is filled by a trained bot.
@@ -32,13 +32,20 @@ Everyone has the same body; each character adds one special on a cooldown.
 | Character | Special | Cooldown |
 |---|---|---|
 | Classic | none — the hooded fighter the brains were trained as | — |
-| Sam | **Gravity Well**: pulls nearby fighters toward him for a second (the closer, the harder), then pops for 12 | 30s |
+| Sam | **Gravity Bomb**: lobs a bomb ~90px ahead; it goes off when it lands or touches someone, yanks everyone within 76px into the middle in a quarter second, then explodes for up to 34 | 30s |
 | Austin | **Pop-Up**: teleports to a random spot at least 40px from everyone | 15s |
 | Tyler | **Release the Hounds**: three dogs run the floors for 5s, biting anyone but Tyler | 30s |
 
 Bots playing a character use its special by a simple rule (the brains never trained with
 specials). Tuning lives at the top of `crates/sim/src/character.rs`; looks in
 `crates/render/src/lib.rs` (`look`).
+
+### Sound
+
+Every sound is synthesised in code at startup (`crates/render/src/sound.rs`): no audio files.
+Hits sound different by weapon, headshots ding, grenades tick faster as the fuse burns, and each
+special has its own. Your own jumps and swings play the instant you press the key. **M** toggles
+sound (remembered by the browser).
 
 ### How the netcode works
 
@@ -94,7 +101,7 @@ time; picking up is a deliberate **grab** (so choosing a spear over a rock is so
 | Spear stab (holding a spear) | 16, longer reach | ×2 |
 | Spear throw | 28, flies flat and fast | ×2 |
 | Rock throw | 10 | **×3** — a rock in the right spot is devastating |
-| Grenade | up to 45 in a radius, hurts everyone including the thrower | — |
+| Grenade | up to 85 in a 34px radius (30 at the edge), hurts everyone including the thrower | — |
 
 A **headshot** is a hit on the top of the body. For melee that means striking from above — out of
 a jump or down from a ledge. Thrown items land where they stop and can be picked up again. A
@@ -107,7 +114,7 @@ rarely a grenade — at most one grenade at a time).
 are 1-2 per round; training starts with 5-6 and fades to that over 300 generations (a curriculum),
 so brains discover them.
 
-A match ends with the **last one standing**, or after 30s, when the fighter with the most health
+A match ends with the **last one standing**, or after 45s, when the fighter with the most health
 wins. Only an exact tie is a draw.
 
 ### How it works
@@ -138,7 +145,7 @@ The full state saves to `save/ffa.json` every 3 minutes and on exit.
 ### Hardware budget
 
 Training uses at most half your logical CPUs minus one (7 of 16 threads on a 7800X3D), so it stays
-under ~50% CPU. Population size is fixed, so memory stays small. The window renders a 320×180
+under ~50% CPU. Population size is fixed, so memory stays small. The window renders a 480×270
 image upscaled with vsync, which is negligible GPU load.
 
 ### Archive

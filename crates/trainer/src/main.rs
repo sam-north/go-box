@@ -132,6 +132,8 @@ async fn viewer(fresh: bool, screenshot: Option<String>, start_mode: Option<KeyC
     cam.render_target = Some(rt.clone());
 
     let mut art = render::Art::new();
+    // Sound only in play mode: training at speed would be a racket.
+    let mut sfx = render::sound::Sounds::load();
     let mut rng = SmallRng::from_entropy();
     // The viewer pits the best few of the latest generation against each other, under the
     // heal rules training is currently using.
@@ -261,10 +263,16 @@ async fn viewer(fresh: bool, screenshot: Option<String>, start_mode: Option<KeyC
             while acc >= DT && !m.over {
                 m.step_with(std::array::from_fn(|i| &top[i % top.len()]), human);
                 art.handle_events(&m);
+                if play.is_some() {
+                    sfx.events(&m, &m.events, None);
+                }
                 acc -= DT;
             }
         }
         art.update(dt, &m);
+        if play.is_some() {
+            sfx.frame(dt, &m, Some(PLAYER));
+        }
 
         set_camera(&cam);
         clear_background(BLACK);
@@ -283,7 +291,7 @@ async fn viewer(fresh: bool, screenshot: Option<String>, start_mode: Option<KeyC
 
         set_default_camera();
         clear_background(Color::new(0.02, 0.02, 0.03, 1.0));
-        let scale = (screen_width() / W).min(screen_height() / H).floor().max(1.0);
+        let scale = (screen_width() / W).min(screen_height() / H);
         let (dw, dh) = (W * scale, H * scale);
         let (ox, oy) = (((screen_width() - dw) / 2.0).floor(), ((screen_height() - dh) / 2.0).floor());
         draw_texture_ex(&rt.texture, ox, oy, WHITE, DrawTextureParams { dest_size: Some(vec2(dw, dh)), ..Default::default() });

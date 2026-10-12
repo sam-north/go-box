@@ -11,6 +11,7 @@ mod ui;
 
 use game::Game;
 use go_box_protocol::*;
+use go_box_render::sound::{Sfx, Sounds};
 use go_box_render::{self as render, Art};
 use go_box_sim::brain::Brain;
 use go_box_sim::character::Character;
@@ -39,6 +40,8 @@ pub struct Options {
     shots: Option<String>,
     shot_every: f32,
     quit_after: Option<f32>,
+    /// Start with sound off.
+    pub mute: bool,
 }
 
 static OPTIONS: OnceLock<Options> = OnceLock::new();
@@ -64,6 +67,7 @@ impl Options {
             shots: val("--shots"),
             shot_every: val("--shot-every").and_then(|v| v.parse().ok()).unwrap_or(3.0),
             quit_after: val("--quit-after").and_then(|v| v.parse().ok()),
+            mute: has("--mute"),
         }
     }
 }
@@ -200,6 +204,8 @@ struct App {
     controls: Controls,
     rng: SmallRng,
     code_written: bool,
+    /// The shown match had ended last frame (to play the result sound once).
+    was_over: bool,
 }
 
 impl App {
@@ -231,7 +237,7 @@ impl App {
         }
     }
 
-    fn update_net(&mut self, art: &mut Art) {
+    fn update_net(&mut self, art: &mut Art, sfx: &mut Sounds) {
         let Some(net) = &mut self.net else { return };
         match net.state() {
             State::Connecting => return,
@@ -282,7 +288,10 @@ impl App {
                 ServerMsg::MatchStart(s) => {
                     self.game = Some(Game::new(s));
                     self.acc = 0.0;
+                    self.was_over = false;
                     art.reset();
+                    sfx.reset();
+                    sfx.play(Sfx::Start, 1.0);
                 }
                 ServerMsg::Snapshot(s) => {
                     if let Some(g) = &mut self.game {
@@ -299,6 +308,8 @@ async fn main() {
     let opts = Options::get();
     let mut ui = Ui::new();
     let mut art = Art::new();
+    let mut sfx = Sounds::load();
+    sfx.muted = platform::load_muted();
     let rt = render_target(W as u32, H as u32);
     rt.texture.set_filter(FilterMode::Nearest);
     let mut cam = Camera2D { target: vec2(W / 2.0, H / 2.0), zoom: vec2(2.0 / W, 2.0 / H), ..Default::default() };
@@ -329,6 +340,7 @@ async fn main() {
         controls: Controls::default(),
         rng: SmallRng::seed_from_u64((get_time() * 1e6) as u64),
         code_written: false,
+        was_over: false,
     };
     if opts.create {
         app.enter(ClientMsg::CreateRoom);
@@ -340,7 +352,7 @@ async fn main() {
     loop {
         let dt = get_frame_time().min(0.1);
         ui.begin();
-        app.update_net(&mut art);
+        app.update_net(&mut art, &mut sfx);
 
         // Your inputs, at the sim's fixed 60/s.
         let seat = app.game.as_ref().and_then(|g| g.seat());
@@ -361,7 +373,9 @@ async fn main() {
                 };
                 let seq = app.seq;
                 app.send(ClientMsg::Input { seq, action });
-                app.game.as_mut().unwrap().local_tick(seq, action);
+                let mut mine = Vec::new();
+                app.game.as_mut().unwrap().local_tick(seq, action, &mut mine);
+                sfx.local(&mine);
             }
         }
 
@@ -373,6 +387,14 @@ async fn main() {
         let m = match &shown {
             Some(m) => {
                 art.handle_events(m);
+                // The bots behind the menus stay silent; only a match you're in makes sound.
+                sfx.events(m, &m.events, seat);
+                sfx.frame(dt, m, seat);
+                if m.over && !app.was_over {
+                    let lost = seat.is_some_and(|s| m.winner != Some(s));
+                    sfx.play(if lost { Sfx::Lose } else { Sfx::Win }, 1.0);
+                }
+                app.was_over = m.over;
                 m
             }
             None => {
@@ -405,7 +427,7 @@ async fn main() {
         set_default_camera();
         clear_background(Color::new(0.02, 0.02, 0.03, 1.0));
         let scale = (screen_width() / W).min(screen_height() / H);
-        let scale = if scale >= 1.0 { scale.floor() } else { scale };
+        // Fill the window: at 480x270 whole-pixel steps (2x, 3x) leave big borders on common screens.
         let (dw, dh) = (W * scale, H * scale);
         let (ox, oy) = (((screen_width() - dw) / 2.0).floor(), ((screen_height() - dh) / 2.0).floor());
         let in_menu = app.game.is_none() || app.room.as_ref().is_none_or(|r| r.phase == Phase::Lobby);
@@ -429,6 +451,15 @@ async fn main() {
                 ui.panel(r);
                 ui.text_centered(msg, screen_width() / 2.0, r.y + ui.px(27.0), 22.0, BAD);
             }
+        }
+        if ui.pressed {
+            sfx.play(Sfx::Click, 1.0);
+        }
+        if ui.focus.is_none() && is_key_pressed(KeyCode::M) {
+            sfx.muted = !sfx.muted;
+            platform::save_muted(sfx.muted);
+            app.notify(if sfx.muted { "Sound off (M to turn it back on)" } else { "Sound on" });
+            sfx.play(Sfx::Click, 1.0);
         }
         ui.end();
 
@@ -471,7 +502,7 @@ fn draw_aim(m: &Match, seat: usize) {
     }
 }
 
-const CONTROLS: &str = "A/D move   Shift run   Space jump   R attack   E grab/throw   W/S aim   F special";
+const CONTROLS: &str = "A/D move   Shift run   Space jump   R attack   E grab/throw   W/S aim   F special   M sound";
 
 fn connecting_screen(ui: &mut Ui) {
     let t = "Connecting...";
@@ -663,6 +694,7 @@ fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Render
         }
         if is_mouse_button_pressed(MouseButton::Left) && rr.contains(mouse_position().into()) && !selected {
             app.send(ClientMsg::SetCharacter(c));
+            ui.pressed = true;
         }
     }
     y += ch + ui.px(20.0);

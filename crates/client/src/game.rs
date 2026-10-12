@@ -7,7 +7,7 @@
 //! applied yet are replayed on top. Small corrections are smoothed out rather than snapped.
 
 use go_box_protocol::{MatchStart, Snapshot};
-use go_box_sim::sim::{Action, Fighter, Match, MatchView, N_FIGHTERS, predict};
+use go_box_sim::sim::{Action, Event, Fighter, Match, MatchView, N_FIGHTERS, predict};
 use macroquad::math::Vec2;
 use std::collections::VecDeque;
 
@@ -62,7 +62,7 @@ impl Game {
             self.pending.retain(|&(seq, _)| seq > s.ack);
             let mut f = s.view.f[seat].clone();
             for &(_, a) in &self.pending {
-                predict(&mut f, a);
+                predict(&mut f, seat, a, &mut Vec::new());
             }
             if let Some(old) = &self.me {
                 self.offset += old.pos - f.pos;
@@ -82,12 +82,14 @@ impl Game {
     }
 
     /// One local tick of your input: shown immediately, and remembered until acknowledged.
-    pub fn local_tick(&mut self, seq: u32, a: Action) {
-        let Some(me) = &mut self.me else { return };
+    /// Your jumps and swings this tick go in `events` (so their sounds needn't wait for the
+    /// server).
+    pub fn local_tick(&mut self, seq: u32, a: Action, events: &mut Vec<Event>) {
+        let (Some(seat), Some(me)) = (self.start.your_seat, &mut self.me) else { return };
         if self.snaps.back().is_some_and(|s| s.view.over) {
             return;
         }
-        predict(me, a);
+        predict(me, seat, a, events);
         self.pending.push_back((seq, a));
         while self.pending.len() > 120 {
             self.pending.pop_front();

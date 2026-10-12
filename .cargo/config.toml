@@ -2,3 +2,8 @@
 # Scoped to the Windows desktop target so browser (wasm32) and Linux server builds stay portable.
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-cpu=native"]
+
+# macroquad's audio (quad-snd) declares its browser imports without an import module; let them
+# link as imports from "env", which web/audio.js provides.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=--allow-undefined"]

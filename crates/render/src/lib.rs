@@ -1,6 +1,8 @@
 //! Procedural pixel art in a Rain World / Noita spirit: everything is generated in
-//! code at 320x180 — grimy industrial backdrop, mossy brick, rain, procedurally
+//! code at arena resolution (480x270) — grimy industrial backdrop, mossy brick, rain, procedurally
 //! animated bodies, items, explosions, and blood/scorch pixels that stick to the terrain.
+
+pub mod sound;
 
 use go_box_sim::character::*;
 use go_box_sim::sim::*;
@@ -30,7 +32,7 @@ pub const NAMES: [&str; N_FIGHTERS] = ["RED", "BLUE", "GOLD", "VIOLET"];
 const SKIN: Color = Color::new(0.86, 0.70, 0.58, 1.0);
 const DOG_FUR: Color = Color::new(0.55, 0.38, 0.22, 1.0);
 const DOG_DARK: Color = Color::new(0.28, 0.19, 0.12, 1.0);
-const WELL: Color = Color::new(0.45, 0.85, 0.55, 1.0);
+const GRAV: Color = Color::new(0.45, 0.85, 0.55, 1.0);
 const SMOKE: Color = Color::new(0.75, 0.74, 0.70, 0.8);
 
 /// How a character looks. Classic is the hooded figure the brains were trained as; the named
@@ -130,8 +132,12 @@ fn solid_px(x: i32, y: i32) -> bool {
 
 fn make_background() -> Image {
     let mut img = Image::gen_image_color(W as u16, H as u16, BLACK);
-    let pipes_v = [(22, 31), (70, 74), (142, 154), (222, 228), (276, 287)];
-    let pipes_h = [(36, 41, 0, 160), (100, 103, 120, 320), (60, 62, 180, 320)];
+    // Laid out on a 320x180 grid, stretched to the arena.
+    let (sx, sy) = (W / 320.0, H / 180.0);
+    let px = |v: u32| (v as f32 * sx) as u32;
+    let py = |v: u32| (v as f32 * sy) as u32;
+    let pipes_v = [(22, 31), (70, 74), (142, 154), (222, 228), (276, 287)].map(|(a, b)| (px(a), px(b)));
+    let pipes_h = [(36, 41, 0, 160), (100, 103, 120, 320), (60, 62, 180, 320)].map(|(a, b, c, d)| (py(a), py(b), px(c), px(d)));
     for y in 0..H as u32 {
         for x in 0..W as u32 {
             let (fx, fy) = (x as f32, y as f32);
@@ -169,8 +175,8 @@ fn make_background() -> Image {
             let n = fbm(fx * 0.05, fy * 0.05, 3);
             let grime = (n - 0.5) * 18.0;
             let streak = if hash(x as i32, 2, 11) > 0.8 && fy > hash(x as i32, 3, 13) * 60.0 { -4.0 } else { 0.0 };
-            let shaft_d = ((fx - fy * 0.6) - 80.0).abs();
-            let shaft = if shaft_d < 40.0 { (1.0 - shaft_d / 40.0) * 10.0 * (1.0 - t) } else { 0.0 };
+            let shaft_d = ((fx - fy * 0.6) - 80.0 * sx).abs();
+            let shaft = if shaft_d < 40.0 * sx { (1.0 - shaft_d / (40.0 * sx)) * 10.0 * (1.0 - t) } else { 0.0 };
             img.set_pixel(x, y, dither(x, y, r + grime + streak + shaft, g + grime + streak + shaft * 1.1, b + grime + streak + shaft * 1.2));
         }
     }
@@ -306,7 +312,7 @@ fn tex(img: &Image) -> Texture2D {
 impl Art {
     pub fn new() -> Self {
         let stain_img = Image::gen_image_color(W as u16, H as u16, Color::new(0.0, 0.0, 0.0, 0.0));
-        let rain = (0..90)
+        let rain = (0..200)
             .map(|i| Drop { pos: vec2(hash(i, 0, 1) * W, hash(i, 1, 1) * H), speed: 200.0 + hash(i, 2, 1) * 120.0 })
             .collect();
         Self {
@@ -349,7 +355,7 @@ impl Art {
     pub fn handle_events(&mut self, m: &Match) {
         for e in &m.events {
             match *e {
-                Event::Hit { pos, dir, headshot } => {
+                Event::Hit { pos, dir, headshot, .. } => {
                     let n = if headshot { 40 } else { 22 };
                     self.burst(pos, vec2(dir, -0.5).normalize(), 1.6, n, BLOOD, true, 140.0, 2.5, 420.0);
                     let spark = if headshot { Color::new(1.0, 0.95, 0.5, 1.0) } else { Color::new(1.0, 0.95, 0.85, 1.0) };
@@ -358,7 +364,7 @@ impl Art {
                 Event::Death { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 6.0, 70, BLOOD, true, 160.0, 2.5, 420.0);
                 }
-                Event::Jump { pos } | Event::Land { pos } => {
+                Event::Jump { pos, .. } | Event::Land { pos } => {
                     self.burst(pos + vec2(0.0, -1.0), vec2(0.0, -1.0), 3.0, 4, Color::new(0.45, 0.43, 0.40, 0.8), false, 40.0, 0.5, 420.0);
                 }
                 Event::Throw { who } => self.vis[who].since_throw = 0.0,
@@ -393,10 +399,27 @@ impl Art {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 26, SMOKE, false, 45.0, 0.6, -30.0);
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 10, character_color(Character::Austin), false, 70.0, 0.3, 0.0);
                 }
-                Event::WellPop { pos } => {
-                    self.blasts.push((pos - vec2(0.0, 4.0), 0.0, WELL_POP_RADIUS));
-                    self.burst(pos - vec2(0.0, 4.0), vec2(0.0, -1.0), 6.3, 30, WELL, false, 110.0, 0.35, 0.0);
+                Event::BombCrunch { pos } => {
+                    // Debris sucked in from the edge of its reach.
+                    for i in 0..36 {
+                        let seed = (self.time * 1000.0) as i32 + i * 17;
+                        let a = hash(seed, 0, 61) * std::f32::consts::TAU;
+                        let r = BOMB_PULL_RADIUS * (0.6 + hash(seed, 1, 61) * 0.4);
+                        let from = pos + vec2(a.cos(), a.sin()) * r;
+                        let life = BOMB_CRUNCH as f32 / 60.0;
+                        self.particles.push(Particle { pos: from, vel: (pos - from) / life, color: GRAV, life, stick: false, gravity: 0.0 });
+                    }
                 }
+                Event::BombBlast { pos } => {
+                    self.blasts.push((pos, 0.0, BOMB_BLAST_RADIUS));
+                    self.burst(pos, vec2(0.0, -1.0), 6.3, 50, GRAV, false, 170.0, 0.45, 0.0);
+                    self.burst(pos, vec2(0.0, -1.0), 6.3, 30, Color::new(0.85, 1.0, 0.9, 1.0), false, 90.0, 0.25, 0.0);
+                    self.burst(pos, vec2(0.0, -1.0), 6.3, 30, SCORCH, true, 110.0, 1.5, 300.0);
+                }
+                Event::Bite { pos } => {
+                    self.burst(pos, vec2(0.0, -1.0), 2.0, 6, Color::new(0.9, 0.9, 0.85, 0.9), false, 50.0, 0.2, 200.0);
+                }
+                Event::Swing { .. } | Event::Clatter { .. } => {}
             }
         }
     }
@@ -486,8 +509,8 @@ impl Art {
             }
         }
 
-        for w in &m.wells {
-            draw_well(w, self.time);
+        for b in &m.bombs {
+            draw_bomb(b, self.time);
         }
         for &h in &m.heals {
             draw_heal(h, self.time);
@@ -706,19 +729,24 @@ fn draw_dog(d: &Dog) {
     draw_rectangle(if s > 0.0 { x - 4.0 } else { x + 3.0 }, y - 5.0 - stride, 1.0, 1.0, DOG_FUR);
 }
 
-/// Sam's well: a faint ring at its reach and motes spiralling into the core.
-fn draw_well(w: &Well, time: f32) {
-    let c = w.pos - vec2(0.0, 4.0);
-    let life = w.ticks as f32 / 60.0;
-    draw_circle_lines(c.x, c.y, WELL_RADIUS, 1.0, Color::new(WELL.r, WELL.g, WELL.b, 0.10));
-    for k in 0..14 {
-        let ph = (time * 0.9 + k as f32 / 14.0).fract();
-        let r = WELL_RADIUS * 0.9 * (1.0 - ph);
-        let a = k as f32 * 2.4 + ph * 5.0;
-        draw_rectangle((c.x + a.cos() * r).floor(), (c.y + a.sin() * r * 0.5).floor(), 1.0, 1.0, Color::new(WELL.r, WELL.g, WELL.b, 0.25 + 0.6 * ph));
+/// Sam's gravity bomb: a dark, pulsing orb in flight; once it goes off, a ring collapsing from
+/// the edge of its reach onto the core.
+fn draw_bomb(b: &Bomb, time: f32) {
+    let c = b.pos;
+    match b.crunch {
+        None => {
+            draw_circle(c.x, c.y, 4.0 + (time * 30.0).sin() * 0.7, Color::new(GRAV.r, GRAV.g, GRAV.b, 0.25));
+            draw_circle(c.x, c.y, 2.0, Color::new(0.04, 0.08, 0.06, 1.0));
+            draw_rectangle(c.x.floor(), c.y.floor() - 1.0, 1.0, 1.0, GRAV);
+        }
+        Some(left) => {
+            let k = left as f32 / BOMB_CRUNCH as f32;
+            draw_circle(c.x, c.y, BOMB_PULL_RADIUS * k, Color::new(GRAV.r * 0.3, GRAV.g * 0.3, GRAV.b * 0.3, 0.18 * (1.0 - k)));
+            draw_circle_lines(c.x, c.y, BOMB_PULL_RADIUS * k, 1.0, Color::new(GRAV.r, GRAV.g, GRAV.b, 0.9));
+            draw_circle(c.x, c.y, 3.0 + 3.0 * (1.0 - k), Color::new(0.02, 0.05, 0.03, 0.95));
+            draw_circle_lines(c.x, c.y, 3.5 + 3.0 * (1.0 - k), 1.0, GRAV);
+        }
     }
-    draw_circle(c.x, c.y, 4.0 + (time * 20.0).sin(), Color::new(0.05, 0.12, 0.08, 0.8));
-    draw_circle_lines(c.x, c.y, 4.5 + 2.0 * (1.0 - life), 1.0, Color::new(WELL.r, WELL.g, WELL.b, 0.8));
 }
 
 /// Draws a held spear for the current swing phase and returns where the hand is.

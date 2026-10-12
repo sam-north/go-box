@@ -27,11 +27,13 @@ pub struct Ui {
     pub enter: bool,
     /// Something consumed this frame's click (so a click on a button doesn't also unfocus).
     hot: bool,
+    /// A button was pressed this frame (for the click sound).
+    pub pressed: bool,
 }
 
 impl Ui {
     pub fn new() -> Self {
-        Self { s: 1.0, mouse: Vec2::ZERO, clicked: false, focus: None, typed: Vec::new(), backspace: false, enter: false, hot: false }
+        Self { s: 1.0, mouse: Vec2::ZERO, clicked: false, focus: None, typed: Vec::new(), backspace: false, enter: false, hot: false, pressed: false }
     }
 
     pub fn begin(&mut self) {
@@ -39,6 +41,7 @@ impl Ui {
         self.mouse = mouse_position().into();
         self.clicked = is_mouse_button_pressed(MouseButton::Left);
         self.hot = false;
+        self.pressed = false;
         self.typed.clear();
         while let Some(c) = get_char_pressed() {
             self.typed.push(c);
@@ -112,6 +115,7 @@ impl Ui {
         let clicked = hover && self.clicked;
         if clicked {
             self.hot = true;
+            self.pressed = true;
         }
         clicked
     }
