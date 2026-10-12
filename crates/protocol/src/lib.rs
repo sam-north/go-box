@@ -28,7 +28,7 @@ use go_box_sim::sim::{Action, ArenaId, Event, MatchConfig, MatchView, N_FIGHTERS
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 14;
+pub const PROTOCOL_VERSION: u16 = 15;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -235,17 +235,19 @@ mod tests {
     }
 
     /// A match of bots playing every character, with a snapshot taken while a gravity bomb is
-    /// out and another while Tyler's dogs are running, so their layouts are on the wire too.
+    /// out, another while Tyler's dogs are running and another with Seth's minis about, so their
+    /// layouts are on the wire too.
     fn sample_snapshots() -> Vec<Snapshot> {
         use go_box_sim::brain::Brain;
         let brain = Brain::from_json(include_str!("../../../brains/gen_219000.json")).unwrap();
         let mut m = Match::new(5, &MatchConfig::default());
-        for (f, c) in m.f.iter_mut().zip(Character::ALL) {
+        let cast = [Character::Seth, Character::Sam, Character::Austin, Character::Tyler];
+        for (f, c) in m.f.iter_mut().zip(cast) {
             f.character = c;
         }
         use go_box_sim::character::Effect;
-        let (mut bomb, mut dogs) = (None, None);
-        while (bomb.is_none() || dogs.is_none()) && !m.over {
+        let (mut bomb, mut dogs, mut minis) = (None, None, None);
+        while (bomb.is_none() || dogs.is_none() || minis.is_none()) && !m.over {
             m.step([&brain; N_FIGHTERS]);
             let snap = || Snapshot { ack: m.tick, view: m.view(), events: m.events.clone() };
             if bomb.is_none() && m.effects.iter().any(|e| matches!(e, Effect::Bomb(_))) {
@@ -254,8 +256,11 @@ mod tests {
             if dogs.is_none() && m.effects.iter().any(|e| matches!(e, Effect::Dog(_))) {
                 dogs = Some(snap());
             }
+            if minis.is_none() && m.f[N_FIGHTERS..].iter().any(|f| !f.absent) {
+                minis = Some(snap());
+            }
         }
-        vec![Snapshot { ack: 0, view: Match::new(1, &MatchConfig::default()).view(), events: Vec::new() }, bomb.expect("a bomb was thrown"), dogs.expect("dogs ran")]
+        vec![Snapshot { ack: 0, view: Match::new(1, &MatchConfig::default()).view(), events: Vec::new() }, bomb.expect("a bomb was thrown"), dogs.expect("dogs ran"), minis.expect("minis came out")]
     }
 
     /// One of every message, with fixed contents. The `match`es have no wildcard arm, so a new
@@ -333,7 +338,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (14, 0x7c6d_c538_f3c4_6b44);
+    const WIRE: (u16, u64) = (15, 0xa8a3_e7d6_9bc7_de9d);
 
     #[test]
     fn every_sample_round_trips() {

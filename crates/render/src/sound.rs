@@ -39,6 +39,7 @@ go_box_sim::enum_all! {
         BombBlast,
         Ready,
         Count,
+        Split,
         Start,
         Win,
         Lose,
@@ -137,6 +138,11 @@ impl Sfx {
             Sfx::Ready => s.tone(0.0, 0.14, 880.0, 1320.0, Wave::Sine, 0.005, 14.0, 0.22),
             // The 3-2-1 beeps (the start horn, `Start`, is the GO).
             Sfx::Count => s.tone(0.0, 0.16, 660.0, 660.0, Wave::Square, 0.003, 12.0, 0.14),
+            // Seth's minis popping out: two quick rising blips.
+            Sfx::Split => {
+                s.tone(0.0, 0.08, 520.0, 1040.0, Wave::Tri, 0.003, 18.0, 0.25);
+                s.tone(0.09, 0.08, 620.0, 1240.0, Wave::Tri, 0.003, 18.0, 0.25);
+            }
             Sfx::Start => {
                 s.tone(0.0, 0.12, 440.0, 440.0, Wave::Square, 0.003, 10.0, 0.14);
                 s.tone(0.16, 0.3, 660.0, 660.0, Wave::Square, 0.003, 6.0, 0.16);
@@ -314,7 +320,7 @@ pub struct Sounds {
     /// When each sound last started (seconds), so a burst of identical events plays once.
     last: Vec<f64>,
     now: f64,
-    step_dist: [f32; N_FIGHTERS],
+    step_dist: [f32; N_BODIES],
     fuse_acc: f32,
     special_cd: Option<u32>,
     /// The countdown number last shown (3, 2, 1), to beep on each.
@@ -334,7 +340,7 @@ impl Sounds {
                 }
             }
         });
-        Self { sounds, muted: false, master: 0.8, effects: 1.0, last: vec![-1.0; Sfx::ALL.len()], now: 0.0, step_dist: [0.0; N_FIGHTERS], fuse_acc: 0.0, special_cd: None, count: None }
+        Self { sounds, muted: false, master: 0.8, effects: 1.0, last: vec![-1.0; Sfx::ALL.len()], now: 0.0, step_dist: [0.0; N_BODIES], fuse_acc: 0.0, special_cd: None, count: None }
     }
 
     /// Plays `s` at `vol` (0..1, before the master volume).
@@ -437,7 +443,7 @@ impl Sounds {
             self.count = count;
         }
         let ear = own.map_or(vec2_mid(), |s| m.f[s].center());
-        for i in 0..N_FIGHTERS {
+        for i in 0..N_BODIES {
             let f = &m.f[i];
             if !f.alive() || !f.grounded || f.vel.x.abs() < 20.0 {
                 self.step_dist[i] = 0.0;
@@ -472,7 +478,7 @@ impl Sounds {
 
     /// Forget per-match state (between matches).
     pub fn reset(&mut self) {
-        self.step_dist = [0.0; N_FIGHTERS];
+        self.step_dist = [0.0; N_BODIES];
         self.fuse_acc = 0.0;
         self.special_cd = None;
         self.count = None;

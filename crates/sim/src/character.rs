@@ -4,7 +4,7 @@
 //!
 //! All tuning lives in the constants at the top of this file.
 
-use crate::sim::{Aabb, Arena, Event, Fighter, Match, Source, DT, N_FIGHTERS, SOLIDS, W};
+use crate::sim::{Aabb, Arena, Event, Fighter, Match, Source, DT, N_BODIES, N_FIGHTERS, SOLIDS, W};
 use glam::{vec2, Vec2};
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +43,14 @@ const POPUP_MIN_GAP: f32 = 40.0;
 const POPUP_DISTANCE: f32 = 160.0;
 const POPUP_MIN_AHEAD: f32 = 24.0;
 
+// Seth — Mini Me: summons half-size clones of himself that fight on his side with the bot brain,
+// pick things up and throw them like anyone, and go down to a single hit.
+const MINI_COOLDOWN: u32 = 30 * SECOND;
+const MINIS_PER_USE: usize = 2;
+/// How long a mini lasts (if nothing hits it first; and it goes when Seth does).
+const MINI_LIFE: u32 = 15 * SECOND;
+pub const MINI_SCALE: f32 = 0.5;
+
 // Tyler — Release the Hounds.
 const HOUNDS_COOLDOWN: u32 = 30 * SECOND;
 /// Each dog's speed (px/s): a little faster than a fighter's full run, so they catch runners.
@@ -63,6 +71,7 @@ crate::enum_all! {
         Sam,
         Austin,
         Tyler,
+        Seth,
     }
 }
 
@@ -85,6 +94,7 @@ impl Character {
             Character::Sam => &CharacterDef { id: "sam", special: Some(&GravityBomb) },
             Character::Austin => &CharacterDef { id: "austin", special: Some(&PopUp) },
             Character::Tyler => &CharacterDef { id: "tyler", special: Some(&Hounds) },
+            Character::Seth => &CharacterDef { id: "seth", special: Some(&MiniMe) },
         }
     }
 
@@ -108,9 +118,9 @@ pub trait Special: Sync {
     fn bot_wants(&self, m: &Match, who: usize) -> bool;
 }
 
-/// Living opponents of `who`, nearest first is not guaranteed.
+/// Living opponents of `who` (not its own minis or summoner), in no particular order.
 fn foes(m: &Match, who: usize) -> impl Iterator<Item = &Fighter> {
-    m.f.iter().enumerate().filter(move |&(j, f)| j != who && f.alive()).map(|(_, f)| f)
+    (0..N_BODIES).filter(move |&j| m.foes(who, j)).map(|j| &m.f[j])
 }
 
 struct GravityBomb;
@@ -195,6 +205,41 @@ impl Special for PopUp {
     }
 }
 
+struct MiniMe;
+
+impl Special for MiniMe {
+    fn id(&self) -> &'static str {
+        "mini_me"
+    }
+    fn cooldown(&self) -> u32 {
+        MINI_COOLDOWN
+    }
+    fn activate(&self, m: &mut Match, who: usize) {
+        let seth = m.f[who].clone();
+        for k in 0..MINIS_PER_USE {
+            // The mini slots after the seats; if they're all taken, fewer come.
+            let Some(slot) = (N_FIGHTERS..N_BODIES).find(|&j| m.f[j].absent) else { break };
+            let x = (seth.pos.x + seth.facing * (4.0 + 6.0 * k as f32)).clamp(14.0, W - 14.0);
+            let mut mini = Fighter::new(x, seth.facing);
+            mini.pos.y = seth.pos.y;
+            // A little hop out in front, so they spread out.
+            mini.vel = vec2(seth.facing * (40.0 + 40.0 * k as f32), -160.0);
+            mini.grounded = false;
+            mini.hp = 1.0;
+            mini.scale = MINI_SCALE;
+            mini.owner = Some(who);
+            mini.life = Some(MINI_LIFE);
+            mini.character = Character::Seth;
+            m.events.push(Event::Poof { pos: mini.center() });
+            m.f[slot] = mini;
+        }
+    }
+    fn bot_wants(&self, m: &Match, who: usize) -> bool {
+        let me = m.f[who].pos;
+        foes(m, who).any(|f| f.pos.distance(me) < 180.0)
+    }
+}
+
 struct Hounds;
 
 impl Special for Hounds {
@@ -214,7 +259,7 @@ impl Special for Hounds {
                 vy: 0.0,
                 owner: who,
                 ticks: HOUND_TICKS,
-                bite_cd: [0; N_FIGHTERS],
+                bite_cd: [0; N_BODIES],
             }));
         }
     }
@@ -237,7 +282,7 @@ pub struct Bomb {
     pub crunch: Option<u32>,
     /// How hard each fighter is being yanked (0..1), fixed by their distance when it went off.
     #[serde(skip)]
-    pub pull: [f32; N_FIGHTERS],
+    pub pull: [f32; N_BODIES],
 }
 
 /// One of Tyler's dogs: runs along floors, turns at walls, bites anyone but Tyler.
@@ -251,7 +296,7 @@ pub struct Dog {
     pub owner: usize,
     pub ticks: u32,
     #[serde(skip)]
-    bite_cd: [u32; N_FIGHTERS],
+    bite_cd: [u32; N_BODIES],
 }
 
 impl Dog {
@@ -265,7 +310,8 @@ impl Dog {
 
 impl Match {
     /// Fires specials that were asked for and are ready, and counts down cooldowns.
-    pub(crate) fn step_specials(&mut self, wants: [bool; N_FIGHTERS]) {
+    pub(crate) fn step_specials(&mut self, wants: [bool; N_BODIES]) {
+        // Seats only: minis have no specials.
         for i in 0..N_FIGHTERS {
             let Some(special) = self.f[i].character.special() else { continue };
             let f = &mut self.f[i];
@@ -284,6 +330,28 @@ impl Match {
     /// Advances every effect in the arena, then clears out the finished ones. Nothing happens
     /// (and nothing is drawn from the RNG) when there are none, so classic matches are
     /// unchanged.
+    /// Minis count down and vanish (in a puff) when their time's up, when they're hit, or when
+    /// whoever summoned them goes down; whatever they held drops.
+    pub(crate) fn step_minis(&mut self) {
+        for j in N_FIGHTERS..N_BODIES {
+            if self.f[j].absent {
+                continue;
+            }
+            let life = self.f[j].life.map_or(0, |t| t.saturating_sub(1));
+            self.f[j].life = Some(life);
+            let owner_down = self.f[j].owner.is_none_or(|o| !self.f[o].alive());
+            if self.f[j].alive() && !owner_down && life > 0 {
+                continue;
+            }
+            if let Some(k) = self.held_item(j) {
+                self.items[k].held_by = None;
+            }
+            let pos = self.f[j].center();
+            self.f[j] = Fighter::empty();
+            self.events.push(Event::Poof { pos });
+        }
+    }
+
     pub(crate) fn step_effects(&mut self) {
         for e in 0..self.effects.len() {
             // Stepped on a copy: an effect's step may hurt fighters (which needs the whole match).
@@ -300,8 +368,8 @@ impl Match {
     fn step_dog(&mut self, dog: &mut Dog) {
         run_dog(dog, self.arena());
         let (body, owner, dir) = (dog.body(), dog.owner, dog.dir);
-        for j in 0..N_FIGHTERS {
-            if j == owner || !self.f[j].alive() || dog.bite_cd[j] > 0 || !body.overlaps(&self.f[j].body()) {
+        for j in 0..N_BODIES {
+            if !self.foes(owner, j) || dog.bite_cd[j] > 0 || !body.overlaps(&self.f[j].body()) {
                 continue;
             }
             dog.bite_cd[j] = BITE_EVERY;
@@ -380,7 +448,7 @@ impl Match {
             return;
         }
         let (pos, owner) = (bomb.pos, bomb.owner);
-        let pull = std::array::from_fn(|j| if j == owner || !self.f[j].alive() { 0.0 } else { pull_strength(self.f[j].center().distance(pos)) });
+        let pull = std::array::from_fn(|j| if !self.foes(owner, j) { 0.0 } else { pull_strength(self.f[j].center().distance(pos)) });
         bomb.vel = Vec2::ZERO;
         bomb.crunch = Some(BOMB_CRUNCH);
         bomb.pull = pull;
@@ -394,7 +462,7 @@ impl Match {
         let Bomb { pos, owner, pull, .. } = *bomb;
         let left = left - 1;
         bomb.crunch = Some(left);
-        for j in 0..N_FIGHTERS {
+        for j in 0..N_BODIES {
             let f = &mut self.f[j];
             if pull[j] <= 0.0 || !f.alive() {
                 continue;
@@ -411,9 +479,9 @@ impl Match {
             return;
         }
         self.events.push(Event::BombBlast { pos });
-        for j in 0..N_FIGHTERS {
+        for j in 0..N_BODIES {
             let d = self.f[j].center().distance(pos);
-            if j == owner || !self.f[j].alive() || d >= BOMB_BLAST_RADIUS {
+            if !self.foes(owner, j) || d >= BOMB_BLAST_RADIUS {
                 continue;
             }
             let away = (self.f[j].center() - pos).normalize_or(vec2(0.0, -1.0));
@@ -425,7 +493,7 @@ impl Match {
 
 /// One tick of a bomb in flight. True when it goes off: it hit terrain or a foe (it stops
 /// there), or its fuse ran out.
-fn fly(bomb: &mut Bomb, fighters: &[Fighter; N_FIGHTERS], arena: &Arena) -> bool {
+fn fly(bomb: &mut Bomb, fighters: &[Fighter; N_BODIES], arena: &Arena) -> bool {
     bomb.vel.y += BOMB_GRAVITY * DT;
     let prev = bomb.pos;
     bomb.pos += bomb.vel * DT;
@@ -450,7 +518,8 @@ fn fly(bomb: &mut Bomb, fighters: &[Fighter; N_FIGHTERS], arena: &Arena) -> bool
         hit = true;
     }
     let pos = bomb.pos;
-    hit || (0..N_FIGHTERS).any(|j| j != bomb.owner && fighters[j].alive() && fighters[j].body().overlaps(&Aabb::around(pos, 2.0)))
+    let team = fighters[bomb.owner].team(bomb.owner);
+    hit || (0..N_BODIES).any(|j| fighters[j].team(j) != team && fighters[j].alive() && fighters[j].body().overlaps(&Aabb::around(pos, 2.0)))
 }
 
 /// Where a bomb Sam threw right now would go off: flown through the same physics, everyone
@@ -463,7 +532,7 @@ fn bomb_landing(m: &Match, who: usize) -> Vec2 {
 
 fn new_bomb(f: &Fighter, who: usize) -> Bomb {
     let vel = vec2(BOMB_THROW.x * f.facing, BOMB_THROW.y) + f.vel * 0.5;
-    Bomb { pos: f.hand(), vel, owner: who, fuse: BOMB_FUSE, crunch: None, pull: [0.0; N_FIGHTERS] }
+    Bomb { pos: f.hand(), vel, owner: who, fuse: BOMB_FUSE, crunch: None, pull: [0.0; N_BODIES] }
 }
 
 /// How hard a gravity bomb yanks someone `d` px away: fully within BOMB_PULL_RADIUS, then
@@ -591,7 +660,7 @@ mod tests {
             step_idle(&mut m, &z, true);
             let a = &m.f[0];
             assert!((a.pos.x - 240.0) * facing >= POPUP_DISTANCE, "facing {facing}, landed at x {}", a.pos.x);
-            let gap = m.f[1..].iter().map(|f| f.pos.distance(a.pos)).fold(f32::MAX, f32::min);
+            let gap = m.f[1..N_FIGHTERS].iter().map(|f| f.pos.distance(a.pos)).fold(f32::MAX, f32::min);
             assert!(gap >= POPUP_MIN_GAP, "landed {gap} from a foe");
             assert!(a.grounded && a.vel == Vec2::ZERO);
             assert_eq!(m.events.iter().filter(|e| matches!(e, Event::Poof { .. })).count(), 2);
@@ -668,6 +737,48 @@ mod tests {
         assert!(wants([100.0, 200.0, 440.0, 460.0], 20.0));
         // Nobody near where it would land.
         assert!(!wants([100.0, 330.0, 400.0, 460.0], MAX_HP));
+    }
+
+    #[test]
+    fn seths_minis_fight_for_him_and_go_down_in_one_hit() {
+        let z = zero_brain();
+        let mut m = staged([Character::Seth, Character::Classic, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
+        m.f[0].facing = 1.0;
+        step_idle(&mut m, &z, true);
+        let minis: Vec<usize> = (N_FIGHTERS..N_BODIES).filter(|&j| !m.f[j].absent).collect();
+        assert_eq!(minis.len(), MINIS_PER_USE);
+        let a = minis[0];
+        assert_eq!((m.f[a].scale, m.f[a].owner, m.f[a].hp), (MINI_SCALE, Some(0), 1.0));
+        assert!(m.f[a].body().h < m.f[0].body().h * 0.6, "half size");
+        // On Seth's side: not each other's foes, everyone else's.
+        assert!(!m.foes(a, 0) && !m.foes(0, a) && !m.foes(a, minis[1]));
+        assert!(m.foes(a, 1) && m.foes(1, a));
+        // What a mini does counts for Seth.
+        m.damage(a, 1, 10.0, Vec2::ZERO, 0, 1.0, Source::Fist, false);
+        assert_eq!(m.f[0].dmg_dealt, 10.0);
+        // One hit and it's gone (in a puff).
+        m.damage(1, a, 8.0, Vec2::ZERO, 0, 1.0, Source::Fist, false);
+        step_idle(&mut m, &z, false);
+        assert!(m.f[a].absent);
+        assert!(!m.f[minis[1]].absent, "the other is still there");
+        // When Seth goes down, his minis go too.
+        m.damage(1, 0, MAX_HP, Vec2::ZERO, 0, 1.0, Source::Fist, false);
+        step_idle(&mut m, &z, false);
+        assert!(m.f[minis[1]].absent);
+    }
+
+    #[test]
+    fn minis_vanish_when_their_time_is_up() {
+        let z = zero_brain();
+        let mut m = staged([Character::Seth, Character::Classic, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
+        step_idle(&mut m, &z, true);
+        for _ in 0..MINI_LIFE - 2 {
+            step_idle(&mut m, &z, false);
+        }
+        assert!((N_FIGHTERS..N_BODIES).any(|j| !m.f[j].absent), "still around just before the end");
+        step_idle(&mut m, &z, false);
+        step_idle(&mut m, &z, false);
+        assert!((N_FIGHTERS..N_BODIES).all(|j| m.f[j].absent));
     }
 
     #[test]

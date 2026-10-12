@@ -45,6 +45,7 @@ Everyone has the same body; each character adds one special on a cooldown.
 | Sam | **Gravity Bomb**: lobs a bomb ~90px ahead; it goes off when it lands or touches someone and yanks everyone on the map toward it for a quarter second (anyone within 76px right into the middle, the rest less the farther away they are), then explodes for up to 34 | 30s |
 | Austin | **Pop-Up**: teleports in the direction he's facing, at least 160px ahead (a third of the arena) when there's room, else anywhere ahead; prefers spots 40px from everyone | 15s |
 | Tyler | **Release the Hounds**: three dogs run the floors for 5s, biting anyone but Tyler for 15 (each dog at most twice a second per victim) | 30s |
+| Seth | **Mini Me**: two half-size clones hop out in front of him for 15s. They fight like bots (grabbing and throwing too), die to one hit, and their kills count as his; they vanish if he goes down | 30s |
 
 Bots playing a character use its special by a simple rule (the brains never trained with
 specials): Sam works out where his bomb would land and throws only if it would catch two people,

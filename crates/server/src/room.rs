@@ -457,7 +457,7 @@ mod tests {
         while r.running.is_some() {
             r.step();
             ticks += 1;
-            assert!(ticks <= go_box_sim::sim::MAX_TICKS + 1, "the match never ended");
+            assert!(ticks <= go_box_sim::sim::COUNTDOWN + go_box_sim::sim::MAX_TICKS + 1, "the match never ended");
         }
         let res = last_room(&mut a).last_results.expect("results");
         assert_eq!(res.seats.len(), 3, "the empty seat isn't on the scoreboard");

@@ -8,7 +8,7 @@
 
 use go_box_protocol::{MatchStart, Snapshot};
 use go_box_sim::character::Effect;
-use go_box_sim::sim::{Action, Event, Fighter, Match, MatchView, N_FIGHTERS, TICK_RATE, predict};
+use go_box_sim::sim::{Action, Event, Fighter, Match, MatchView, N_BODIES, TICK_RATE, predict};
 use macroquad::math::Vec2;
 use std::collections::VecDeque;
 
@@ -139,7 +139,11 @@ impl Game {
         if let Some(b) = b {
             let sb = &self.snaps[b].view;
             let t = ((rt - sa.tick as f32) / (sb.tick - sa.tick) as f32).clamp(0.0, 1.0);
-            for i in 0..N_FIGHTERS {
+            for i in 0..N_BODIES {
+                // (A mini slot only lerps while it holds the same mini in both.)
+                if sa.f[i].absent || sb.f[i].absent || sa.f[i].owner != sb.f[i].owner {
+                    continue;
+                }
                 view.f[i].pos = sa.f[i].pos.lerp(sb.f[i].pos, t);
                 view.f[i].vel = sa.f[i].vel.lerp(sb.f[i].vel, t);
             }
@@ -171,7 +175,7 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use go_box_sim::sim::MatchConfig;
+    use go_box_sim::sim::{MatchConfig, N_FIGHTERS};
     use go_box_protocol::Seat;
     use go_box_sim::brain::Brain;
     use go_box_sim::character::Character;

@@ -37,6 +37,11 @@ const GRAV: Color = Color::new(0.45, 0.85, 0.55, 1.0);
 const SMOKE: Color = Color::new(0.75, 0.74, 0.70, 0.8);
 /// The protected-start shield.
 const SHIELD: Color = Color::new(0.55, 0.85, 1.0, 1.0);
+/// The full-size picture a mini is drawn into (pixels), how far down it its feet sit (0..1), and
+/// how solid the shrunk copy looks on the arena.
+const MINI_SPRITE: (u32, u32) = (40, 48);
+const MINI_FEET: f32 = 38.0 / 48.0;
+const MINI_ALPHA: f32 = 0.72;
 
 /// How a character looks as drawn: Classic is the hooded figure the brains were trained as;
 /// the named characters show their hair and wear their colour.
@@ -106,6 +111,19 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 hair: Some(rgb(168, 132, 84)),
                 headband: true,
                 special_sound: Some(Sfx::Hounds),
+            };
+            &ART
+        }
+        // Near-black hair, charcoal hoodie; teal. (His minis are drawn from the same look.)
+        Character::Seth => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(0.20, 0.78, 0.85, 1.0)),
+                body: rgb(58, 60, 66),
+                legs: [rgb(30, 32, 38), rgb(42, 44, 52)],
+                arms: rgb(50, 52, 58),
+                hair: Some(rgb(34, 28, 24)),
+                headband: false,
+                special_sound: Some(Sfx::Split),
             };
             &ART
         }
@@ -325,7 +343,7 @@ struct Drop {
     speed: f32,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct FighterVis {
     init: bool,
     walk_phase: f32,
@@ -346,7 +364,10 @@ pub struct Art {
     stain_dirty: bool,
     particles: Vec<Particle>,
     rain: Vec<Drop>,
-    vis: [FighterVis; N_FIGHTERS],
+    vis: [FighterVis; N_BODIES],
+    /// Seth's minis are drawn full size into these, then shrunk onto the arena (drawing them
+    /// straight at half size would lose their 1px limbs).
+    minis: Vec<RenderTarget>,
     /// Recent explosions (position, seconds since) for the flash.
     blasts: Vec<(Vec2, f32, f32)>,
     /// A flag in their colour where each fighter went down (ground position, colour).
@@ -377,6 +398,13 @@ impl Art {
             particles: Vec::new(),
             rain,
             vis: Default::default(),
+            minis: (0..MAX_MINIS)
+                .map(|_| {
+                    let t = render_target(MINI_SPRITE.0, MINI_SPRITE.1);
+                    t.texture.set_filter(FilterMode::Linear);
+                    t
+                })
+                .collect(),
             blasts: Vec::new(),
             flags: Vec::new(),
             time: 0.0,
@@ -426,8 +454,11 @@ impl Art {
                 }
                 Event::Death { who, pos } => {
                     // Planted on whatever is below the spot they died.
-                    let ground = pos + vec2(0.0, terrain_ray(m.arena(), pos, vec2(0.0, 1.0), H));
-                    self.flags.push((ground, look(m.f[who].character, who).accent));
+                    // (Players and bots get a flag; minis just vanish.)
+                    if who < N_FIGHTERS {
+                        let ground = pos + vec2(0.0, terrain_ray(m.arena(), pos, vec2(0.0, 1.0), H));
+                        self.flags.push((ground, look(m.f[who].character, who).accent));
+                    }
                     self.burst(pos, vec2(0.0, -1.0), 6.0, 70, BLOOD, true, 160.0, 2.5, 420.0);
                 }
                 Event::Jump { pos, .. } | Event::Land { pos } => {
@@ -536,12 +567,42 @@ impl Art {
             }
         }
         for (f, v) in m.f.iter().zip(self.vis.iter_mut()) {
+            if f.absent {
+                // An empty mini slot: start fresh when the next one appears.
+                *v = FighterVis::default();
+                continue;
+            }
             if !v.init {
                 init_vis(v, f);
             }
             v.walk_phase += dt * f.vel.x.abs() * 0.28;
             v.since_throw += dt;
             update_scarf(v, f, dt, self.time);
+        }
+    }
+
+    /// Draws each of Seth's minis full size into its own picture, for `draw` to shrink onto the
+    /// arena. Call before setting the arena camera (it sets its own).
+    pub fn draw_minis(&self, m: &Match) {
+        for (k, f) in m.f[N_FIGHTERS..].iter().enumerate() {
+            if f.absent {
+                continue;
+            }
+            let (w, h) = (MINI_SPRITE.0 as f32, MINI_SPRITE.1 as f32);
+            let mut cam = Camera2D { target: vec2(0.0, h * (0.5 - MINI_FEET)), zoom: vec2(2.0 / w, 2.0 / h), ..Default::default() };
+            cam.render_target = Some(self.minis[k].clone());
+            set_camera(&cam);
+            clear_background(Color::new(0.0, 0.0, 0.0, 0.0));
+            // The same fighter at full size, standing on the picture's origin.
+            let mut big = f.clone();
+            big.pos = Vec2::ZERO;
+            big.scale = 1.0;
+            let mut v = self.vis[N_FIGHTERS + k].clone();
+            for p in v.scarf.iter_mut() {
+                *p -= f.pos;
+            }
+            let flash = f.hitstun > 0 && (f.hitstun / 2) % 2 == 0;
+            draw_human(&v, &big, &look(f.character, f.team(N_FIGHTERS + k)), flash);
         }
     }
 
@@ -575,10 +636,17 @@ impl Art {
         }
 
         // Dead underneath the living.
-        let mut order: Vec<usize> = (0..N_FIGHTERS).filter(|&i| !m.f[i].absent).collect();
+        let mut order: Vec<usize> = (0..N_BODIES).filter(|&i| !m.f[i].absent).collect();
         order.sort_by_key(|&i| m.f[i].alive());
         for i in order {
             let f = &m.f[i];
+            if i >= N_FIGHTERS {
+                // A mini: its full-size picture (from `update`), shrunk and a little see-through.
+                let (w, h) = (MINI_SPRITE.0 as f32 * f.scale, MINI_SPRITE.1 as f32 * f.scale);
+                let params = DrawTextureParams { dest_size: Some(vec2(w, h)), ..Default::default() };
+                draw_texture_ex(&self.minis[i - N_FIGHTERS].texture, f.pos.x - w / 2.0, f.pos.y - h * MINI_FEET, Color::new(1.0, 1.0, 1.0, MINI_ALPHA), params);
+                continue;
+            }
             let flash = f.hitstun > 0 && (f.hitstun / 2) % 2 == 0;
             draw_human(&self.vis[i], f, &look(f.character, i), flash);
         }
@@ -608,7 +676,8 @@ impl Art {
             draw_rectangle(p.pos.x.floor(), p.pos.y.floor(), 1.0, 1.0, p.color);
         }
 
-        for (i, f) in m.f.iter().enumerate().filter(|(_, f)| f.alive()) {
+        // Health bars (not minis: one hit is all they take).
+        for (i, f) in m.f.iter().enumerate().take(N_FIGHTERS).filter(|(_, f)| f.alive()) {
             let (x, y) = ((f.pos.x - 6.0).round(), (f.pos.y - 22.0).round());
             draw_rectangle(x, y, 12.0, 1.0, Color::new(0.0, 0.0, 0.0, 0.6));
             draw_rectangle(x, y, (12.0 * f.hp / MAX_HP).ceil(), 1.0, look(f.character, i).accent);

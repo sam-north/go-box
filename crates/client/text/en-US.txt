@@ -65,9 +65,11 @@ character.classic = Classic
 character.sam = Sam
 character.austin = Austin
 character.tyler = Tyler
+character.seth = Seth
 special.gravity_bomb = Gravity Bomb
 special.pop_up = Pop-Up
 special.hounds = Release the Hounds
+special.mini_me = Mini Me
 
 # Maps (by id)
 arena.tiers = Tiers

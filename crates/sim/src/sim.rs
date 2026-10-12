@@ -28,7 +28,12 @@ pub const MAX_TICKS: u32 = secs(45);
 /// The default 3-2-1 before a match, and the protected start after it.
 pub const COUNTDOWN: u32 = secs(3);
 pub const SPAWN_GRACE: u32 = secs(3);
+/// Seats: the fighters players and bots play (4).
 pub const N_FIGHTERS: usize = 4;
+/// How many of Seth's minis can be out at once (they take the slots after the seats).
+pub const MAX_MINIS: usize = 4;
+/// Every body in a match: the seats, then the mini slots (empty until summoned).
+pub const N_BODIES: usize = N_FIGHTERS + MAX_MINIS;
 
 // Body.
 pub const HALF_W: f32 = 4.0;
@@ -201,6 +206,13 @@ pub struct Fighter {
     pub headshots: u32,
     #[serde(skip)]
     pub kills: u32,
+    /// Size: 1 for everyone but Seth's minis (0.5).
+    pub scale: f32,
+    /// For a mini: the seat that summoned it (its team; credited with what it does).
+    pub owner: Option<usize>,
+    /// For a mini: ticks until it vanishes.
+    #[serde(skip)]
+    pub life: Option<u32>,
 }
 
 impl Fighter {
@@ -227,33 +239,57 @@ impl Fighter {
             dmg_taken: 0.0,
             headshots: 0,
             kills: 0,
+            scale: 1.0,
+            owner: None,
+            life: None,
         }
+    }
+
+    /// A slot with nobody in it (a mini slot before anything is summoned).
+    pub fn empty() -> Self {
+        let mut f = Self::new(0.0, 1.0);
+        f.hp = 0.0;
+        f.absent = true;
+        f
     }
 
     pub fn alive(&self) -> bool {
         self.hp > 0.0
     }
 
+    pub fn half_w(&self) -> f32 {
+        HALF_W * self.scale
+    }
+
+    pub fn height(&self) -> f32 {
+        BODY_H * self.scale
+    }
+
+    /// Whose side it's on: its own seat, or for a mini the seat that summoned it.
+    pub fn team(&self, me: usize) -> usize {
+        self.owner.unwrap_or(me)
+    }
+
     pub fn body(&self) -> Aabb {
-        Aabb::new(self.pos.x - HALF_W, self.pos.y - BODY_H, HALF_W * 2.0, BODY_H)
+        Aabb::new(self.pos.x - self.half_w(), self.pos.y - self.height(), self.half_w() * 2.0, self.height())
     }
 
     pub fn eye(&self) -> Vec2 {
-        vec2(self.pos.x, self.pos.y - 10.0)
+        vec2(self.pos.x, self.pos.y - 10.0 * self.scale)
     }
 
     pub fn center(&self) -> Vec2 {
-        vec2(self.pos.x, self.pos.y - BODY_H * 0.5)
+        vec2(self.pos.x, self.pos.y - self.height() * 0.5)
     }
 
     /// Where a carried item sits: cocked over the shoulder.
     pub fn hand(&self) -> Vec2 {
-        vec2(self.pos.x - self.facing * 1.5, self.pos.y - 13.0)
+        vec2(self.pos.x - self.facing * 1.5 * self.scale, self.pos.y - 13.0 * self.scale)
     }
 
     fn is_head(&self, y: f32) -> bool {
-        let top = self.pos.y - BODY_H;
-        y >= top - 1.0 && y < top + HEAD_H
+        let top = self.pos.y - self.height();
+        y >= top - 1.0 && y < top + HEAD_H * self.scale
     }
 
     pub fn attack_active(&self) -> bool {
@@ -266,13 +302,15 @@ impl Fighter {
     }
 
     pub fn melee_reach(&self) -> f32 {
-        self.melee().0
+        // Smaller fighters reach less, though not in proportion (a mini's arms are short).
+        self.melee().0 * (0.5 + 0.5 * self.scale)
     }
 
     pub fn attack_box(&self) -> Aabb {
         let reach = self.melee_reach();
-        let x0 = if self.facing > 0.0 { self.pos.x + HALF_W - 2.0 } else { self.pos.x - HALF_W + 2.0 - reach };
-        Aabb::new(x0, self.pos.y - BODY_H + 2.0, reach, 10.0)
+        let (hw, s) = (self.half_w(), self.scale);
+        let x0 = if self.facing > 0.0 { self.pos.x + hw - 2.0 * s } else { self.pos.x - hw + 2.0 * s - reach };
+        Aabb::new(x0, self.pos.y - self.height() + 2.0 * s, reach, 10.0 * s)
     }
 
     pub fn aim_dir(&self, aim: f32) -> Vec2 {
@@ -489,7 +527,7 @@ impl Mode {
         match self {
             Mode::LastStanding => {
                 let alive: Vec<usize> = (0..N_FIGHTERS).filter(|&i| m.f[i].alive()).collect();
-                let present = m.f.iter().filter(|f| !f.absent).count();
+                let present = m.f[..N_FIGHTERS].iter().filter(|f| !f.absent).count();
                 let last_standing = if present > 1 { alive.len() <= 1 } else { alive.is_empty() };
                 if !last_standing && m.play_ticks() < m.config.max_ticks {
                     return None;
@@ -510,7 +548,7 @@ impl Mode {
 }
 
 pub struct Match {
-    pub f: [Fighter; N_FIGHTERS],
+    pub f: [Fighter; N_BODIES],
     pub items: Vec<Item>,
     /// Health pickups currently lying in the arena.
     pub heals: Vec<Vec2>,
@@ -536,6 +574,9 @@ impl Match {
         let rng = &mut rng;
         let arena = config.arena.def();
         let f = std::array::from_fn(|i| {
+            if i >= N_FIGHTERS {
+                return Fighter::empty();
+            }
             let x = arena.spawn_x[i] + rng.gen_range(0.0..SPAWN_SPREAD);
             Fighter::new(x, if x < W / 2.0 { 1.0 } else { -1.0 })
         });
@@ -562,6 +603,11 @@ impl Match {
             effects: Vec::new(),
             config: config.clone(),
         }
+    }
+
+    /// Are `j` and `i` enemies: `j` is alive and on another team (a mini is on its summoner's)?
+    pub fn foes(&self, i: usize, j: usize) -> bool {
+        j != i && self.f[j].alive() && self.f[j].team(j) != self.f[i].team(i)
     }
 
     /// Still in the 3-2-1 before the start.
@@ -609,7 +655,7 @@ impl Match {
             s[r] = 1.0 - terrain_ray(arena, eye, ray_dir(r), RAY_MAX) / RAY_MAX;
         }
         let mut nearest: Option<(f32, usize)> = None;
-        for j in (0..N_FIGHTERS).filter(|&j| j != i && self.f[j].alive()) {
+        for j in (0..N_BODIES).filter(|&j| self.foes(i, j)) {
             let seen = glimpse(arena, eye, self.f[j].center());
             mark(&mut s, IN_OPP, seen);
             if let Some((p, _)) = seen {
@@ -664,7 +710,7 @@ impl Match {
             s[e + 3] = (o.vel.x - me.vel.x) / (2.0 * SENSE_SPEED);
             s[e + 4] = ((o.vel.y - me.vel.y) / MAX_FALL).clamp(-1.0, 1.0);
         }
-        s[e + 5] = (0..N_FIGHTERS).filter(|&j| j != i && self.f[j].alive()).count() as f32 / (N_FIGHTERS - 1) as f32;
+        s[e + 5] = ((0..N_BODIES).filter(|&j| self.foes(i, j)).count() as f32 / (N_FIGHTERS - 1) as f32).min(1.0);
         // The most dangerous projectile: where its straight-line path passes closest to me, and when.
         let c = me.center();
         let mut worst = (0.0f32, 0.0f32, Vec2::ZERO);
@@ -689,7 +735,7 @@ impl Match {
             .map(|(it, b, burnt)| (1.0 - it.pos.distance(c) / b.radius).max(0.0) * burnt)
             .fold(0.0, f32::max);
         s[e + 11] = 1.0 - self.play_ticks() as f32 / self.config.max_ticks as f32;
-        let best_other = (0..N_FIGHTERS).filter(|&j| j != i && self.f[j].alive()).map(|j| self.f[j].hp).fold(0.0, f32::max);
+        let best_other = (0..N_BODIES).filter(|&j| self.foes(i, j)).map(|j| self.f[j].hp).fold(0.0, f32::max);
         s[e + 12] = (me.hp - best_other) / MAX_HP;
         s
     }
@@ -711,20 +757,21 @@ impl Match {
         }
 
         // 1. Perceive + think (not during the countdown: nobody acts until it's over).
-        let mut actions = [Action::default(); N_FIGHTERS];
+        let mut actions = [Action::default(); N_BODIES];
         let frozen = self.counting_down();
-        for i in 0..N_FIGHTERS {
+        for i in 0..N_BODIES {
             if !self.f[i].alive() || frozen {
                 continue;
             }
-            if let Some(a) = humans[i] {
+            if let Some(a) = humans.get(i).copied().flatten() {
                 actions[i] = a;
                 self.f[i].action = a;
                 continue;
             }
             let input = self.senses(i);
             let mut out = [0.0; N_OUT];
-            brains[i].forward(&input, &mut out);
+            // A mini thinks with its summoner's brain.
+            brains[self.f[i].team(i)].forward(&input, &mut out);
             actions[i] = Action {
                 mv: out[0],
                 run: out[1] > 0.0,
@@ -741,7 +788,7 @@ impl Match {
         }
 
         // 2. Move.
-        for i in 0..N_FIGHTERS {
+        for i in 0..N_BODIES {
             if self.f[i].absent {
                 continue;
             }
@@ -758,19 +805,19 @@ impl Match {
         self.step_specials(actions.map(|a| a.special));
 
         // 3. Hands: grab or throw.
-        for i in 0..N_FIGHTERS {
+        for i in 0..N_BODIES {
             self.hands(i, actions[i]);
         }
 
         // 4. Melee (resolved simultaneously).
         let mut hits = Vec::new();
-        for i in 0..N_FIGHTERS {
+        for i in 0..N_BODIES {
             let a = &self.f[i];
             if !a.alive() || !a.attack_active() {
                 continue;
             }
-            for j in 0..N_FIGHTERS {
-                if j != i && self.f[j].alive() && a.hit_mask & (1 << j) == 0 && a.attack_box().overlaps(&self.f[j].body()) {
+            for j in 0..N_BODIES {
+                if self.foes(i, j) && a.hit_mask & (1 << j) == 0 && a.attack_box().overlaps(&self.f[j].body()) {
                     hits.push((i, j));
                 }
             }
@@ -781,7 +828,7 @@ impl Match {
             let dir = a.facing;
             let (_, hit) = a.melee();
             // A strike lands on the head when it comes from above, e.g. from a jump or a ledge.
-            let headshot = self.f[j].is_head(a.pos.y - 8.0);
+            let headshot = self.f[j].is_head(a.pos.y - 8.0 * a.scale);
             let dmg = if headshot { hit.damage * hit.headshot_mult } else { hit.damage };
             self.damage(i, j, dmg, vec2(dir * 150.0, -140.0), HITSTUN, dir, hit.source, headshot);
         }
@@ -800,6 +847,7 @@ impl Match {
         // 5. Items in flight, grenades, pickups, spawns.
         self.step_items();
         self.step_effects();
+        self.step_minis();
         self.step_heals();
         self.spawn_items();
 
@@ -885,9 +933,11 @@ impl Match {
                 continue;
             }
             let ib = Aabb::around(it.pos, ITEM_R);
-            let victim = (0..N_FIGHTERS).find(|&j| {
+            let victim = (0..N_BODIES).find(|&j| {
                 let own_grace = it.owner == Some(j) && it.age < OWN_GRACE;
-                self.f[j].alive() && !own_grace && ib.overlaps(&self.f[j].body())
+                // Thrown things don't hit the thrower's teammates (Seth and his minis).
+                let friendly = it.owner.is_some_and(|o| o != j && self.f[o].team(o) == self.f[j].team(j));
+                self.f[j].alive() && !own_grace && !friendly && ib.overlaps(&self.f[j].body())
             });
             if let Some(j) = victim {
                 let dir = it.vel.x.signum();
@@ -916,7 +966,7 @@ impl Match {
 
     fn explode(&mut self, pos: Vec2, owner: Option<usize>, blast: Blast) {
         self.events.push(Event::Explosion { pos });
-        for j in 0..N_FIGHTERS {
+        for j in 0..N_BODIES {
             let d = self.f[j].center().distance(pos);
             if !self.f[j].alive() || d >= blast.radius {
                 continue;
@@ -945,6 +995,7 @@ impl Match {
         let mut hi = 0;
         while hi < self.heals.len() {
             let hb = Aabb::around(self.heals[hi], HEAL_R);
+            // (Not minis: one hit is all they take.)
             let taker = (0..N_FIGHTERS).find(|&j| {
                 let f = &self.f[j];
                 f.alive() && f.hp < MAX_HP && f.body().overlaps(&hb)
@@ -994,8 +1045,11 @@ impl Match {
         if self.protected() {
             return;
         }
-        if src != victim {
-            let a = &mut self.f[src];
+        // What a mini does counts for whoever summoned it; hurting your own side counts for nobody.
+        let credit = self.f[src].team(src);
+        let scores = credit != self.f[victim].team(victim);
+        if scores {
+            let a = &mut self.f[credit];
             a.dmg_dealt += dmg;
             a.headshots += headshot as u32;
         }
@@ -1024,8 +1078,8 @@ impl Match {
             self.f[victim].holding = None;
             self.f[victim].died_at = Some(self.tick);
             self.events.push(Event::Death { who: victim, pos });
-            if src != victim {
-                self.f[src].kills += 1;
+            if scores {
+                self.f[credit].kills += 1;
             }
         }
     }
@@ -1037,7 +1091,7 @@ impl Match {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MatchView {
     pub tick: u32,
-    pub f: [Fighter; N_FIGHTERS],
+    pub f: [Fighter; N_BODIES],
     pub items: Vec<Item>,
     pub heals: Vec<Vec2>,
     /// What specials have left in the arena (Sam's bombs, Tyler's dogs...).
@@ -1218,9 +1272,9 @@ fn collide(f: &mut Fighter, arena: &Arena) {
     for s in SOLIDS.iter() {
         if f.body().overlaps(s) {
             if f.vel.x > 0.0 {
-                f.pos.x = s.x - HALF_W;
+                f.pos.x = s.x - f.half_w();
             } else if f.vel.x < 0.0 {
-                f.pos.x = s.x + s.w + HALF_W;
+                f.pos.x = s.x + s.w + f.half_w();
             }
             f.vel.x = 0.0;
         }
@@ -1235,14 +1289,14 @@ fn collide(f: &mut Fighter, arena: &Arena) {
                 f.pos.y = s.y;
                 f.grounded = true;
             } else {
-                f.pos.y = s.y + s.h + BODY_H;
+                f.pos.y = s.y + s.h + f.height();
             }
             f.vel.y = 0.0;
         }
     }
     if f.vel.y >= 0.0 {
         for p in arena.platforms {
-            let over_x = f.pos.x + HALF_W > p.x && f.pos.x - HALF_W < p.x + p.w;
+            let over_x = f.pos.x + f.half_w() > p.x && f.pos.x - f.half_w() < p.x + p.w;
             if over_x && prev_bottom <= p.y + 0.01 && f.pos.y >= p.y {
                 f.pos.y = p.y;
                 f.vel.y = 0.0;
@@ -1270,7 +1324,7 @@ mod tests {
             let lineup: [&Brain; N_FIGHTERS] = std::array::from_fn(|i| &brains[(seed as usize + i) % brains.len()]);
             while !m.over {
                 m.step(lineup);
-                for f in &m.f {
+                for f in &m.f[..N_FIGHTERS] {
                     for v in [f.pos.x, f.pos.y, f.vel.x, f.vel.y, f.hp] {
                         mix(v.to_bits() as u64);
                     }
