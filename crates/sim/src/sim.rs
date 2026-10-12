@@ -25,6 +25,9 @@ pub const fn secs(s: u32) -> u32 {
 }
 /// The default match length.
 pub const MAX_TICKS: u32 = secs(45);
+/// The default 3-2-1 before a match, and the protected start after it.
+pub const COUNTDOWN: u32 = secs(3);
+pub const SPAWN_GRACE: u32 = secs(3);
 pub const N_FIGHTERS: usize = 4;
 
 // Body.
@@ -444,7 +447,12 @@ fn random_surface_spot_between(rng: &mut impl Rng, arena: &Arena, lo: f32, hi: f
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MatchConfig {
     pub arena: ArenaId,
+    /// How long the match lasts once it's started (after the countdown).
     pub max_ticks: u32,
+    /// The 3-2-1 before it starts: nobody can act yet.
+    pub countdown: u32,
+    /// After the countdown, how long nobody can be hurt (they can move, jump, grab).
+    pub spawn_grace: u32,
     /// How many health pickups appear (picked at random from the range).
     pub heals: RangeInclusive<u32>,
     pub mode: Mode,
@@ -452,7 +460,7 @@ pub struct MatchConfig {
 
 impl Default for MatchConfig {
     fn default() -> Self {
-        Self { arena: ArenaId::default(), max_ticks: MAX_TICKS, heals: HEALS_PER_ROUND, mode: Mode::default() }
+        Self { arena: ArenaId::default(), max_ticks: MAX_TICKS, countdown: COUNTDOWN, spawn_grace: SPAWN_GRACE, heals: HEALS_PER_ROUND, mode: Mode::default() }
     }
 }
 
@@ -483,7 +491,7 @@ impl Mode {
                 let alive: Vec<usize> = (0..N_FIGHTERS).filter(|&i| m.f[i].alive()).collect();
                 let present = m.f.iter().filter(|f| !f.absent).count();
                 let last_standing = if present > 1 { alive.len() <= 1 } else { alive.is_empty() };
-                if !last_standing && m.tick < m.config.max_ticks {
+                if !last_standing && m.play_ticks() < m.config.max_ticks {
                     return None;
                 }
                 // Last one standing, or the most health at the timeout. An exact tie is a draw.
@@ -554,6 +562,21 @@ impl Match {
             effects: Vec::new(),
             config: config.clone(),
         }
+    }
+
+    /// Still in the 3-2-1 before the start.
+    pub fn counting_down(&self) -> bool {
+        self.tick < self.config.countdown
+    }
+
+    /// Ticks since the countdown ended (the match clock).
+    pub fn play_ticks(&self) -> u32 {
+        self.tick.saturating_sub(self.config.countdown)
+    }
+
+    /// Nobody can be hurt yet: the countdown, then the first `spawn_grace` ticks of play.
+    pub fn protected(&self) -> bool {
+        self.tick < self.config.countdown + self.config.spawn_grace
     }
 
     /// The map this match is on.
@@ -665,7 +688,7 @@ impl Match {
             .filter_map(|it| Some((it, it.kind.def().blast?, fuse_burnt(it)?)))
             .map(|(it, b, burnt)| (1.0 - it.pos.distance(c) / b.radius).max(0.0) * burnt)
             .fold(0.0, f32::max);
-        s[e + 11] = 1.0 - self.tick as f32 / self.config.max_ticks as f32;
+        s[e + 11] = 1.0 - self.play_ticks() as f32 / self.config.max_ticks as f32;
         let best_other = (0..N_FIGHTERS).filter(|&j| j != i && self.f[j].alive()).map(|j| self.f[j].hp).fold(0.0, f32::max);
         s[e + 12] = (me.hp - best_other) / MAX_HP;
         s
@@ -687,10 +710,11 @@ impl Match {
             return;
         }
 
-        // 1. Perceive + think.
+        // 1. Perceive + think (not during the countdown: nobody acts until it's over).
         let mut actions = [Action::default(); N_FIGHTERS];
+        let frozen = self.counting_down();
         for i in 0..N_FIGHTERS {
-            if !self.f[i].alive() {
+            if !self.f[i].alive() || frozen {
                 continue;
             }
             if let Some(a) = humans[i] {
@@ -966,6 +990,10 @@ impl Match {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn damage(&mut self, src: usize, victim: usize, dmg: f32, knockback: Vec2, stun: u32, dir: f32, source: Source, headshot: bool) {
+        // Nobody can be hurt at the start (the hit just doesn't happen: no knockback either).
+        if self.protected() {
+            return;
+        }
         if src != victim {
             let a = &mut self.f[src];
             a.dmg_dealt += dmg;
@@ -1254,13 +1282,13 @@ mod tests {
         }
         assert_eq!(h, CLASSIC_HASH, "classic match fingerprint changed: {h:#018x}");
     }
-    // Last deliberately changed by faster running (ramped acceleration, more air control). It must
+    // Last deliberately changed by the 3-2-1 countdown and the protected start. It must
     // come out the same on 32-bit targets too: `cargo test -p go-box-sim --target i686-pc-windows-msvc`.
-    const CLASSIC_HASH: u64 = 0x8eee_1fa0_80f7_4207;
+    const CLASSIC_HASH: u64 = 0x33d1_c375_e71c_7c94;
 
     /// Everyone on the floor, nothing lying around, nobody thinking (all-zero brains stand still).
     fn quiet_match() -> (Match, Brain) {
-        let mut m = Match::new(3, &MatchConfig { heals: 0..=0, ..MatchConfig::default() });
+        let mut m = Match::new(3, &MatchConfig { heals: 0..=0, countdown: 0, spawn_grace: 0, ..MatchConfig::default() });
         m.items.clear();
         m.next_item = u32::MAX;
         for (i, x) in [60.0, 200.0, 300.0, 420.0].into_iter().enumerate() {
@@ -1299,6 +1327,30 @@ mod tests {
         m.damage(0, 0, MAX_HP, Vec2::ZERO, 0, 1.0, Source::Fist, false);
         m.step([&z; N_FIGHTERS]);
         assert!(m.over && m.winner.is_none());
+    }
+
+    #[test]
+    fn nobody_acts_in_the_countdown_and_nobody_is_hurt_just_after() {
+        let mut m = Match::new(3, &MatchConfig { heals: 0..=0, ..MatchConfig::default() });
+        m.items.clear();
+        let z = Brain { w: vec![0.0; Brain::N_WEIGHTS] };
+        let run = Action { mv: 1.0, run: true, ..Action::default() };
+        let x0 = m.f[0].pos.x;
+        for _ in 0..COUNTDOWN {
+            m.step_with([&z; N_FIGHTERS], Some((0, run)));
+        }
+        assert_eq!(m.f[0].pos.x, x0, "frozen during the 3-2-1");
+        m.step_with([&z; N_FIGHTERS], Some((0, run)));
+        assert!(m.f[0].pos.x > x0, "moving once it's over");
+        m.damage(1, 0, 50.0, vec2(100.0, -100.0), 10, 1.0, Source::Fist, false);
+        assert_eq!(m.f[0].hp, MAX_HP, "protected for the first seconds");
+        assert_eq!(m.f[0].hitstun, 0, "not even knocked about");
+        while m.protected() {
+            m.step([&z; N_FIGHTERS]);
+        }
+        m.damage(1, 0, 50.0, Vec2::ZERO, 10, 1.0, Source::Fist, false);
+        assert_eq!(m.f[0].hp, MAX_HP - 50.0);
+        assert_eq!(m.play_ticks(), SPAWN_GRACE, "the match clock started after the countdown");
     }
 
     #[test]

@@ -4,7 +4,7 @@ use futures_util::{SinkExt, StreamExt};
 use go_box_protocol::*;
 use go_box_server::{Config, serve};
 use go_box_sim::character::Character;
-use go_box_sim::sim::{Action, ArenaId};
+use go_box_sim::sim::{Action, ArenaId, COUNTDOWN};
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -131,7 +131,8 @@ async fn create_join_play_and_leave() {
     assert_eq!(b_start.your_seat, Some(1));
 
     // Alice walks right; her inputs get acknowledged and her fighter moves.
-    let x0 = a.until(|m| if let ServerMsg::Snapshot(s) = m { Some(s.view.f[0].pos.x) } else { None }).await;
+    // (After the 3-2-1: nobody can move during it.)
+    let x0 = a.until(|m| if let ServerMsg::Snapshot(s) = m { (s.view.tick > COUNTDOWN).then_some(s.view.f[0].pos.x) } else { None }).await;
     // One input per tick, like a real client (a burst would be trimmed as lag), toward the middle.
     let dir = if x0 > 160.0 { -1.0 } else { 1.0 };
     for seq in 1..=30 {

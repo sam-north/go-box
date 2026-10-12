@@ -35,6 +35,8 @@ const DOG_FUR: Color = Color::new(0.55, 0.38, 0.22, 1.0);
 const DOG_DARK: Color = Color::new(0.28, 0.19, 0.12, 1.0);
 const GRAV: Color = Color::new(0.45, 0.85, 0.55, 1.0);
 const SMOKE: Color = Color::new(0.75, 0.74, 0.70, 0.8);
+/// The protected-start shield.
+const SHIELD: Color = Color::new(0.55, 0.85, 1.0, 1.0);
 
 /// How a character looks as drawn: Classic is the hooded figure the brains were trained as;
 /// the named characters show their hair and wear their colour.
@@ -579,6 +581,18 @@ impl Art {
             let f = &m.f[i];
             let flash = f.hitstun > 0 && (f.hitstun / 2) % 2 == 0;
             draw_human(&self.vis[i], f, &look(f.character, i), flash);
+        }
+        // The protected start: a pulsing shield around everyone, fading out as it ends.
+        if m.protected() {
+            let left = (m.config.countdown + m.config.spawn_grace - m.tick) as f32 * DT;
+            let fade = (left / 0.5).min(1.0);
+            let pulse = 0.5 + 0.5 * (self.time * 7.0).sin();
+            for f in m.f.iter().filter(|f| f.alive()) {
+                let c = f.center();
+                let a = (0.25 + 0.35 * pulse) * fade;
+                draw_circle(c.x, c.y, 11.0 + pulse, Color::new(SHIELD.r, SHIELD.g, SHIELD.b, a * 0.25));
+                draw_circle_lines(c.x, c.y, 11.0 + pulse, 1.0, Color::new(SHIELD.r, SHIELD.g, SHIELD.b, a));
+            }
         }
         // Held rocks/grenades sit in the hand, in front of the body.
         for it in m.items.iter().filter(|it| it.held_by.is_some() && it.kind != ItemKind::Spear) {

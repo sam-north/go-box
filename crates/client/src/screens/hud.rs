@@ -6,7 +6,7 @@ use crate::settings::Act;
 use crate::text::{t, tf};
 use crate::ui::{ACCENT, DIM, INK, Ui};
 use go_box_render::{self as render};
-use go_box_sim::sim::{DT, Match, N_FIGHTERS};
+use go_box_sim::sim::{DT, Match, N_FIGHTERS, TICK_RATE};
 use macroquad::prelude::*;
 
 /// Dots showing where a throw would go.
@@ -67,10 +67,20 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
         draw_rectangle(x, ui.px(36.0), bw, ui.px(6.0), Color::new(0.0, 0.0, 0.0, 0.6));
         draw_rectangle(x, ui.px(36.0), bw * (f.hp.max(0.0) / go_box_sim::sim::MAX_HP), ui.px(6.0), color);
     }
-    let left = (m.config.max_ticks.saturating_sub(m.tick)) as f32 * DT;
-    ui.text_centered(&mmss(left.ceil()), sw / 2.0, ui.px(70.0), 28.0, INK);
+    // Whole seconds left, counted in ticks (float maths made 45s show as 0:46).
+    let left = m.config.max_ticks.saturating_sub(m.play_ticks()).div_ceil(TICK_RATE);
+    ui.text_centered(&mmss(left as f32), sw / 2.0, ui.px(70.0), 28.0, INK);
 
+    // 3, 2, 1 in the middle of the screen, then GO! for a moment.
     let sh = screen_height();
+    if m.counting_down() {
+        let n = (m.config.countdown - m.tick).div_ceil(TICK_RATE);
+        let pulse = ((m.config.countdown - m.tick) % TICK_RATE) as f32 / TICK_RATE as f32;
+        ui.text_centered(&n.to_string(), sw / 2.0, sh * 0.45, 90.0 + 40.0 * pulse, ACCENT);
+    } else if m.play_ticks() < TICK_RATE * 2 / 3 {
+        ui.text_centered(t("hud.go"), sw / 2.0, sh * 0.45, 100.0, ACCENT);
+    }
+
     match g.seat() {
         None => ui.text_centered(t("hud.watching"), sw / 2.0, sh - ui.px(24.0), 24.0, ACCENT),
         Some(s) => {

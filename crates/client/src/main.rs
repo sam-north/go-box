@@ -140,8 +140,9 @@ async fn main() {
                     let g = app.game.as_mut().unwrap();
                     let view = g.latest().cloned().map(|v| Match::from_view(v, &g.start.config, Vec::new()));
                     view.map_or_else(Action::default, |m| autopilot(&m, seat, &mut app.rng))
-                } else if app.settings_open {
-                    // Stand still while the menu is up.
+                } else if app.settings_open || app.game.as_ref().is_some_and(|g| g.counting_down()) {
+                    // Stand still while the menu is up, and during the 3-2-1 (the server ignores input
+                    // then, so predicting movement would only snap back).
                     Action::default()
                 } else {
                     app.controls.take(&app.settings.bindings, &me, mouse_arena, mouse_free)

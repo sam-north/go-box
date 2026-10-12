@@ -504,7 +504,7 @@ mod tests {
 
     /// A match with the given cast, everyone standing still on the floor at chosen x positions.
     fn staged(cast: [Character; N_FIGHTERS], xs: [f32; N_FIGHTERS]) -> Match {
-        let mut m = Match::new(7, &MatchConfig { heals: 0..=0, ..MatchConfig::default() });
+        let mut m = Match::new(7, &MatchConfig { heals: 0..=0, countdown: 0, spawn_grace: 0, ..MatchConfig::default() });
         m.items.clear();
         for i in 0..N_FIGHTERS {
             m.f[i].character = cast[i];

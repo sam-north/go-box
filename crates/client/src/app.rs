@@ -9,7 +9,7 @@ use crate::net::{Net, State};
 use crate::platform;
 use crate::testclient::Options;
 use go_box_protocol::*;
-use go_box_render::sound::{Sfx, Sounds};
+use go_box_render::sound::Sounds;
 use go_box_render::Art;
 use macroquad::prelude::*;
 use ::rand::rngs::SmallRng;
@@ -160,7 +160,6 @@ impl App {
                     self.was_over = false;
                     art.reset();
                     sfx.reset();
-                    sfx.play(Sfx::Start, 1.0);
                 }
                 ServerMsg::Snapshot(s) => {
                     if let Some(g) = &mut self.game {

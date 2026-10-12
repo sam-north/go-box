@@ -38,6 +38,7 @@ go_box_sim::enum_all! {
         BombCrunch,
         BombBlast,
         Ready,
+        Count,
         Start,
         Win,
         Lose,
@@ -134,6 +135,8 @@ impl Sfx {
                 s.tone(0.0, 0.3, 110.0, 40.0, Wave::Square, 0.002, 10.0, 0.18);
             }
             Sfx::Ready => s.tone(0.0, 0.14, 880.0, 1320.0, Wave::Sine, 0.005, 14.0, 0.22),
+            // The 3-2-1 beeps (the start horn, `Start`, is the GO).
+            Sfx::Count => s.tone(0.0, 0.16, 660.0, 660.0, Wave::Square, 0.003, 12.0, 0.14),
             Sfx::Start => {
                 s.tone(0.0, 0.12, 440.0, 440.0, Wave::Square, 0.003, 10.0, 0.14);
                 s.tone(0.16, 0.3, 660.0, 660.0, Wave::Square, 0.003, 6.0, 0.16);
@@ -314,6 +317,8 @@ pub struct Sounds {
     step_dist: [f32; N_FIGHTERS],
     fuse_acc: f32,
     special_cd: Option<u32>,
+    /// The countdown number last shown (3, 2, 1), to beep on each.
+    count: Option<u32>,
 }
 
 impl Sounds {
@@ -329,7 +334,7 @@ impl Sounds {
                 }
             }
         });
-        Self { sounds, muted: false, master: 0.8, effects: 1.0, last: vec![-1.0; Sfx::ALL.len()], now: 0.0, step_dist: [0.0; N_FIGHTERS], fuse_acc: 0.0, special_cd: None }
+        Self { sounds, muted: false, master: 0.8, effects: 1.0, last: vec![-1.0; Sfx::ALL.len()], now: 0.0, step_dist: [0.0; N_FIGHTERS], fuse_acc: 0.0, special_cd: None, count: None }
     }
 
     /// Plays `s` at `vol` (0..1, before the master volume).
@@ -421,6 +426,16 @@ impl Sounds {
         if m.over {
             return;
         }
+        // 3, 2, 1 (a beep each), then GO (the start horn).
+        let count = m.counting_down().then(|| (m.config.countdown - m.tick).div_ceil(TICK_RATE));
+        if count != self.count {
+            match count {
+                Some(_) => self.play(Sfx::Count, 0.9),
+                None if self.count.is_some() => self.play(Sfx::Start, 1.0),
+                None => {}
+            }
+            self.count = count;
+        }
         let ear = own.map_or(vec2_mid(), |s| m.f[s].center());
         for i in 0..N_FIGHTERS {
             let f = &m.f[i];
@@ -460,6 +475,7 @@ impl Sounds {
         self.step_dist = [0.0; N_FIGHTERS];
         self.fuse_acc = 0.0;
         self.special_cd = None;
+        self.count = None;
     }
 }
 

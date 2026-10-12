@@ -50,6 +50,11 @@ impl Game {
         self.latest().is_some_and(|v| v.over)
     }
 
+    /// The match hasn't started yet (going by the newest snapshot).
+    pub fn counting_down(&self) -> bool {
+        self.latest().is_none_or(|v| v.tick < self.start.config.countdown)
+    }
+
     /// Your fighter as you see it (predicted), if you have a seat.
     pub fn me(&self) -> Option<&Fighter> {
         self.me.as_ref()
@@ -179,7 +184,7 @@ mod tests {
 
     /// No health pickups.
     fn quiet() -> MatchConfig {
-        MatchConfig { heals: 0..=0, ..MatchConfig::default() }
+        MatchConfig { heals: 0..=0, countdown: 0, spawn_grace: 0, ..MatchConfig::default() }
     }
 
     /// The server's match: nothing lying around, nobody else moving.
