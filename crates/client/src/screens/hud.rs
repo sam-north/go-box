@@ -1,7 +1,9 @@
 //! In the match: names and health, the clock, your special, and the marks drawn over the arena.
 
 use crate::app::*;
-use crate::screens::mmss;
+use crate::screens::{mmss, seat_name, special_name};
+use crate::settings::Act;
+use crate::text::{t, tf};
 use crate::ui::{ACCENT, DIM, INK, Ui};
 use go_box_render::{self as render};
 use go_box_sim::sim::{DT, MAX_TICKS, Match, N_FIGHTERS};
@@ -44,7 +46,7 @@ pub fn draw_you(m: &Match, seat: usize) {
 /// Names and health across the top, the clock, and your special at the bottom.
 pub fn hud(ui: &Ui, app: &App, m: &Match) {
     let Some(g) = &app.game else {
-        ui.text_centered("Joining...", screen_width() / 2.0, screen_height() / 2.0, 30.0, INK);
+        ui.text_centered(t("hud.joining"), screen_width() / 2.0, screen_height() / 2.0, 30.0, INK);
         return;
     };
     let sw = screen_width();
@@ -58,7 +60,8 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
         let color = if f.alive() { render::look(f.character, i).accent } else { DIM };
         let x = ui.px(16.0) + i as f32 * colw;
         let you = g.seat() == Some(i);
-        let name = if you { format!("{} (you)", seat.name) } else { seat.name.clone() };
+        let name = seat_name(&seat.name, f.character, seat.player.is_none());
+        let name = if you { tf("hud.you", &[("name", &name)]) } else { name };
         ui.text(&name, x, ui.px(28.0), 20.0, color);
         let bw = colw - ui.px(24.0);
         draw_rectangle(x, ui.px(36.0), bw, ui.px(6.0), Color::new(0.0, 0.0, 0.0, 0.6));
@@ -69,11 +72,11 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
 
     let sh = screen_height();
     match g.seat() {
-        None => ui.text_centered("Watching - you'll play in the next match", sw / 2.0, sh - ui.px(24.0), 24.0, ACCENT),
+        None => ui.text_centered(t("hud.watching"), sw / 2.0, sh - ui.px(24.0), 24.0, ACCENT),
         Some(s) => {
             let f = &m.f[s];
             if !f.alive() {
-                ui.text_centered("You're down - watch the rest", sw / 2.0, sh - ui.px(24.0), 24.0, DIM);
+                ui.text_centered(t("hud.down"), sw / 2.0, sh - ui.px(24.0), 24.0, DIM);
             } else if let Some(sp) = f.character.special() {
                 let color = render::character_color(f.character);
                 let w = ui.px(260.0);
@@ -83,10 +86,12 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
                 let frac = 1.0 - f.special_cd as f32 / sp.cooldown() as f32;
                 draw_rectangle(x, y, w, ui.px(10.0), Color::new(0.0, 0.0, 0.0, 0.6));
                 draw_rectangle(x, y, w * frac, ui.px(10.0), if ready { color } else { Color::new(color.r * 0.5, color.g * 0.5, color.b * 0.5, 1.0) });
-                let label = if ready { format!("[{}] {} - ready", app.controls.special_key(), sp.name()) } else { format!("{} - {:.0}s", sp.name(), (f.special_cd as f32 * DT).ceil()) };
+                let key = app.settings.bindings.short_label(Act::Special, app.controls.using_pad);
+                let secs = format!("{:.0}", (f.special_cd as f32 * DT).ceil());
+                let label = if ready { tf("hud.special_ready", &[("key", &key), ("special", special_name(sp))]) } else { tf("hud.special_cooling", &[("special", special_name(sp)), ("secs", &secs)]) };
                 ui.text_centered(&label, sw / 2.0, y + ui.px(32.0), 20.0, if ready { color } else { DIM });
             } else {
-                ui.text_centered(app.controls_help(), sw / 2.0, sh - ui.px(16.0), 18.0, DIM);
+                ui.text_centered(&app.controls_help(), sw / 2.0, sh - ui.px(16.0), 18.0, DIM);
             }
         }
     }

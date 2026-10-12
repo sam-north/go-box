@@ -5,7 +5,7 @@ use crate::room::{Joined, RoomCmd};
 use crate::{ConnectionSlot, Hub};
 use axum::extract::ws::{Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
-use go_box_protocol::{ClientMsg, MAX_NAME_LEN, PROTOCOL_VERSION, PlayerId, ServerMsg, decode, encode};
+use go_box_protocol::{ClientMsg, MAX_NAME_LEN, PROTOCOL_VERSION, PlayerId, Refusal, ServerMsg, decode, encode};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
@@ -19,7 +19,7 @@ pub type Outbox = mpsc::Sender<Vec<u8>>;
 pub async fn run(socket: WebSocket, hub: Arc<Hub>) {
     let (mut sink, mut stream) = socket.split();
     let Some(_slot) = ConnectionSlot::take(&hub) else {
-        let _ = sink.send(Message::Binary(encode(&ServerMsg::Error("The server is full. Try again later.".into())).into())).await;
+        let _ = sink.send(Message::Binary(encode(&ServerMsg::Error(Refusal::ServerFull)).into())).await;
         return;
     };
     let (out, mut outbox) = mpsc::channel::<Vec<u8>>(OUTBOX);
@@ -37,7 +37,7 @@ pub async fn run(socket: WebSocket, hub: Arc<Hub>) {
     let name = match hello {
         Ok(Some(ClientMsg::Hello { version, name })) if version == PROTOCOL_VERSION => clean_name(&name),
         Ok(Some(ClientMsg::Hello { .. })) => {
-            let _ = out.send(encode(&ServerMsg::Error("This page is out of date with the server. Reload it.".into()))).await;
+            let _ = out.send(encode(&ServerMsg::Error(Refusal::OutOfDate))).await;
             drop(out);
             let _ = writer.await;
             return;
@@ -57,13 +57,13 @@ pub async fn run(socket: WebSocket, hub: Arc<Hub>) {
                     let _ = r.send(RoomCmd::Leave { id }).await;
                 }
                 let target = match &msg {
-                    ClientMsg::CreateRoom => hub.create_room().map(|(_, tx)| tx).ok_or("The server has too many rooms open. Try again later."),
-                    ClientMsg::JoinRoom { code } => hub.find_room(code).ok_or("No room with that code."),
+                    ClientMsg::CreateRoom => hub.create_room().map(|(_, tx)| tx).ok_or(Refusal::TooManyRooms),
+                    ClientMsg::JoinRoom { code } => hub.find_room(code).ok_or(Refusal::NoSuchRoom),
                     _ => unreachable!(),
                 };
                 let joined = match target {
                     Ok(tx) => join(&tx, id, &name, &out).await.map(|()| tx),
-                    Err(e) => Err(e.to_string()),
+                    Err(e) => Err(e),
                 };
                 match joined {
                     Ok(tx) => room = Some(tx),
@@ -99,13 +99,13 @@ pub async fn run(socket: WebSocket, hub: Arc<Hub>) {
     writer.abort();
 }
 
-async fn join(room: &mpsc::Sender<RoomCmd>, id: PlayerId, name: &str, out: &Outbox) -> Result<(), String> {
+async fn join(room: &mpsc::Sender<RoomCmd>, id: PlayerId, name: &str, out: &Outbox) -> Result<(), Refusal> {
     let (reply, answer) = oneshot::channel();
     let cmd = RoomCmd::Join(Joined { id, name: name.to_string(), out: out.clone(), reply });
     if room.send(cmd).await.is_err() {
-        return Err("That room just closed.".into());
+        return Err(Refusal::RoomClosed);
     }
-    answer.await.unwrap_or_else(|_| Err("That room just closed.".into()))
+    answer.await.unwrap_or(Err(Refusal::RoomClosed))
 }
 
 /// Next decodable client message; None when the connection ends. Undecodable frames are

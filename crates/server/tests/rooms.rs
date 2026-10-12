@@ -64,7 +64,7 @@ impl Client {
         self.until(|m| if let ServerMsg::Room(r) = m { Some(r) } else { None }).await
     }
 
-    async fn error(&mut self) -> String {
+    async fn error(&mut self) -> Refusal {
         self.until(|m| if let ServerMsg::Error(e) = m { Some(e) } else { None }).await
     }
 }
@@ -146,7 +146,7 @@ async fn refusals() {
     let url = start_server().await;
     let mut a = Client::connect(&url, "A").await;
     a.send(ClientMsg::JoinRoom { code: "ZZZZ".into() }).await;
-    assert!(a.error().await.contains("No room"));
+    assert_eq!(a.error().await, Refusal::NoSuchRoom);
 
     a.send(ClientMsg::CreateRoom).await;
     let code = a.room().await.code;
@@ -159,20 +159,20 @@ async fn refusals() {
     }
     let mut fifth = Client::connect(&url, "Five").await;
     fifth.send(ClientMsg::JoinRoom { code }).await;
-    assert!(fifth.error().await.contains("full"));
+    assert_eq!(fifth.error().await, Refusal::RoomFull);
 
     // Room cap is 2 in this config.
     fifth.send(ClientMsg::CreateRoom).await;
     fifth.room().await;
     let mut sixth = Client::connect(&url, "Six").await;
     sixth.send(ClientMsg::CreateRoom).await;
-    assert!(sixth.error().await.contains("too many rooms"));
+    assert_eq!(sixth.error().await, Refusal::TooManyRooms);
 
     // Wrong protocol version.
     let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
     ws.send(Message::Binary(encode(&ClientMsg::Hello { version: PROTOCOL_VERSION + 1, name: "Old".into() }).into())).await.unwrap();
     let Some(Ok(Message::Binary(b))) = ws.next().await else { panic!() };
-    assert!(matches!(decode(&b), Some(ServerMsg::Error(e)) if e.contains("out of date")));
+    assert!(matches!(decode(&b), Some(ServerMsg::Error(Refusal::OutOfDate))));
 }
 
 #[tokio::test]

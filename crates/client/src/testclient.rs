@@ -30,6 +30,8 @@ pub struct Options {
     pub quit_after: Option<f32>,
     /// Open the settings menu at startup (for screenshots).
     pub settings: bool,
+    /// ...on its Controls page.
+    pub controls: bool,
     /// Start with sound off.
     pub mute: bool,
 }
@@ -50,7 +52,7 @@ impl Options {
             name: val("--name"),
             join: val("--join"),
             create: has("--create"),
-            character: val("--character").and_then(|c| Character::ALL.into_iter().find(|x| x.name().eq_ignore_ascii_case(&c))),
+            character: val("--character").and_then(|c| Character::ALL.into_iter().find(|x| x.id().eq_ignore_ascii_case(&c))),
             start_when: val("--start-when").and_then(|v| v.parse().ok()),
             autopilot: has("--autopilot"),
             code_file: val("--code-file"),
@@ -59,6 +61,7 @@ impl Options {
             quit_after: val("--quit-after").and_then(|v| v.parse().ok()),
             mute: has("--mute"),
             settings: has("--settings"),
+            controls: has("--controls"),
         }
     }
 }

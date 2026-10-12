@@ -29,6 +29,7 @@ pub struct Nav {
 pub enum Slider {
     Master,
     Effects,
+    Music,
 }
 
 pub struct Ui {
@@ -128,6 +129,18 @@ impl Ui {
             }
         }
         lines
+    }
+
+    /// `t` cut short with ".." if it's wider than `width`.
+    pub fn fit(&self, t: &str, size: f32, width: f32) -> String {
+        if self.text_width(t, size) <= width {
+            return t.to_string();
+        }
+        let mut s: String = t.to_string();
+        while !s.is_empty() && self.text_width(&format!("{s}.."), size) > width {
+            s.pop();
+        }
+        format!("{s}..")
     }
 
     pub fn text_centered(&self, t: &str, cx: f32, y: f32, size: f32, c: Color) {

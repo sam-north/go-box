@@ -1,0 +1,165 @@
+# Everything the game shows players, in US English. `key = text`; {name} is filled in by the
+# game. Another language is a copy of this file with the right-hand sides translated (keys stay
+# the same), registered in crates/client/src/text.rs. Keys it lacks fall back to this file.
+
+# Home screen
+home.title = GO BOX
+home.tagline = 4-player arena. Bots fill the empty seats.
+home.your_name = Your name
+home.name_placeholder = Type your name
+home.default_name = Player
+home.create = Create a room
+home.join_heading = Or join a friend's room
+home.code_placeholder = Room code
+home.join = Join
+home.connecting = Connecting...
+
+# Room and scoreboard
+lobby.room = ROOM {code}
+lobby.copy_link = Copy invite link
+lobby.link_copied = Invite link copied
+lobby.wins = {name} wins!
+lobby.draw = Draw!
+lobby.match_length = match length {time}
+lobby.col_player = Player
+lobby.col_character = Character
+lobby.col_kills = Kills
+lobby.col_headshots = Headshots
+lobby.col_damage = Damage
+lobby.col_down = Went down
+lobby.survived = survived, {hp} HP
+lobby.players = Players
+lobby.difficulty = Bot difficulty
+lobby.leader_tag = (leader)
+lobby.you_tag = - you
+lobby.ready_tag = ready
+lobby.seat = Seat {n}
+lobby.fill_bot = Bot
+lobby.fill_none = None
+lobby.seat_bot = bot
+lobby.seat_empty = empty
+lobby.picked = picked
+lobby.no_special = No special
+lobby.classic_blurb = the original
+lobby.cooldown = every {secs}s
+lobby.start = Start match
+lobby.play_again = Play again
+lobby.ready = Ready
+lobby.is_ready = Ready!
+lobby.leader_starts = The leader starts the match
+lobby.exit = Exit
+
+# Seats and the match
+seat.bot = {character} (bot)
+hud.you = {name} (you)
+hud.joining = Joining...
+hud.watching = Watching - you'll play in the next match
+hud.down = You're down - watch the rest
+hud.special_ready = [{key}] {special} - ready
+hud.special_cooling = {special} - {secs}s
+
+# Characters and their specials (by id)
+character.classic = Classic
+character.sam = Sam
+character.austin = Austin
+character.tyler = Tyler
+special.gravity_bomb = Gravity Bomb
+special.pop_up = Pop-Up
+special.hounds = Release the Hounds
+
+difficulty.easy = Easy
+difficulty.normal = Normal
+difficulty.hard = Hard
+
+# Messages
+notice.connection_lost = Lost connection to the server.
+notice.server_unreachable = Can't reach the server.
+notice.sound_off = Sound off ({key} to turn it back on)
+notice.sound_on = Sound on
+refusal.server_full = The server is full. Try again later.
+refusal.out_of_date = This page is out of date with the server. Reload it.
+refusal.too_many_rooms = The server has too many rooms open. Try again later.
+refusal.no_such_room = No room with that code.
+refusal.room_full = That room is full.
+refusal.room_closed = That room just closed.
+
+# Settings
+settings.button = Settings
+settings.title = SETTINGS
+settings.tab_sound = Sound
+settings.tab_controls = Controls
+settings.close = Close
+settings.volume_master = Overall volume
+settings.volume_effects = Sound effects
+settings.volume_music = Music
+settings.no_music_yet = (no music yet)
+settings.sound_on = Sound: on ({key})
+settings.sound_off = Sound: off ({key})
+settings.keyboard = Keyboard + mouse
+settings.controller = Controller
+settings.pad_connected = connected
+settings.pad_missing = none found: press a button on it
+settings.change = Change
+settings.press_key = press a key...
+settings.reset_controls = Reset controls
+settings.fixed_controls = Also: left stick moves, right stick or mouse aims; d-pad and Cross work the menus.
+
+# What you can bind (by id)
+act.left = Move left
+act.right = Move right
+act.jump = Jump
+act.hand = Grab / throw
+act.melee = Attack
+act.special = Special
+act.settings = Settings
+act.mute = Mute
+
+# The controls line, built from your bindings: {keys} is what the action is bound to.
+help.move = {keys} move
+help.jump = {keys} jump
+help.aim = {keys} aim
+help.hand = {keys} grab/throw
+help.melee = {keys} attack
+help.special = {keys} special
+help.settings = {keys} settings
+help.stick = Stick
+help.mouse = Mouse
+help.right_stick = Right stick
+
+# Key and button names
+key.space = Space
+key.enter = Enter
+key.tab = Tab
+key.escape = Esc
+key.backspace = Backspace
+key.shift = Shift
+key.right_shift = Right Shift
+key.ctrl = Ctrl
+key.right_ctrl = Right Ctrl
+key.alt = Alt
+key.right_alt = Right Alt
+key.up = Up
+key.down = Down
+key.left = Left
+key.right = Right
+mouse.left = Left click
+mouse.right = Right click
+mouse.middle = Middle click
+pad.button = Button {n}
+pad.cross = Cross
+pad.circle = Circle
+pad.square = Square
+pad.triangle = Triangle
+pad.l1 = L1
+pad.r1 = R1
+pad.l2 = L2
+pad.r2 = R2
+pad.share = Share
+pad.options = Options
+pad.l3 = L3
+pad.r3 = R3
+pad.up = D-pad up
+pad.down = D-pad down
+pad.left = D-pad left
+pad.right = D-pad right
+pad.home = Home

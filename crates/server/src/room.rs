@@ -4,7 +4,7 @@
 use crate::Hub;
 use crate::conn::Outbox;
 use go_box_protocol::{
-    ClientMsg, Difficulty, MAX_PLAYERS, MatchStart, Phase, PlayerId, PlayerInfo, Results, RoomInfo, SNAPSHOT_EVERY, Seat, SeatFill, SeatResult, ServerMsg,
+    ClientMsg, Difficulty, MAX_PLAYERS, MatchStart, Phase, PlayerId, PlayerInfo, Refusal, Results, RoomInfo, SNAPSHOT_EVERY, Seat, SeatFill, SeatResult, ServerMsg,
     Snapshot,
     encode,
 };
@@ -28,7 +28,7 @@ pub struct Joined {
     pub id: PlayerId,
     pub name: String,
     pub out: Outbox,
-    pub reply: oneshot::Sender<Result<(), String>>,
+    pub reply: oneshot::Sender<Result<(), Refusal>>,
 }
 
 /// Inputs waiting to be applied, per player. A little backlog smooths out network jitter; a
@@ -181,7 +181,7 @@ impl Room {
         match cmd {
             RoomCmd::Join(j) => {
                 if self.players.len() >= MAX_PLAYERS {
-                    let _ = j.reply.send(Err("That room is full.".into()));
+                    let _ = j.reply.send(Err(Refusal::RoomFull));
                     return;
                 }
                 if self.players.is_empty() {
@@ -291,7 +291,7 @@ impl Room {
                 None => {
                     let c = Character::ALL[self.rng.gen_range(0..Character::ALL.len())];
                     m.f[i].character = c;
-                    names[i] = format!("{} (bot)", c.name());
+                    // Bots go unnamed: clients name them after their character.
                 }
             }
         }
@@ -307,7 +307,7 @@ impl Room {
             p.send(&ServerMsg::MatchStart(MatchStart { seats: seats_of(&running), your_seat }));
         }
         self.running = Some(running);
-        tracing::info!(room = %self.code, seed, humans = self.players.len(), difficulty = self.difficulty.name(), "match started");
+        tracing::info!(room = %self.code, seed, humans = self.players.len(), difficulty = self.difficulty.id(), "match started");
         self.broadcast_room();
         self.send_snapshot();
     }

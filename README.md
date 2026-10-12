@@ -19,17 +19,11 @@ headshots, damage, when each fighter went down), everyone can switch character, 
 mark themselves ready, and the leader hits **Play again**. Someone who leaves mid-match is
 replaced by a bot; someone who joins mid-match watches until the next one.
 
-Controls (you always run; **Esc** opens settings: volume sliders, mute, and this list):
-
-| | Keyboard + mouse | Controller (PS4/PS5/Xbox, in Chrome/Edge/Firefox) |
-|---|---|---|
-| Move | `A`/`D` | left stick or d-pad |
-| Jump | `W` or `Space` | Cross |
-| Aim | mouse (throws go toward the cursor) | right stick (else straight ahead) |
-| Grab / throw | left click (or `E`): picks up when empty-handed, throws when holding | Square / R2 |
-| Melee | right click (or `R`), swings toward the cursor | Circle / R1 |
-| Special | `Shift` (or `F`, `Q`) | Triangle / L2 / L1 |
-| Mute | `M` | |
+Controls: you always run; **Esc** (Options on a controller) opens Settings, where the **Controls**
+page shows every binding and lets you change it, separately for keyboard/mouse and controller (PS4,
+PS5 or Xbox pads in Chrome, Edge or Firefox). By default: `A`/`D` move, `W`/`Space` jump, the mouse
+aims, left click grabs (empty-handed) or throws (holding something), right click attacks toward the
+cursor, `Shift` uses your special, `M` mutes. Settings are saved in the browser.
 
 The browser only reports a controller after you press a button on it. In menus (lobby, scoreboard,
 settings) the d-pad or left stick moves a highlight and Cross presses it.
@@ -63,6 +57,13 @@ Every sound is synthesised in code at startup (`crates/render/src/sound.rs`): no
 Hits sound different by weapon, headshots ding, grenades tick faster as the fuse burns, and each
 special has its own. Your own jumps and swings play the instant you press the key. **M** toggles
 sound (remembered by the browser).
+
+### Text and languages
+
+Everything players read is in `crates/client/text/en-US.txt` (`key = text`). Another language is
+a translated copy of that file registered in `crates/client/src/text.rs`; a test checks the code
+and the English file agree (no missing or unused keys). The server never sends display text: it
+sends ids (characters, refusals) that the client looks up.
 
 ### How the netcode works
 

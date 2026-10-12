@@ -397,6 +397,8 @@ dependencies = [
  "go-box-sim",
  "macroquad",
  "rand 0.8.8",
+ "serde",
+ "serde_json",
  "tungstenite 0.26.2",
 ]
 

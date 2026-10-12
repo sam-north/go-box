@@ -11,7 +11,9 @@ mod input;
 mod net;
 mod platform;
 mod screens;
+mod settings;
 mod testclient;
+mod text;
 mod ui;
 
 use go_box_protocol::*;
@@ -23,6 +25,8 @@ use macroquad::prelude::*;
 use ::rand::rngs::SmallRng;
 use ::rand::SeedableRng;
 use input::Controls;
+use settings::{Act, Bind, Settings};
+use text::{t, tf};
 use ui::{BAD, Ui};
 use app::*;
 use attract::Attract;
@@ -42,13 +46,9 @@ async fn main() {
     let mut ui = Ui::new();
     let mut art = Art::new();
     let mut sfx = Sounds::load();
-    sfx.muted = platform::load_pref(PREF_MUTED) == "1";
-    if let Ok(v) = platform::load_pref(PREF_MASTER).parse::<f32>() {
-        sfx.master = v.clamp(0.0, 1.0);
-    }
-    if let Ok(v) = platform::load_pref(PREF_EFFECTS).parse::<f32>() {
-        sfx.effects = v.clamp(0.0, 1.0);
-    }
+    let mut settings = Settings::load();
+    settings.muted |= opts.mute;
+    text::set_language(&settings.language);
     let rt = render_target(W as u32, H as u32);
     rt.texture.set_filter(FilterMode::Nearest);
     let mut cam = Camera2D { target: vec2(W / 2.0, H / 2.0), zoom: vec2(2.0 / W, 2.0 / H), ..Default::default() };
@@ -78,7 +78,10 @@ async fn main() {
         acc: 0.0,
         controls: Controls::default(),
         view: (Vec2::ZERO, 1.0),
-        settings_open: opts.settings,
+        settings,
+        settings_open: opts.settings || opts.controls,
+        settings_tab: if opts.controls { SettingsTab::Controls } else { SettingsTab::default() },
+        rebinding: None,
         preview_at: 0.0,
         rng: SmallRng::seed_from_u64((get_time() * 1e6) as u64),
         was_over: false,
@@ -94,9 +97,25 @@ async fn main() {
         let dt = get_frame_time().min(0.1);
         app.update_net(&mut art, &mut sfx);
         app.controls.poll();
-        if app.controls.settings_pressed() {
+        if let Some((act, pad)) = app.rebinding {
+            // Waiting for a key or button to bind; Esc cancels.
+            let captured = if pad { Bind::capture_pad(&app.controls.pad, app.controls.pad_prev) } else { Bind::capture_keyboard() };
+            if is_key_pressed(KeyCode::Escape) {
+                app.rebinding = None;
+            } else if let Some(b) = captured {
+                app.settings.bindings.set(act, b);
+                app.settings.save();
+                app.rebinding = None;
+            }
+        } else if app.controls.pressed(&app.settings.bindings, Act::Settings) {
             app.settings_open = !app.settings_open;
         }
+        if !app.settings_open {
+            app.rebinding = None;
+        }
+        sfx.master = app.settings.master;
+        sfx.effects = app.settings.effects;
+        sfx.muted = app.settings.muted;
         let seat = app.game.as_ref().and_then(|g| g.seat());
         let playing = app.room.as_ref().is_some_and(|r| r.phase == Phase::Playing) && app.game.as_ref().is_some_and(|g| !g.over());
         // The gamepad drives the menus whenever you're not mid-match (or the settings are up).
@@ -111,7 +130,7 @@ async fn main() {
         let mouse_free = !app.settings_open && !settings_button(&ui).contains(mouse);
         let me = app.game.as_ref().and_then(|g| g.me()).cloned();
         if let (true, Some(seat), Some(me)) = (playing, seat, me) {
-            app.controls.latch(me.holding.is_some(), mouse_free);
+            app.controls.latch(&app.settings.bindings, me.holding.is_some(), mouse_free);
             app.acc = (app.acc + dt).min(0.25);
             while app.acc >= DT {
                 app.acc -= DT;
@@ -124,7 +143,7 @@ async fn main() {
                     // Stand still while the menu is up.
                     Action::default()
                 } else {
-                    app.controls.take(&me, mouse_arena, mouse_free)
+                    app.controls.take(&app.settings.bindings, &me, mouse_arena, mouse_free)
                 };
                 let seq = app.seq;
                 app.send(ClientMsg::Input { seq, action });
@@ -218,16 +237,19 @@ async fn main() {
         ui.blocked = false;
         if app.settings_open {
             settings_screen(&mut ui, &mut app, &mut sfx);
-        } else if ui.button(settings_button(&ui), "Settings", true, ui::EDGE) {
+        } else if ui.button(settings_button(&ui), t("settings.button"), true, ui::EDGE) {
             app.settings_open = true;
         }
         if ui.pressed {
             sfx.play(Sfx::Click, 1.0);
         }
-        if ui.focus.is_none() && is_key_pressed(KeyCode::M) {
-            sfx.muted = !sfx.muted;
-            platform::save_pref(PREF_MUTED, if sfx.muted { "1" } else { "0" });
-            app.notify(if sfx.muted { "Sound off (M to turn it back on)" } else { "Sound on" });
+        // (Not while typing a name, or while a key is being rebound.)
+        if ui.focus.is_none() && app.rebinding.is_none() && app.controls.pressed(&app.settings.bindings, Act::Mute) {
+            app.settings.muted = !app.settings.muted;
+            app.settings.save();
+            sfx.muted = app.settings.muted;
+            let key = app.settings.bindings.short_label(Act::Mute, false);
+            app.notify(if app.settings.muted { tf("notice.sound_off", &[("key", &key)]) } else { t("notice.sound_on").to_string() });
             sfx.play(Sfx::Click, 1.0);
         }
         ui.end();

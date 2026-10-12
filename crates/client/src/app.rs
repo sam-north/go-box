@@ -2,7 +2,9 @@
 //! the server says.
 
 use crate::game::Game;
-use crate::input::{Controls, KEYS_HELP, PAD_HELP};
+use crate::input::Controls;
+use crate::settings::{Act, Settings};
+use crate::text::t;
 use crate::net::{Net, State};
 use crate::platform;
 use crate::testclient::Options;
@@ -31,8 +33,12 @@ pub struct App {
     pub controls: Controls,
     /// Arena-to-screen mapping of the last frame drawn: (top-left on screen, pixels per unit).
     pub view: (Vec2, f32),
-    /// The settings menu is open.
+    pub settings: Settings,
+    /// The settings menu is open, and which page of it.
     pub settings_open: bool,
+    pub settings_tab: SettingsTab,
+    /// Waiting for a key (or, if true, a gamepad button) to bind to this action.
+    pub rebinding: Option<(Act, bool)>,
     /// When the volume preview last played.
     pub preview_at: f64,
     pub rng: SmallRng,
@@ -48,7 +54,7 @@ impl App {
     /// Sends `msg` (CreateRoom / JoinRoom), connecting first if needed.
     pub fn enter(&mut self, msg: ClientMsg) {
         let name = self.name.trim().to_string();
-        let name = if name.is_empty() { "Player".to_string() } else { name };
+        let name = if name.is_empty() { t("home.default_name").to_string() } else { name };
         platform::save_name(&name);
         let reuse = self.me.is_some() && self.hello_name.as_deref() == Some(&name) && self.net.as_mut().is_some_and(|n| n.state() == State::Open);
         if reuse {
@@ -76,7 +82,7 @@ impl App {
             State::Closed => {
                 if !self.lost {
                     self.lost = true;
-                    let msg = if self.me.is_some() { "Lost connection to the server." } else { "Can't reach the server." };
+                    let msg = if self.me.is_some() { t("notice.connection_lost") } else { t("notice.server_unreachable") };
                     self.notify(msg);
                 }
                 self.net = None;
@@ -101,7 +107,7 @@ impl App {
                         net.send(&m);
                     }
                 }
-                ServerMsg::Error(e) => self.notice = Some((e, get_time())),
+                ServerMsg::Error(e) => self.notice = Some((t(&format!("refusal.{}", e.id())).to_string(), get_time())),
                 ServerMsg::Room(r) => {
                     platform::set_url_room(Some(&r.code));
                     if let Some(c) = Options::get().character
@@ -135,15 +141,17 @@ impl App {
     }
 }
 
-// Settings saved in the browser.
-pub const PREF_MUTED: &str = "go-box-muted";
-pub const PREF_MASTER: &str = "go-box-volume-master";
-pub const PREF_EFFECTS: &str = "go-box-volume-effects";
-
 impl App {
     /// The controls line for whichever device you're using.
-    pub fn controls_help(&self) -> &'static str {
-        if self.controls.using_pad { PAD_HELP } else { KEYS_HELP }
+    pub fn controls_help(&self) -> String {
+        self.settings.bindings.help(self.controls.using_pad)
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum SettingsTab {
+    #[default]
+    Sound,
+    Controls,
 }
 

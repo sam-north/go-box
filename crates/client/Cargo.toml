@@ -14,6 +14,9 @@ go-box-render.workspace = true
 go-box-sim.workspace = true
 macroquad.workspace = true
 rand.workspace = true
+serde.workspace = true
+# Settings are saved in the browser as one JSON blob.
+serde_json.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tungstenite = "0.26"

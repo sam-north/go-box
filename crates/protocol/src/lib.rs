@@ -28,7 +28,7 @@ use go_box_sim::sim::{Action, Event, MatchView, N_FIGHTERS};
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 7;
+pub const PROTOCOL_VERSION: u16 = 8;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -58,11 +58,12 @@ pub enum Difficulty {
 
 impl Difficulty {
     pub const ALL: [Difficulty; 3] = [Difficulty::Easy, Difficulty::Normal, Difficulty::Hard];
-    pub fn name(self) -> &'static str {
+    /// A stable id; players see the text `difficulty.<id>`.
+    pub fn id(self) -> &'static str {
         match self {
-            Difficulty::Easy => "Easy",
-            Difficulty::Normal => "Normal",
-            Difficulty::Hard => "Hard",
+            Difficulty::Easy => "easy",
+            Difficulty::Normal => "normal",
+            Difficulty::Hard => "hard",
         }
     }
 }
@@ -95,11 +96,39 @@ pub enum ClientMsg {
     Input { seq: u32, action: Action },
 }
 
+/// Why the server refused something. The client shows it in the player's language.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum Refusal {
+    /// Too many connections right now.
+    ServerFull,
+    /// The page (client) is a different version from the server: reload.
+    OutOfDate,
+    TooManyRooms,
+    NoSuchRoom,
+    RoomFull,
+    /// The room closed while you were joining.
+    RoomClosed,
+}
+
+impl Refusal {
+    /// A stable id; players see the text `refusal.<id>`.
+    pub fn id(self) -> &'static str {
+        match self {
+            Refusal::ServerFull => "server_full",
+            Refusal::OutOfDate => "out_of_date",
+            Refusal::TooManyRooms => "too_many_rooms",
+            Refusal::NoSuchRoom => "no_such_room",
+            Refusal::RoomFull => "room_full",
+            Refusal::RoomClosed => "room_closed",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ServerMsg {
     Welcome { you: PlayerId },
-    /// Something was refused (bad code, room full, version mismatch...). Human-readable.
-    Error(String),
+    /// Something was refused (bad code, room full, version mismatch...).
+    Error(Refusal),
     /// The room changed: who's in it, choices, phase. Sent to everyone in the room.
     Room(RoomInfo),
     /// Left the room (or it was closed): back to the home screen.
@@ -138,6 +167,7 @@ pub struct RoomInfo {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Seat {
+    /// The player's name; empty for a bot (the client names it after its character).
     pub name: String,
     pub character: Character,
     /// None = a bot.
@@ -163,6 +193,7 @@ pub struct Snapshot {
 /// One line of the end-of-match scoreboard.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SeatResult {
+    /// Empty for a bot, as in `Seat`.
     pub name: String,
     pub character: Character,
     pub bot: bool,
@@ -278,7 +309,7 @@ mod tests {
             seats: [seat("Sam", Character::Sam, Some(1)), seat("A", Character::Austin, None), seat("T", Character::Tyler, None), seat("C", Character::Classic, None)],
             your_seat: Some(0),
         };
-        let mut server = vec![ServerMsg::Welcome { you: 9 }, ServerMsg::Error("nope".into()), ServerMsg::Room(room), ServerMsg::LeftRoom, ServerMsg::MatchStart(start)];
+        let mut server = vec![ServerMsg::Welcome { you: 9 }, ServerMsg::Error(Refusal::NoSuchRoom), ServerMsg::Room(room), ServerMsg::LeftRoom, ServerMsg::MatchStart(start)];
         server.extend(sample_snapshots().into_iter().map(ServerMsg::Snapshot));
         for m in &server {
             match m {
@@ -305,7 +336,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (7, 0xd8f9_bb0c_762c_c05f);
+    const WIRE: (u16, u64) = (8, 0xa2b9_de0f_19ea_d7ed);
 
     #[test]
     fn every_sample_round_trips() {

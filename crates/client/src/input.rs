@@ -1,42 +1,27 @@
-//! Your controls: keyboard + mouse, or a gamepad (a PS4/PS5/Xbox pad in the browser).
+//! Your controls: keyboard + mouse, or a gamepad (a PS4/PS5/Xbox pad in the browser). What each
+//! key or button does comes from your `Bindings` (Settings > Controls); this turns them into
+//! the sim's `Action` each tick.
 //!
-//! Players always run. Your left hand only moves and jumps; the hand actions live on the mouse.
+//! Players always run. Moving also works with the gamepad's left stick, and aiming follows the
+//! mouse or the right stick; neither is rebindable. In menus the gamepad moves a highlight with
+//! the d-pad or left stick and Cross presses it (also fixed, so you can't lock yourself out).
 //!
-//! | | Keyboard + mouse | Gamepad |
-//! |---|---|---|
-//! | move | A/D (or arrows) | left stick / d-pad |
-//! | jump | W or Space | Cross (A) |
-//! | aim | mouse | right stick (else straight ahead) |
-//! | grab / throw | left click (or E) | Square (X) / R2 |
-//! | melee | right click (or R) | Circle (B) / R1 |
-//! | special | Shift (or F, Q) | Triangle (Y) / L2 / L1 |
-//! | settings | Esc | Options (Start) |
-//!
-//! In menus the gamepad moves a highlight with the d-pad or left stick; Cross presses it.
-//!
-//! "Grab / throw" is one hand button: held while empty-handed it picks up what you're touching,
-//! a fresh press while holding something throws it. Presses are latched until a sim tick
-//! takes them (a fast frame may run no ticks).
+//! The hand button is one button: held while empty-handed it picks up what you're touching, a
+//! fresh press while holding something throws it. Presses are latched until a sim tick takes
+//! them (a fast frame may run no ticks).
 
 use crate::platform::{self, Pad};
+use crate::settings::{Act, Bindings};
 use crate::ui::Nav;
 use go_box_sim::sim::{Action, Fighter};
 use macroquad::prelude::*;
 
-// Standard gamepad button numbers (the browser's "standard" mapping).
-pub const PAD_CROSS: u32 = 0;
-pub const PAD_CIRCLE: u32 = 1;
-pub const PAD_SQUARE: u32 = 2;
-pub const PAD_TRIANGLE: u32 = 3;
-pub const PAD_L1: u32 = 4;
-pub const PAD_R1: u32 = 5;
-pub const PAD_L2: u32 = 6;
-pub const PAD_R2: u32 = 7;
-pub const PAD_OPTIONS: u32 = 9;
-pub const PAD_UP: u32 = 12;
-pub const PAD_DOWN: u32 = 13;
-pub const PAD_LEFT: u32 = 14;
-pub const PAD_RIGHT: u32 = 15;
+// Gamepad buttons used for menu navigation (standard mapping).
+const PAD_CROSS: u32 = 0;
+const PAD_UP: u32 = 12;
+const PAD_DOWN: u32 = 13;
+const PAD_LEFT: u32 = 14;
+const PAD_RIGHT: u32 = 15;
 
 const STICK_DEADZONE: f32 = 0.3;
 /// The right stick has to be pushed this far to aim (else throws go straight ahead).
@@ -44,21 +29,11 @@ const AIM_DEADZONE: f32 = 0.4;
 /// Holding the stick in a menu steps the highlight again after this long.
 const NAV_REPEAT: f64 = 0.28;
 
-// What each gamepad action is bound to.
-const PAD_HAND: [u32; 2] = [PAD_SQUARE, PAD_R2];
-const PAD_MELEE: [u32; 2] = [PAD_CIRCLE, PAD_R1];
-const PAD_SPECIAL: [u32; 3] = [PAD_TRIANGLE, PAD_L2, PAD_L1];
-const PAD_JUMP: [u32; 2] = [PAD_CROSS, PAD_UP];
-
-fn bit(b: u32) -> u32 {
-    1 << b
-}
-
 #[derive(Default)]
 pub struct Controls {
-    pad: Pad,
+    pub pad: Pad,
     /// Gamepad buttons held last frame (to spot fresh presses).
-    pad_prev: u32,
+    pub pad_prev: u32,
     /// The gamepad was used more recently than the keyboard/mouse.
     pub using_pad: bool,
     last_mouse: Vec2,
@@ -85,12 +60,13 @@ impl Controls {
         self.last_mouse = mouse;
     }
 
-    fn pad_down(&self, b: u32) -> bool {
-        self.pad.buttons & bit(b) != 0
+    fn pad_pressed(&self, b: u32) -> bool {
+        self.pad.buttons & (1 << b) != 0 && self.pad_prev & (1 << b) == 0
     }
 
-    pub fn pad_pressed(&self, b: u32) -> bool {
-        self.pad_down(b) && self.pad_prev & bit(b) == 0
+    /// `act` was pressed this frame (on any device).
+    pub fn pressed(&self, b: &Bindings, act: Act) -> bool {
+        b.pressed(act, &self.pad, self.pad_prev, true)
     }
 
     /// Menu navigation: a d-pad press, or the left stick pushed (repeating while held), and
@@ -119,39 +95,28 @@ impl Controls {
         Nav { dir, activate: self.pad_pressed(PAD_CROSS) }
     }
 
-    /// Esc, or Options on the pad.
-    pub fn settings_pressed(&self) -> bool {
-        is_key_pressed(KeyCode::Escape) || self.pad_pressed(PAD_OPTIONS)
-    }
-
     /// Remembers this frame's presses. `mouse_free` is false when the mouse is busy with the
     /// UI (a menu is open, or it's over a button).
-    pub fn latch(&mut self, holding: bool, mouse_free: bool) {
-        let click = mouse_free && is_mouse_button_pressed(MouseButton::Left);
-        let hand = click || is_key_pressed(KeyCode::E) || PAD_HAND.iter().any(|&b| self.pad_pressed(b));
-        self.throw |= holding && hand;
-        let keys = [KeyCode::LeftShift, KeyCode::RightShift, KeyCode::F, KeyCode::Q];
-        self.special |= keys.iter().any(|&k| is_key_pressed(k)) || PAD_SPECIAL.iter().any(|&b| self.pad_pressed(b));
+    pub fn latch(&mut self, b: &Bindings, holding: bool, mouse_free: bool) {
+        self.throw |= holding && b.pressed(Act::Hand, &self.pad, self.pad_prev, mouse_free);
+        self.special |= b.pressed(Act::Special, &self.pad, self.pad_prev, mouse_free);
     }
 
     /// This tick's action for fighter `me`. `mouse_arena` is the mouse in arena coordinates.
-    pub fn take(&mut self, me: &Fighter, mouse_arena: Vec2, mouse_free: bool) -> Action {
-        let key = |keys: &[KeyCode]| keys.iter().any(|&k| is_key_down(k));
-        let holding = me.holding.is_some();
-        let mut mv = key(&[KeyCode::D, KeyCode::Right]) as i32 as f32 - key(&[KeyCode::A, KeyCode::Left]) as i32 as f32;
-        if mv == 0.0 && self.pad.connected {
-            let dpad = self.pad_down(PAD_RIGHT) as i32 as f32 - self.pad_down(PAD_LEFT) as i32 as f32;
-            mv = if dpad != 0.0 { dpad } else if self.pad.left.x.abs() > STICK_DEADZONE { self.pad.left.x.signum() } else { 0.0 };
+    pub fn take(&mut self, b: &Bindings, me: &Fighter, mouse_arena: Vec2, mouse_free: bool) -> Action {
+        let down = |act| b.down(act, &self.pad, mouse_free);
+        let mut mv = down(Act::Right) as i32 as f32 - down(Act::Left) as i32 as f32;
+        if mv == 0.0 && self.pad.connected && self.pad.left.x.abs() > STICK_DEADZONE {
+            mv = self.pad.left.x.signum();
         }
-        let mouse_down = |b| mouse_free && is_mouse_button_down(b);
         let a = Action {
             mv,
             run: true,
-            jump: key(&[KeyCode::W, KeyCode::Space, KeyCode::Up]) || PAD_JUMP.iter().any(|&b| self.pad_down(b)),
-            attack: mouse_down(MouseButton::Right) || key(&[KeyCode::R]) || PAD_MELEE.iter().any(|&b| self.pad_down(b)),
+            jump: down(Act::Jump),
+            attack: down(Act::Melee),
             throw: self.throw,
             aim: 0.3,
-            grab: !holding && (mouse_down(MouseButton::Left) || key(&[KeyCode::E]) || PAD_HAND.iter().any(|&b| self.pad_down(b))),
+            grab: me.holding.is_none() && down(Act::Hand),
             special: self.special,
             target: self.target(me, mouse_arena),
         };
@@ -170,16 +135,4 @@ impl Controls {
             (d.length() > 1.0).then(|| d.normalize())
         }
     }
-
-    pub fn pad_connected(&self) -> bool {
-        self.pad.connected
-    }
-
-    /// The key or button that fires the special, for the HUD.
-    pub fn special_key(&self) -> &'static str {
-        if self.using_pad { "Triangle" } else { "Shift" }
-    }
 }
-
-pub const KEYS_HELP: &str = "A/D move   W/Space jump   Mouse aim   Left click grab/throw   Right click attack   Shift special   Esc settings";
-pub const PAD_HELP: &str = "Stick move   Cross jump   Right stick aim   Square grab/throw   Circle/R1 attack   Triangle/L2 special   Options settings";

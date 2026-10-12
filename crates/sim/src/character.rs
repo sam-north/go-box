@@ -65,12 +65,14 @@ pub enum Character {
 impl Character {
     pub const ALL: [Character; 4] = [Character::Classic, Character::Sam, Character::Austin, Character::Tyler];
 
-    pub fn name(self) -> &'static str {
+    /// A stable id (lowercase, no spaces): names it in text files, settings and the command
+    /// line. What players see comes from the client's text files (`character.<id>`).
+    pub fn id(self) -> &'static str {
         match self {
-            Character::Classic => "Classic",
-            Character::Sam => "Sam",
-            Character::Austin => "Austin",
-            Character::Tyler => "Tyler",
+            Character::Classic => "classic",
+            Character::Sam => "sam",
+            Character::Austin => "austin",
+            Character::Tyler => "tyler",
         }
     }
 
@@ -86,7 +88,8 @@ impl Character {
 
 /// One character's special move.
 pub trait Special: Sync {
-    fn name(&self) -> &'static str;
+    /// A stable id; players see the text `special.<id>`.
+    fn id(&self) -> &'static str;
     fn cooldown(&self) -> u32;
     /// Does it. Fighter `who` is alive, not stunned, and off cooldown.
     fn activate(&self, m: &mut Match, who: usize);
@@ -102,8 +105,8 @@ fn foes(m: &Match, who: usize) -> impl Iterator<Item = &Fighter> {
 struct GravityBomb;
 
 impl Special for GravityBomb {
-    fn name(&self) -> &'static str {
-        "Gravity Bomb"
+    fn id(&self) -> &'static str {
+        "gravity_bomb"
     }
     fn cooldown(&self) -> u32 {
         BOMB_COOLDOWN
@@ -131,8 +134,8 @@ impl Special for GravityBomb {
 struct PopUp;
 
 impl Special for PopUp {
-    fn name(&self) -> &'static str {
-        "Pop-Up"
+    fn id(&self) -> &'static str {
+        "pop_up"
     }
     fn cooldown(&self) -> u32 {
         POPUP_COOLDOWN
@@ -184,8 +187,8 @@ impl Special for PopUp {
 struct Hounds;
 
 impl Special for Hounds {
-    fn name(&self) -> &'static str {
-        "Release the Hounds"
+    fn id(&self) -> &'static str {
+        "hounds"
     }
     fn cooldown(&self) -> u32 {
         HOUNDS_COOLDOWN
