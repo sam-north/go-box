@@ -1,0 +1,9 @@
+[package]
+name = "go-box-render"
+description = "Procedural pixel art for the arena, fighters, characters and effects."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+go-box-sim.workspace = true
+macroquad.workspace = true

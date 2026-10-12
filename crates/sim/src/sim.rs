@@ -3,7 +3,9 @@
 //! expose physical abilities; brains decide what to do with them.
 
 use crate::brain::{Brain, IN_EXTRA, IN_HEAL, IN_ITEMS, IN_MEM, IN_NEAREST, IN_OPP, IN_SELF, IN_THREAT, MEM, N_IN, N_OUT, OUT_MEM};
+use crate::character::{Character, Dog, Well};
 use glam::{vec2, Vec2};
+use serde::{Deserialize, Serialize};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use std::ops::{Range, RangeInclusive};
@@ -77,7 +79,7 @@ pub const RAY_MAX: f32 = 200.0;
 const VIS_MAX: f32 = 370.0;
 const CLOSE_DIST: f32 = 40.0;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum ItemKind {
     Spear,
     Rock,
@@ -98,13 +100,16 @@ impl ItemKind {
 }
 
 /// Where damage came from, for stats.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Source {
     Fist,
     Stab,
     SpearThrow,
     Rock,
     Grenade,
+    /// A character's special. Tracked in `Fighter::dmg_special`, not `dmg_by_source` (whose
+    /// five slots are the trainer's saved stats format), so it's not in `ALL`.
+    Special,
 }
 
 impl Source {
@@ -119,11 +124,12 @@ impl Source {
             Source::SpearThrow => "spear throw",
             Source::Rock => "rock",
             Source::Grenade => "grenade",
+            Source::Special => "special",
         }
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Aabb {
     pub x: f32,
     pub y: f32,
@@ -161,7 +167,7 @@ pub const PLATFORMS: [Aabb; 3] = [
     Aabb::new(128.0, 88.0, 64.0, 5.0),
 ];
 
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, Serialize, Deserialize)]
 pub struct Action {
     pub mv: f32,
     pub run: bool,
@@ -170,9 +176,11 @@ pub struct Action {
     pub throw: bool,
     pub aim: f32,
     pub grab: bool,
+    /// Use the character's special (ignored when it's cooling down or there is none).
+    pub special: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Fighter {
     /// Feet centre.
     pub pos: Vec2,
@@ -193,7 +201,12 @@ pub struct Fighter {
     pub action: Action,
     /// Not in this match at all (a 1v1 leaves two seats empty).
     pub absent: bool,
+    pub character: Character,
+    /// Ticks until the special can be used again (0 = ready).
+    pub special_cd: u32,
     // Stats.
+    pub died_at: Option<u32>,
+    pub dmg_special: f32,
     pub dmg_dealt: f32,
     pub dmg_taken: f32,
     pub self_dmg: f32,
@@ -223,6 +236,10 @@ impl Fighter {
             memory: [0.0; MEM],
             action: Action::default(),
             absent: false,
+            character: Character::Classic,
+            special_cd: 0,
+            died_at: None,
+            dmg_special: 0.0,
             dmg_dealt: 0.0,
             dmg_taken: 0.0,
             self_dmg: 0.0,
@@ -282,7 +299,7 @@ impl Fighter {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Item {
     pub kind: ItemKind,
     pub pos: Vec2,
@@ -307,7 +324,7 @@ impl Item {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum Event {
     Hit { pos: Vec2, dir: f32, headshot: bool },
     Death { pos: Vec2 },
@@ -318,6 +335,12 @@ pub enum Event {
     Explosion { pos: Vec2 },
     Heal { who: usize, pos: Vec2 },
     Spawn { pos: Vec2 },
+    /// Fighter `who` used their special.
+    Special { who: usize },
+    /// Austin vanishing or appearing.
+    Poof { pos: Vec2 },
+    /// Sam's well popping.
+    WellPop { pos: Vec2 },
 }
 
 /// Distance along a normalised ray to the nearest terrain, capped at `max`.
@@ -416,6 +439,8 @@ pub struct Match {
     pub over: bool,
     pub winner: Option<usize>,
     pub events: Vec<Event>,
+    pub wells: Vec<Well>,
+    pub dogs: Vec<Dog>,
 }
 
 impl Match {
@@ -451,7 +476,13 @@ impl Match {
             over: false,
             winner: None,
             events: Vec::new(),
+            wells: Vec::new(),
+            dogs: Vec::new(),
         }
+    }
+
+    pub(crate) fn random_surface_spot(&mut self) -> Vec2 {
+        random_surface_spot(&mut self.rng)
     }
 
     /// A 1v1 in seats 0 and 2; the other two seats are empty.
@@ -503,6 +534,10 @@ impl Match {
         }
         for &h in &self.heals {
             mark(&mut s, IN_HEAL, glimpse(eye, h));
+        }
+        // Brains never saw specials in training; a dog charging at you reads as a threat.
+        for d in self.dogs.iter().filter(|d| d.owner != i) {
+            mark(&mut s, IN_THREAT, glimpse(eye, d.center()));
         }
         let k = IN_SELF;
         s[k] = me.vel.x / RUN;
@@ -592,6 +627,7 @@ impl Match {
                 throw: out[4] > 0.0,
                 aim: out[5],
                 grab: out[6] > 0.0,
+                special: self.f[i].special_cd == 0 && self.f[i].character.special().is_some_and(|s| s.bot_wants(self, i)),
             };
             self.f[i].memory.copy_from_slice(&out[OUT_MEM..]);
             self.f[i].action = actions[i];
@@ -610,6 +646,9 @@ impl Match {
                 self.events.push(Event::Land { pos: f.pos });
             }
         }
+
+        // 2b. Specials.
+        self.step_specials(actions.map(|a| a.special));
 
         // 3. Hands: grab or throw.
         for i in 0..N_FIGHTERS {
@@ -653,6 +692,7 @@ impl Match {
 
         // 5. Items in flight, grenades, pickups, spawns.
         self.step_items();
+        self.step_effects();
         self.step_heals();
         self.spawn_items();
 
@@ -854,13 +894,16 @@ impl Match {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn damage(&mut self, src: usize, victim: usize, dmg: f32, knockback: Vec2, stun: u32, dir: f32, source: Source, headshot: bool) {
+    pub(crate) fn damage(&mut self, src: usize, victim: usize, dmg: f32, knockback: Vec2, stun: u32, dir: f32, source: Source, headshot: bool) {
         if src == victim {
             self.f[victim].self_dmg += dmg;
         } else {
             let a = &mut self.f[src];
             a.dmg_dealt += dmg;
-            a.dmg_by_source[source.index()] += dmg;
+            match a.dmg_by_source.get_mut(source.index()) {
+                Some(d) => *d += dmg,
+                None => a.dmg_special += dmg,
+            }
             a.hits += 1;
             a.headshots += headshot as u32;
         }
@@ -881,6 +924,7 @@ impl Match {
                 self.items[k].vel = Vec2::ZERO;
             }
             self.f[victim].holding = None;
+            self.f[victim].died_at = Some(self.tick);
             self.events.push(Event::Death { pos });
             if src != victim {
                 self.f[src].kills += 1;
@@ -1079,5 +1123,12 @@ mod tests {
             }
         }
         assert!(worst < 1e-4, "max error {worst}");
+    }
+}
+
+#[cfg(test)]
+impl Match {
+    pub(crate) fn rng_reseed(&mut self, seed: u64) {
+        self.rng = SmallRng::seed_from_u64(seed);
     }
 }

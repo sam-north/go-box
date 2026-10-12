@@ -2,7 +2,8 @@
 //! code at 320x180 — grimy industrial backdrop, mossy brick, rain, procedurally
 //! animated bodies, items, explosions, and blood/scorch pixels that stick to the terrain.
 
-use crate::sim::*;
+use go_box_sim::character::*;
+use go_box_sim::sim::*;
 use macroquad::prelude::*;
 
 const CLOAK: Color = Color::new(0.27, 0.28, 0.33, 1.0);
@@ -25,6 +26,53 @@ pub const ACCENTS: [Color; N_FIGHTERS] = [
     Color::new(0.58, 0.36, 0.72, 1.0),
 ];
 pub const NAMES: [&str; N_FIGHTERS] = ["RED", "BLUE", "GOLD", "VIOLET"];
+
+const SKIN: Color = Color::new(0.86, 0.70, 0.58, 1.0);
+const DOG_FUR: Color = Color::new(0.55, 0.38, 0.22, 1.0);
+const DOG_DARK: Color = Color::new(0.28, 0.19, 0.12, 1.0);
+const WELL: Color = Color::new(0.45, 0.85, 0.55, 1.0);
+const SMOKE: Color = Color::new(0.75, 0.74, 0.70, 0.8);
+
+/// How a character looks. Classic is the hooded figure the brains were trained as; the named
+/// characters show their hair and wear their colour.
+pub struct Look {
+    pub body: Color,
+    /// Back and front leg.
+    pub legs: [Color; 2],
+    pub arms: Color,
+    /// None = hooded (Classic).
+    pub hair: Option<Color>,
+    /// Scarf, health bar and UI colour.
+    pub accent: Color,
+    /// Tyler's running sweatband, in his accent colour.
+    pub headband: bool,
+}
+
+/// The colour that stands for a character in menus and the HUD. Classic has none of its own
+/// (it uses the seat colour), so this is its neutral grey.
+pub fn character_color(c: Character) -> Color {
+    match c {
+        Character::Classic => Color::new(0.62, 0.64, 0.70, 1.0),
+        // Forest green.
+        Character::Sam => Color::new(0.16, 0.50, 0.24, 1.0),
+        // Gold.
+        Character::Austin => Color::new(0.93, 0.72, 0.18, 1.0),
+        // Runner's neon volt.
+        Character::Tyler => Color::new(0.80, 1.0, 0.16, 1.0),
+    }
+}
+
+pub fn look(c: Character, seat: usize) -> Look {
+    match c {
+        Character::Classic => Look { body: CLOAK, legs: [HOOD, CLOAK], arms: HOOD, hair: None, accent: ACCENTS[seat], headband: false },
+        // Brown hair, green-grey jacket.
+        Character::Sam => Look { body: rgb(62, 78, 64), legs: [rgb(32, 36, 44), rgb(44, 48, 58)], arms: rgb(50, 64, 52), hair: Some(rgb(96, 62, 36)), accent: character_color(c), headband: false },
+        // Reddish-brown hair, work jacket.
+        Character::Austin => Look { body: rgb(84, 76, 66), legs: [rgb(38, 40, 50), rgb(50, 52, 64)], arms: rgb(70, 63, 55), hair: Some(rgb(128, 58, 34)), accent: character_color(c), headband: false },
+        // Blondish-brown hair, light running top, sweatband.
+        Character::Tyler => Look { body: rgb(118, 122, 130), legs: [rgb(30, 32, 40), rgb(40, 42, 52)], arms: SKIN, hair: Some(rgb(168, 132, 84)), accent: character_color(c), headband: true },
+    }
+}
 
 fn rgb(r: u8, g: u8, b: u8) -> Color {
     Color::from_rgba(r, g, b, 255)
@@ -245,7 +293,7 @@ pub struct Art {
     rain: Vec<Drop>,
     vis: [FighterVis; N_FIGHTERS],
     /// Recent explosions (position, seconds since) for the flash.
-    blasts: Vec<(Vec2, f32)>,
+    blasts: Vec<(Vec2, f32, f32)>,
     time: f32,
 }
 
@@ -318,7 +366,7 @@ impl Art {
                     self.burst(pos, vec2(0.0, -1.0), 2.0, 3, Color::new(0.6, 0.58, 0.52, 0.8), false, 25.0, 0.3, 200.0);
                 }
                 Event::Explosion { pos } => {
-                    self.blasts.push((pos, 0.0));
+                    self.blasts.push((pos, 0.0, GRENADE_RADIUS));
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 60, FIRE, false, 160.0, 0.5, 120.0);
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 40, Color::new(1.0, 0.92, 0.6, 1.0), false, 90.0, 0.25, 0.0);
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 50, SCORCH, true, 120.0, 1.5, 300.0);
@@ -336,6 +384,18 @@ impl Art {
                 }
                 Event::Spawn { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 6.0, 8, Color::new(0.8, 0.85, 0.9, 0.7), false, 30.0, 0.5, 60.0);
+                }
+                Event::Special { who } => {
+                    let c = character_color(m.f[who].character);
+                    self.burst(m.f[who].center(), vec2(0.0, -1.0), 6.3, 14, c, false, 50.0, 0.35, 0.0);
+                }
+                Event::Poof { pos } => {
+                    self.burst(pos, vec2(0.0, -1.0), 6.3, 26, SMOKE, false, 45.0, 0.6, -30.0);
+                    self.burst(pos, vec2(0.0, -1.0), 6.3, 10, character_color(Character::Austin), false, 70.0, 0.3, 0.0);
+                }
+                Event::WellPop { pos } => {
+                    self.blasts.push((pos - vec2(0.0, 4.0), 0.0, WELL_POP_RADIUS));
+                    self.burst(pos - vec2(0.0, 4.0), vec2(0.0, -1.0), 6.3, 30, WELL, false, 110.0, 0.35, 0.0);
                 }
             }
         }
@@ -426,8 +486,14 @@ impl Art {
             }
         }
 
+        for w in &m.wells {
+            draw_well(w, self.time);
+        }
         for &h in &m.heals {
             draw_heal(h, self.time);
+        }
+        for d in &m.dogs {
+            draw_dog(d);
         }
         // Loose and flying items (held spears are drawn with their holder).
         for it in m.items.iter().filter(|it| !(it.held_by.is_some() && it.kind == ItemKind::Spear)) {
@@ -440,17 +506,17 @@ impl Art {
         for i in order {
             let f = &m.f[i];
             let flash = f.hitstun > 0 && (f.hitstun / 2) % 2 == 0;
-            draw_human(&self.vis[i], f, ACCENTS[i], flash);
+            draw_human(&self.vis[i], f, &look(f.character, i), flash);
         }
         // Held rocks/grenades sit in the hand, in front of the body.
         for it in m.items.iter().filter(|it| it.held_by.is_some() && it.kind != ItemKind::Spear) {
             draw_item(it, self.time);
         }
 
-        for &(pos, t) in &self.blasts {
+        for &(pos, t, r) in &self.blasts {
             let k = 1.0 - t / 0.25;
-            draw_circle(pos.x, pos.y, GRENADE_RADIUS * (0.5 + 0.5 * (1.0 - k)), Color::new(1.0, 0.85, 0.5, 0.35 * k));
-            draw_circle(pos.x, pos.y, GRENADE_RADIUS * 0.35, Color::new(1.0, 1.0, 0.85, 0.8 * k));
+            draw_circle(pos.x, pos.y, r * (0.5 + 0.5 * (1.0 - k)), Color::new(1.0, 0.85, 0.5, 0.35 * k));
+            draw_circle(pos.x, pos.y, r * 0.35, Color::new(1.0, 1.0, 0.85, 0.8 * k));
         }
         for p in &self.particles {
             draw_rectangle(p.pos.x.floor(), p.pos.y.floor(), 1.0, 1.0, p.color);
@@ -459,7 +525,7 @@ impl Art {
         for (i, f) in m.f.iter().enumerate().filter(|(_, f)| f.alive()) {
             let (x, y) = ((f.pos.x - 6.0).round(), (f.pos.y - 22.0).round());
             draw_rectangle(x, y, 12.0, 1.0, Color::new(0.0, 0.0, 0.0, 0.6));
-            draw_rectangle(x, y, (12.0 * f.hp / MAX_HP).ceil(), 1.0, ACCENTS[i]);
+            draw_rectangle(x, y, (12.0 * f.hp / MAX_HP).ceil(), 1.0, look(f.character, i).accent);
         }
         draw_texture(&self.vignette, 0.0, 0.0, WHITE);
     }
@@ -557,12 +623,13 @@ fn tint(c: Color, flash: bool) -> Color {
     if flash { Color::new(1.0, 0.95, 0.9, c.a) } else { c }
 }
 
-fn draw_human(v: &FighterVis, f: &Fighter, scarf: Color, flash: bool) {
+fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
     let s = f.facing;
     let (x, fy) = (f.pos.x, f.pos.y);
+    let scarf = look.accent;
     if !f.alive() {
-        line(vec2(x - 6.0 * s, fy - 1.5), vec2(x + 5.0 * s, fy - 1.5), 3.0, CLOAK);
-        draw_circle(x + 7.0 * s, fy - 2.0, 2.5, HOOD);
+        line(vec2(x - 6.0 * s, fy - 1.5), vec2(x + 5.0 * s, fy - 1.5), 3.0, look.body);
+        draw_circle(x + 7.0 * s, fy - 2.0, 2.5, look.hair.unwrap_or(HOOD));
         for k in 1..6 {
             line(v.scarf[k - 1], v.scarf[k], 1.0, scarf);
         }
@@ -589,23 +656,69 @@ fn draw_human(v: &FighterVis, f: &Fighter, scarf: Color, flash: bool) {
             vec2(x + (k as f32 - 0.5) * 3.0 - f.vel.x * 0.01, fy - 2.0)
         };
         let knee = ik(hip, foot, 3.4, 3.4, -s);
-        let c = tint(if k == 0 { HOOD } else { CLOAK }, flash);
+        let c = tint(look.legs[k], flash);
         line(hip, knee, 1.0, c);
         line(knee, foot, 1.0, c);
     }
     // Torso as a soft blob.
     for t in [0.0, 0.5, 1.0] {
         let p = hip.lerp(neck, t);
-        draw_circle(p.x, p.y, 1.8, tint(CLOAK, flash));
+        draw_circle(p.x, p.y, 1.8, tint(look.body, flash));
     }
     let hand = if f.holding == Some(ItemKind::Spear) { draw_spear(f, neck, flash) } else { free_hand(f, v, neck) };
     let elbow = ik(shoulder, hand, 3.0, 3.5, s);
-    line(shoulder, elbow, 1.0, tint(HOOD, flash));
-    line(elbow, hand, 1.0, tint(HOOD, flash));
-    // Hooded head with a pale face peeking out.
-    draw_circle(head.x, head.y, 2.6, tint(HOOD, flash));
-    draw_rectangle((head.x + s * 1.0 - 0.5).round(), head.y.round() - 1.0, 2.0, 2.0, tint(FACE, flash));
+    line(shoulder, elbow, 1.0, tint(look.arms, flash));
+    line(elbow, hand, 1.0, tint(look.arms, flash));
+    match look.hair {
+        None => {
+            // Hooded head with a pale face peeking out.
+            draw_circle(head.x, head.y, 2.6, tint(HOOD, flash));
+            draw_rectangle((head.x + s * 1.0 - 0.5).round(), head.y.round() - 1.0, 2.0, 2.0, tint(FACE, flash));
+        }
+        Some(hair) => {
+            // Bare head: hair over the top and down the back of the head.
+            let (hx, hy) = (head.x.round(), head.y.round());
+            draw_circle(head.x, head.y, 2.4, tint(SKIN, flash));
+            draw_rectangle(hx - 2.0, hy - 3.0, 5.0, 2.0, tint(hair, flash));
+            draw_rectangle(if s > 0.0 { hx - 3.0 } else { hx + 2.0 }, hy - 2.0, 2.0, 3.0, tint(hair, flash));
+            if look.headband {
+                draw_rectangle(hx - 2.0, hy - 2.0, 5.0, 1.0, tint(look.accent, flash));
+            }
+        }
+    }
     draw_rectangle((head.x + s * 1.5).round(), head.y.round() - 1.0, 1.0, 1.0, Color::new(0.05, 0.05, 0.06, 1.0));
+}
+
+/// One of Tyler's dogs, mid-gallop.
+fn draw_dog(d: &Dog) {
+    let (x, y, s) = (d.pos.x.round(), d.pos.y.round(), d.dir);
+    let stride = ((d.pos.x * 0.6).sin() > 0.0) as u8 as f32;
+    // Front and back legs take turns lifting.
+    for (lx, up) in [(-2.0, stride), (1.0, 1.0 - stride)] {
+        draw_rectangle(x + lx * s, y - 2.0, 1.0, 2.0 - up, DOG_DARK);
+    }
+    draw_rectangle(x - 3.0, y - 4.0, 6.0, 2.0, DOG_FUR);
+    // Head and ear out front, tail up behind.
+    let hx = if s > 0.0 { x + 2.0 } else { x - 4.0 };
+    draw_rectangle(hx, y - 6.0, 2.0, 2.0, DOG_FUR);
+    draw_rectangle(if s > 0.0 { hx } else { hx + 1.0 }, y - 7.0, 1.0, 1.0, DOG_DARK);
+    draw_rectangle(if s > 0.0 { hx + 1.0 } else { hx }, y - 6.0, 1.0, 1.0, Color::new(0.05, 0.05, 0.06, 1.0));
+    draw_rectangle(if s > 0.0 { x - 4.0 } else { x + 3.0 }, y - 5.0 - stride, 1.0, 1.0, DOG_FUR);
+}
+
+/// Sam's well: a faint ring at its reach and motes spiralling into the core.
+fn draw_well(w: &Well, time: f32) {
+    let c = w.pos - vec2(0.0, 4.0);
+    let life = w.ticks as f32 / 60.0;
+    draw_circle_lines(c.x, c.y, WELL_RADIUS, 1.0, Color::new(WELL.r, WELL.g, WELL.b, 0.10));
+    for k in 0..14 {
+        let ph = (time * 0.9 + k as f32 / 14.0).fract();
+        let r = WELL_RADIUS * 0.9 * (1.0 - ph);
+        let a = k as f32 * 2.4 + ph * 5.0;
+        draw_rectangle((c.x + a.cos() * r).floor(), (c.y + a.sin() * r * 0.5).floor(), 1.0, 1.0, Color::new(WELL.r, WELL.g, WELL.b, 0.25 + 0.6 * ph));
+    }
+    draw_circle(c.x, c.y, 4.0 + (time * 20.0).sin(), Color::new(0.05, 0.12, 0.08, 0.8));
+    draw_circle_lines(c.x, c.y, 4.5 + 2.0 * (1.0 - life), 1.0, Color::new(WELL.r, WELL.g, WELL.b, 0.8));
 }
 
 /// Draws a held spear for the current swing phase and returns where the hand is.

@@ -165,12 +165,21 @@ dependencies = [
 name = "go-box"
 version = "0.1.0"
 dependencies = [
+ "go-box-render",
  "go-box-sim",
  "macroquad",
  "rand",
  "rayon",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "go-box-render"
+version = "0.1.0"
+dependencies = [
+ "go-box-sim",
+ "macroquad",
 ]
 
 [[package]]

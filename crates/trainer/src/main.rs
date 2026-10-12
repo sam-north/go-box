@@ -1,16 +1,17 @@
 mod bench;
 use go_box_sim::brain;
 mod evo;
-mod render;
+use go_box_render as render;
 use go_box_sim::sim;
 
 use ::rand::rngs::SmallRng;
 use ::rand::SeedableRng;
 use macroquad::prelude::*;
 use brain::Brain;
+use go_box_sim::character::Character;
 use sim::{Action, Match, Source, DT, H, HEALS_PER_ROUND, N_FIGHTERS, W};
 
-const USAGE: &str = "go-box [--fresh] [--headless <generations> [--minutes M]] [--watch] [--compare] [--play] [--duel] [--screenshot <prefix.png>]";
+const USAGE: &str = "go-box [--fresh] [--headless <generations> [--minutes M]] [--watch] [--compare] [--play] [--duel] [--cast] [--screenshot <prefix.png>]";
 
 /// Compare mode: who sits in each seat (by scarf colour: RED, BLUE, GOLD, VIOLET), as
 /// "generations before the current one". `None` is an untrained brain (generation 1).
@@ -74,7 +75,7 @@ fn main() {
     }
     let screenshot = value_of("--screenshot");
     let start = [("--compare", KeyCode::C), ("--play", KeyCode::V), ("--duel", KeyCode::D)].into_iter().find(|(f, _)| args.iter().any(|a| a == f)).map(|(_, k)| k);
-    macroquad::Window::from_config(conf(), viewer(fresh, screenshot, start, args.iter().any(|a| a == "--watch")));
+    macroquad::Window::from_config(conf(), viewer(fresh, screenshot, start, args.iter().any(|a| a == "--watch"), args.iter().any(|a| a == "--cast")));
 }
 
 /// Play mode: the seat you control (RED); the champion sits in GOLD.
@@ -101,6 +102,7 @@ fn player_action(holding: bool, throw: bool) -> Action {
         throw,
         aim,
         grab: !holding && down(&[KeyCode::E]),
+        special: down(&[KeyCode::F]),
     }
 }
 
@@ -113,7 +115,15 @@ struct Compare {
     duel: bool,
 }
 
-async fn viewer(fresh: bool, screenshot: Option<String>, start_mode: Option<KeyCode>, watch: bool) {
+async fn viewer(fresh: bool, screenshot: Option<String>, start_mode: Option<KeyCode>, watch: bool, cast: bool) {
+    // --cast: seats play Sam, Austin, Tyler and Classic (you are Sam in play mode, F = special).
+    let apply_cast = |m: &mut Match| {
+        if cast {
+            for (f, c) in m.f.iter_mut().zip([Character::Sam, Character::Austin, Character::Tyler, Character::Classic]) {
+                f.character = c;
+            }
+        }
+    };
     prevent_quit();
     let (shared, trainer) = if watch { evo::spawn_watch() } else { evo::spawn(fresh) };
     let rt = render_target(W as u32, H as u32);
@@ -131,6 +141,7 @@ async fn viewer(fresh: bool, screenshot: Option<String>, start_mode: Option<KeyC
     };
     let (mut top, mut match_gen, curriculum) = snapshot();
     let mut m = Match::new(&mut rng, evo::heals_at(curriculum));
+    apply_cast(&mut m);
     let (mut acc, mut end_timer, mut frames) = (0.0f32, 0.0f32, 0u32);
     let mut throw_queued = false;
     let mut speed = 1.0f32;
@@ -227,6 +238,7 @@ async fn viewer(fresh: bool, screenshot: Option<String>, start_mode: Option<KeyC
             } else {
                 Match::new(&mut rng, evo::heals_at(curriculum))
             };
+            apply_cast(&mut m);
             tallied = false;
             art.reset();
             end_timer = 0.0;
@@ -301,6 +313,7 @@ fn source_color(s: Source) -> Color {
         Source::SpearThrow => Color::new(0.95, 0.35, 0.25, 1.0),
         Source::Rock => Color::new(0.60, 0.62, 0.68, 1.0),
         Source::Grenade => Color::new(0.55, 0.85, 0.30, 1.0),
+        Source::Special => Color::new(0.45, 0.85, 0.55, 1.0),
     }
 }
 

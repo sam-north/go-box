@@ -6,6 +6,7 @@ edition.workspace = true
 
 [dependencies]
 go-box-sim.workspace = true
+go-box-render.workspace = true
 macroquad.workspace = true
 rand = { workspace = true, features = ["std", "std_rng"] }
 rayon = "1"
