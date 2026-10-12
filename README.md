@@ -26,12 +26,16 @@ Controls (you always run; **Esc** opens settings: volume sliders, mute, and this
 | Move | `A`/`D` | left stick or d-pad |
 | Jump | `W` or `Space` | Cross |
 | Aim | mouse (throws go toward the cursor) | right stick (else straight ahead) |
-| Grab / throw | left click (or `E`): picks up when empty-handed, throws when holding | R1 / R2 / Circle |
-| Melee | right click (or `R`), swings toward the cursor | Square |
-| Special | `Shift` (or `F`, `Q`) | Triangle / L1 / L2 |
+| Grab / throw | left click (or `E`): picks up when empty-handed, throws when holding | Square / R2 |
+| Melee | right click (or `R`), swings toward the cursor | Circle / R1 |
+| Special | `Shift` (or `F`, `Q`) | Triangle / L2 / L1 |
 | Mute | `M` | |
 
-The browser only reports a controller after you press a button on it.
+The browser only reports a controller after you press a button on it. In menus (lobby, scoreboard,
+settings) the d-pad or left stick moves a highlight and Cross presses it.
+
+In the lobby the leader sets each seat without a player to **Bot** or **None**, so a match can have
+anywhere from 1 to 4 fighters (alone, it runs until the clock or you run out).
 
 The server only listens on `127.0.0.1` unless told otherwise (`GO_BOX_BIND`); see
 `crates/server/src/main.rs` for its settings.
@@ -48,7 +52,9 @@ Everyone has the same body; each character adds one special on a cooldown.
 | Tyler | **Release the Hounds**: three dogs run the floors for 5s, biting anyone but Tyler for 15 (each dog at most twice a second per victim) | 30s |
 
 Bots playing a character use its special by a simple rule (the brains never trained with
-specials). Tuning lives at the top of `crates/sim/src/character.rs`; looks in
+specials): Sam works out where his bomb would land and throws only if it would catch two people,
+finish one off, or turn a fight he's losing; Austin pops away from incoming projectiles, grenades
+about to blow, or a crowd when hurt; Tyler releases the hounds at someone on his level ahead. Tuning lives at the top of `crates/sim/src/character.rs`; looks in
 `crates/render/src/lib.rs` (`look`).
 
 ### Sound

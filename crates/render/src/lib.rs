@@ -413,7 +413,7 @@ impl Art {
                         let a = hash(seed, 0, 61) * std::f32::consts::TAU;
                         let r = BOMB_PULL_RADIUS * (0.4 + hash(seed, 1, 61).powi(2) * 5.0);
                         let from = pos + vec2(a.cos(), a.sin()) * r;
-                        let life = BOMB_CRUNCH as f32 / 60.0;
+                        let life = BOMB_CRUNCH as f32 * DT;
                         self.particles.push(Particle { pos: from, vel: (pos - from) / life, color: GRAV, life, stick: false, gravity: 0.0 });
                     }
                 }
@@ -808,7 +808,7 @@ pub fn draw_portrait(c: Character, seat: usize, time: f32) {
     init_vis(&mut v, &f);
     // Let the scarf settle into a natural hang.
     for k in 0..40 {
-        update_scarf(&mut v, &f, 1.0 / 60.0, time - (40 - k) as f32 / 60.0);
+        update_scarf(&mut v, &f, DT, time - (40 - k) as f32 * DT);
     }
     draw_human(&v, &f, &look(c, seat), false);
 }

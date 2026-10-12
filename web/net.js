@@ -25,7 +25,7 @@
       env.go_ws_open = () => {
         const proto = location.protocol === "https:" ? "wss:" : "ws:";
         state = 0;
-        ws = new WebSocket(proto + "//" + location.host + "/ws");
+        ws = new WebSocket(proto + "//" + location.host + "/ws"); // WS_PATH in crates/protocol
         ws.binaryType = "arraybuffer";
         ws.onopen = () => { state = 1; };
         ws.onclose = ws.onerror = () => { state = 2; };

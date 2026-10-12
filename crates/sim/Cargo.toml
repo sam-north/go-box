@@ -9,6 +9,4 @@ glam.workspace = true
 # No std/getrandom: the sim also runs in the browser, and every match seeds its own RNG.
 rand.workspace = true
 serde.workspace = true
-
-[dev-dependencies]
 serde_json.workspace = true

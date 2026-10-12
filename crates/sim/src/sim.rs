@@ -15,8 +15,15 @@ pub const H: f32 = 270.0;
 /// Top of the floor (where everyone stands at the start); walls and ceiling are WALL thick.
 pub const FLOOR_Y: f32 = 254.0;
 pub const WALL: f32 = 8.0;
-pub const DT: f32 = 1.0 / 60.0;
-pub const MAX_TICKS: u32 = 60 * 45;
+/// Sim ticks per second: the one place the game's clock rate is set. Everything that counts
+/// ticks (cooldowns, fuses, match length, snapshot rate, client interpolation) derives from it.
+pub const TICK_RATE: u32 = 60;
+pub const DT: f32 = 1.0 / TICK_RATE as f32;
+/// `s` seconds, in ticks.
+pub const fn secs(s: u32) -> u32 {
+    s * TICK_RATE
+}
+pub const MAX_TICKS: u32 = secs(45);
 pub const N_FIGHTERS: usize = 4;
 
 // Body.
@@ -67,7 +74,7 @@ const OWN_GRACE: u32 = 15;
 // Items lying around.
 const START_SPEARS: usize = 2;
 const START_ROCKS: usize = 4;
-const ITEM_SPAWN_EVERY: Range<u32> = 60 * 5..60 * 8;
+const ITEM_SPAWN_EVERY: Range<u32> = secs(5)..secs(8);
 const MAX_LOOSE_ITEMS: usize = 10;
 const MAX_GRENADES: usize = 2;
 /// Chance that a spawned item is a grenade (when fewer than MAX_GRENADES are around).
@@ -79,7 +86,7 @@ pub const HEAL_R: f32 = 2.5;
 /// Final rules: each round gets 1 or 2 pickups (the trainer starts with more and fades to
 /// this), at random times inside HEAL_WINDOW (ticks).
 pub const HEALS_PER_ROUND: RangeInclusive<usize> = 1..=2;
-const HEAL_WINDOW: Range<u32> = 60 * 6..60 * 24;
+const HEAL_WINDOW: Range<u32> = secs(6)..secs(24);
 
 // Senses.
 pub const N_RAYS: usize = 12;
@@ -536,11 +543,15 @@ impl Match {
     /// A 1v1 in seats 0 and 2; the other two seats are empty.
     pub fn duel(rng: &mut impl Rng, heals: RangeInclusive<usize>) -> Self {
         let mut m = Self::new(rng, heals);
-        for i in [1, 3] {
-            m.f[i].hp = 0.0;
-            m.f[i].absent = true;
-        }
+        m.remove(1);
+        m.remove(3);
         m
+    }
+
+    /// Empties seat `i` (before the match starts): nobody plays there.
+    pub fn remove(&mut self, i: usize) {
+        self.f[i].hp = 0.0;
+        self.f[i].absent = true;
     }
 
     pub fn held_item(&self, i: usize) -> Option<usize> {
@@ -763,7 +774,10 @@ impl Match {
         }
         self.tick += 1;
         let alive: Vec<usize> = (0..N_FIGHTERS).filter(|&i| self.f[i].alive()).collect();
-        if alive.len() <= 1 || self.tick >= MAX_TICKS {
+        // A match with only one fighter in it (practice) runs until they die or time runs out.
+        let present = self.f.iter().filter(|f| !f.absent).count();
+        let last_standing = if present > 1 { alive.len() <= 1 } else { alive.is_empty() };
+        if last_standing || self.tick >= MAX_TICKS {
             self.over = true;
             // Last one standing, or the most health at the timeout. An exact tie is a draw.
             self.winner = match alive.len() {
@@ -1242,10 +1256,7 @@ mod tests {
     /// so refactors (and new characters) must leave classic matches bit-identical.
     #[test]
     fn classic_matches_are_unchanged() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../brains");
-        let mut names: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "json")).collect();
-        names.sort();
-        let brains: Vec<Brain> = names.iter().map(|p| serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap()).collect();
+        let brains = Brain::committed();
         assert_eq!(brains.len(), 5);
         let mut h: u64 = 0xcbf2_9ce4_8422_2325;
         let mut mix = |x: u64| h = (h ^ x).wrapping_mul(0x100_0000_01b3);
@@ -1296,6 +1307,21 @@ mod tests {
         }
         assert!(boom, "the dropped grenade exploded");
         assert!(m.f[2].hp < MAX_HP, "and hurt the fighter standing next to it");
+    }
+
+    #[test]
+    fn a_solo_match_runs_until_time_or_death() {
+        let (mut m, z) = quiet_match();
+        for i in 1..N_FIGHTERS {
+            m.remove(i);
+        }
+        for _ in 0..secs(5) {
+            m.step([&z; N_FIGHTERS]);
+        }
+        assert!(!m.over, "alone isn't 'last one standing'");
+        m.damage(0, 0, MAX_HP, Vec2::ZERO, 0, 1.0, Source::Fist, false);
+        m.step([&z; N_FIGHTERS]);
+        assert!(m.over && m.winner.is_none());
     }
 
     #[test]

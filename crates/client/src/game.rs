@@ -7,7 +7,7 @@
 //! applied yet are replayed on top. Small corrections are smoothed out rather than snapped.
 
 use go_box_protocol::{MatchStart, Snapshot};
-use go_box_sim::sim::{Action, Event, Fighter, Match, MatchView, N_FIGHTERS, predict};
+use go_box_sim::sim::{Action, Event, Fighter, Match, MatchView, N_FIGHTERS, TICK_RATE, predict};
 use macroquad::math::Vec2;
 use std::collections::VecDeque;
 
@@ -102,7 +102,7 @@ impl Game {
         let newest = self.snaps.back()?.view.tick as f32;
         // Drift gently toward the target delay; jump if far off (a long stall, a fresh start).
         let target = if self.over() { newest } else { newest - INTERP_TICKS };
-        self.render_tick += dt * 60.0;
+        self.render_tick += dt * TICK_RATE as f32;
         let err = target - self.render_tick;
         if err.abs() > 30.0 {
             self.render_tick = target;

@@ -16,6 +16,15 @@ pub enum Field {
     Code,
 }
 
+/// Menu navigation from a gamepad this frame (fresh presses only).
+#[derive(Clone, Copy, Default, Debug)]
+pub struct Nav {
+    /// A d-pad / stick press: one of the four unit directions (y down).
+    pub dir: Option<Vec2>,
+    /// Press the focused control (Cross).
+    pub activate: bool,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Slider {
     Master,
@@ -39,14 +48,41 @@ pub struct Ui {
     dragging: Option<Slider>,
     /// A button was pressed this frame (for the click sound).
     pub pressed: bool,
+    /// Gamepad navigation: show and move a focus between controls.
+    pub pad_mode: bool,
+    nav: Nav,
+    /// Left/right on a focused slider this frame.
+    adjust: f32,
+    /// Controls that can take the focus, as drawn this frame and last frame (rect, is a slider).
+    targets: Vec<(Rect, bool)>,
+    prev_targets: Vec<(Rect, bool)>,
+    /// The focused control, by where it was drawn.
+    nav_focus: Option<Rect>,
+}
+
+fn same_rect(a: Rect, b: Rect) -> bool {
+    (a.x - b.x).abs() < 2.0 && (a.y - b.y).abs() < 2.0 && (a.w - b.w).abs() < 2.0 && (a.h - b.h).abs() < 2.0
 }
 
 impl Ui {
     pub fn new() -> Self {
-        Self { s: 1.0, mouse: Vec2::ZERO, clicked: false, focus: None, typed: Vec::new(), backspace: false, enter: false, hot: false, blocked: false, dragging: None, pressed: false }
+        Self { s: 1.0, mouse: Vec2::ZERO, clicked: false, focus: None, typed: Vec::new(), backspace: false, enter: false, hot: false,
+            blocked: false,
+            dragging: None,
+            pressed: false,
+            pad_mode: false,
+            nav: Nav::default(),
+            adjust: 0.0,
+            targets: Vec::new(),
+            prev_targets: Vec::new(),
+            nav_focus: None,
+        }
     }
 
-    pub fn begin(&mut self) {
+    pub fn begin(&mut self, nav: Nav, pad_mode: bool) {
+        self.pad_mode = pad_mode;
+        self.prev_targets = std::mem::take(&mut self.targets);
+        self.navigate(nav);
         self.s = (screen_height() / 720.0).clamp(0.6, 2.5).min(screen_width() / 900.0).max(0.5);
         self.mouse = mouse_position().into();
         self.clicked = is_mouse_button_pressed(MouseButton::Left);
@@ -107,6 +143,72 @@ impl Ui {
         !self.blocked && r.contains(self.mouse)
     }
 
+    /// Moves the gamepad focus: to the nearest control in the pressed direction (judged on
+    /// last frame's layout), or onto the first control if nothing has it. Left/right on a
+    /// slider adjusts it instead.
+    fn navigate(&mut self, nav: Nav) {
+        self.nav = nav;
+        self.adjust = 0.0;
+        if !self.pad_mode {
+            return;
+        }
+        let current = self.nav_focus.and_then(|f| self.prev_targets.iter().find(|(r, _)| same_rect(*r, f)).copied());
+        let Some((cur, on_slider)) = current else {
+            self.nav_focus = self.prev_targets.first().map(|t| t.0);
+            return;
+        };
+        let Some(d) = nav.dir else { return };
+        if on_slider && d.y == 0.0 {
+            self.adjust = d.x;
+            self.nav.dir = None;
+            return;
+        }
+        let from = cur.center();
+        let best = self
+            .prev_targets
+            .iter()
+            .filter(|(r, _)| !same_rect(*r, cur))
+            .filter_map(|(r, _)| {
+                let v = r.center() - from;
+                let along = v.dot(d);
+                // Mostly in that direction; prefer close and well lined up.
+                (along > 1.0).then(|| (along + 2.0 * (v - d * along).length(), *r))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0));
+        if let Some((_, r)) = best {
+            self.nav_focus = Some(r);
+        }
+    }
+
+    /// Offers `r` to the gamepad focus; true if it has it.
+    fn nav_target(&mut self, r: Rect, slider: bool) -> bool {
+        if self.blocked {
+            return false;
+        }
+        self.targets.push((r, slider));
+        self.pad_mode && self.nav_focus.is_some_and(|f| same_rect(f, r))
+    }
+
+    fn draw_focus(&self, r: Rect) {
+        let g = self.px(4.0);
+        draw_rectangle_lines(r.x - g, r.y - g, r.w + g * 2.0, r.h + g * 2.0, 3.0, ACCENT);
+    }
+
+    /// A clickable area the caller draws itself (e.g. a character card); true when clicked or
+    /// pressed with the gamepad.
+    pub fn area(&mut self, r: Rect) -> bool {
+        let focused = self.nav_target(r, false);
+        if focused {
+            self.draw_focus(r);
+        }
+        let clicked = (self.hovered(r) && self.clicked) || (focused && self.nav.activate);
+        if clicked {
+            self.hot = true;
+            self.pressed = true;
+        }
+        clicked
+    }
+
     /// A button; true when clicked.
     pub fn button(&mut self, r: Rect, label: &str, enabled: bool, color: Color) -> bool {
         let hover = enabled && self.hovered(r);
@@ -122,7 +224,11 @@ impl Ui {
         let size = (r.h / self.s * 0.5).min(24.0);
         let tw = self.text_width(label, size);
         self.text(label, r.x + (r.w - tw) / 2.0, r.y + r.h / 2.0 + self.px(size) * 0.3, size, if enabled { INK } else { DIM });
-        let clicked = hover && self.clicked;
+        let focused = enabled && self.nav_target(r, false);
+        if focused {
+            self.draw_focus(r);
+        }
+        let clicked = (hover && self.clicked) || (focused && self.nav.activate);
         if clicked {
             self.hot = true;
             self.pressed = true;
@@ -144,6 +250,16 @@ impl Ui {
             let v = ((self.mouse.x - r.x) / r.w).clamp(0.0, 1.0);
             changed = v != *value;
             *value = v;
+        }
+        // The hit area is taller than the bar, so the focus outline sits around that.
+        let focus_r = Rect::new(r.x, r.y - r.h, r.w, r.h * 3.0);
+        if self.nav_target(focus_r, true) {
+            self.draw_focus(focus_r);
+            if self.adjust != 0.0 {
+                let v = ((*value * 20.0).round() / 20.0 + self.adjust * 0.05).clamp(0.0, 1.0);
+                changed |= v != *value;
+                *value = v;
+            }
         }
         draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0.02, 0.02, 0.03, 0.95));
         draw_rectangle(r.x, r.y, r.w * *value, r.h, ACCENT);

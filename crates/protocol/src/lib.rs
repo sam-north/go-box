@@ -9,9 +9,14 @@ use go_box_sim::sim::{Action, Event, MatchView, N_FIGHTERS};
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 5;
+pub const PROTOCOL_VERSION: u16 = 6;
 
-/// Players per room (one per seat). Empty seats are bots.
+/// The port the server listens on by default (and the native test client dials).
+pub const DEFAULT_PORT: u16 = 7878;
+/// The WebSocket endpoint, on the same host as the page. (`web/net.js` uses it too.)
+pub const WS_PATH: &str = "/ws";
+
+/// Players per room (one per seat). Seats without a player hold a bot or nobody.
 pub const MAX_PLAYERS: usize = N_FIGHTERS;
 pub const MAX_NAME_LEN: usize = 16;
 /// Room codes are this many letters from `CODE_ALPHABET`.
@@ -19,7 +24,7 @@ pub const CODE_LEN: usize = 4;
 /// No I or O, so codes can't be misread as 1 or 0.
 pub const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ";
 
-/// The server sends a snapshot every this many ticks (60 / 2 = 30 per second).
+/// The server sends a snapshot every this many sim ticks (TICK_RATE / 2 = 30 per second).
 pub const SNAPSHOT_EVERY: u32 = 2;
 
 pub type PlayerId = u32;
@@ -43,6 +48,14 @@ impl Difficulty {
     }
 }
 
+/// What fills a seat no player is in: a bot, or nobody (fewer fighters; down to just you).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum SeatFill {
+    #[default]
+    Bot,
+    Empty,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ClientMsg {
     /// First message on every connection.
@@ -55,6 +68,8 @@ pub enum ClientMsg {
     SetReady(bool),
     /// Leader only.
     SetDifficulty(Difficulty),
+    /// Leader only: what fills seat `seat` when no player is in it.
+    SetSeatFill { seat: u8, fill: SeatFill },
     /// Leader only: start the next match with everyone in the room.
     Start,
     /// One per client tick while playing, numbered so snapshots can say which was last applied.
@@ -96,6 +111,8 @@ pub struct RoomInfo {
     /// In join order.
     pub players: Vec<PlayerInfo>,
     pub difficulty: Difficulty,
+    /// Per seat: what fills it when no player is in it. Players take seats in join order.
+    pub fills: [SeatFill; MAX_PLAYERS],
     pub phase: Phase,
     pub last_results: Option<Results>,
 }
@@ -141,6 +158,7 @@ pub struct SeatResult {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Results {
+    /// The seats that were in the match (empty ones left out).
     pub seats: Vec<SeatResult>,
     /// Index into `seats`; None = a draw.
     pub winner: Option<usize>,

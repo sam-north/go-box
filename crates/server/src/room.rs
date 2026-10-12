@@ -4,7 +4,8 @@
 use crate::Hub;
 use crate::conn::Outbox;
 use go_box_protocol::{
-    ClientMsg, Difficulty, MAX_PLAYERS, MatchStart, Phase, PlayerId, PlayerInfo, Results, RoomInfo, SNAPSHOT_EVERY, Seat, SeatResult, ServerMsg, Snapshot,
+    ClientMsg, Difficulty, MAX_PLAYERS, MatchStart, Phase, PlayerId, PlayerInfo, Results, RoomInfo, SNAPSHOT_EVERY, Seat, SeatFill, SeatResult, ServerMsg,
+    Snapshot,
     encode,
 };
 use go_box_sim::brain::Brain;
@@ -92,6 +93,7 @@ struct Room {
     players: Vec<Player>,
     leader: PlayerId,
     difficulty: Difficulty,
+    fills: [SeatFill; MAX_PLAYERS],
     last_results: Option<Results>,
     running: Option<Running>,
     rng: SmallRng,
@@ -104,6 +106,7 @@ pub async fn run(code: String, mut rx: mpsc::Receiver<RoomCmd>, hub: Arc<Hub>) {
         players: Vec::new(),
         leader: 0,
         difficulty: Difficulty::default(),
+        fills: [SeatFill::Bot; MAX_PLAYERS],
         last_results: None,
         running: None,
         rng: SmallRng::from_entropy(),
@@ -161,6 +164,7 @@ impl Room {
             leader: self.leader,
             players: self.players.iter().map(|p| PlayerInfo { id: p.id, name: p.name.clone(), character: p.character, ready: p.ready }).collect(),
             difficulty: self.difficulty,
+            fills: self.fills,
             phase: self.phase(),
             last_results: self.last_results.clone(),
         }
@@ -246,6 +250,12 @@ impl Room {
                 self.difficulty = d;
                 self.broadcast_room();
             }
+            ClientMsg::SetSeatFill { seat, fill } if is_leader && lobby => {
+                if let Some(f) = self.fills.get_mut(seat as usize) {
+                    *f = fill;
+                    self.broadcast_room();
+                }
+            }
             ClientMsg::Start if is_leader && lobby => self.start(),
             ClientMsg::Input { seq, action } => {
                 let playing = self.running.is_some();
@@ -275,6 +285,7 @@ impl Room {
                     names[i] = p.name.clone();
                     m.f[i].character = p.character;
                 }
+                None if self.fills[i] == SeatFill::Empty => m.remove(i),
                 None => {
                     let c = Character::ALL[self.rng.gen_range(0..Character::ALL.len())];
                     m.f[i].character = c;
@@ -337,8 +348,11 @@ fn seats_of(r: &Running) -> [Seat; N_FIGHTERS] {
 }
 
 fn results(r: &Running) -> Results {
-    let seats = (0..N_FIGHTERS)
-        .map(|i| {
+    // Only the seats that were in the match; the winner is re-indexed to match.
+    let present: Vec<usize> = (0..N_FIGHTERS).filter(|&i| !r.m.f[i].absent).collect();
+    let seats = present
+        .iter()
+        .map(|&i| {
             let f = &r.m.f[i];
             SeatResult {
                 name: r.names[i].clone(),
@@ -353,7 +367,8 @@ fn results(r: &Running) -> Results {
             }
         })
         .collect();
-    Results { seats, winner: r.m.winner, duration: r.m.tick as f32 * DT }
+    let winner = r.m.winner.and_then(|w| present.iter().position(|&i| i == w));
+    Results { seats, winner, duration: r.m.tick as f32 * DT }
 }
 
 /// Inputs come off the network: never let a NaN or an out-of-range value into the sim.

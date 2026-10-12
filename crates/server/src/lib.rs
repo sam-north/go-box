@@ -8,7 +8,7 @@ use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::routing::get;
-use go_box_protocol::{CODE_ALPHABET, CODE_LEN, Difficulty};
+use go_box_protocol::{CODE_ALPHABET, CODE_LEN, DEFAULT_PORT, Difficulty, WS_PATH};
 use go_box_sim::brain::Brain;
 use rand::Rng;
 use std::collections::HashMap;
@@ -34,7 +34,7 @@ impl Config {
         let var = |k: &str, d: &str| std::env::var(k).unwrap_or_else(|_| d.to_string());
         let num = |k: &str, d: usize| -> Result<usize, String> { var(k, &d.to_string()).parse().map_err(|_| format!("{k} must be a number")) };
         Ok(Self {
-            bind: var("GO_BOX_BIND", "127.0.0.1:7878"),
+            bind: var("GO_BOX_BIND", &format!("127.0.0.1:{DEFAULT_PORT}")),
             web: var("GO_BOX_WEB", "web").into(),
             brains: var("GO_BOX_BRAINS", "brains").into(),
             max_rooms: num("GO_BOX_MAX_ROOMS", 16)?,
@@ -52,15 +52,7 @@ impl Brains {
     const FILES: [&str; 3] = ["gen_031000.json", "gen_150000.json", "gen_219000.json"];
 
     pub fn load(dir: &std::path::Path) -> Result<Self, String> {
-        let load = |name: &str| -> Result<Brain, String> {
-            let path = dir.join(name);
-            let text = std::fs::read_to_string(&path).map_err(|e| format!("can't read brain {}: {e}", path.display()))?;
-            let brain: Brain = serde_json::from_str(&text).map_err(|e| format!("bad brain {}: {e}", path.display()))?;
-            if !brain.is_current() {
-                return Err(format!("brain {} has the wrong shape", path.display()));
-            }
-            Ok(brain)
-        };
+        let load = |name: &str| Brain::load(&dir.join(name));
         Ok(Self { by_difficulty: [load(Self::FILES[0])?, load(Self::FILES[1])?, load(Self::FILES[2])?] })
     }
 
@@ -124,11 +116,11 @@ pub async fn serve(listener: tokio::net::TcpListener, config: Config, shutdown: 
         }
     };
     if !config.web.join("index.html").exists() {
-        tracing::warn!("no browser client in {} (build it with scripts/build-web.sh); only /ws works", config.web.display());
+        tracing::warn!("no browser client in {} (build it with scripts/build-web.sh); only {WS_PATH} works", config.web.display());
     }
     let web = config.web.clone();
     let hub = Hub::new(config, brains);
-    let app = Router::new().route("/ws", get(ws_handler)).fallback_service(ServeDir::new(web)).with_state(hub);
+    let app = Router::new().route(WS_PATH, get(ws_handler)).fallback_service(ServeDir::new(web)).with_state(hub);
     axum::serve(listener, app).with_graceful_shutdown(shutdown).await.unwrap();
 }
 

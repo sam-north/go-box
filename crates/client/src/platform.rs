@@ -101,7 +101,7 @@ mod imp {
     }
 
     pub fn share_link(code: &str) -> String {
-        format!("{}/?room={code}", Options::get().server.trim_end_matches("/ws").replace("ws://", "http://").replace("wss://", "https://"))
+        format!("{}/?room={code}", Options::get().server.trim_end_matches(go_box_protocol::WS_PATH).replace("ws://", "http://").replace("wss://", "https://"))
     }
 
     pub fn copy(text: &str) {

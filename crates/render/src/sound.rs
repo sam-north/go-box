@@ -82,8 +82,9 @@ impl Sfx {
     fn synth(self) -> Vec<f32> {
         let mut s = Buf::new(self as u32);
         match self {
-            Sfx::Jump => s.tone(0.0, 0.09, 220.0, 460.0, Wave::Square, 0.004, 22.0, 0.16),
-            Sfx::Land => s.noise(0.0, 0.07, 500.0, 120.0, 0.002, 45.0, 0.5),
+            // A soft blip: triangle, not square, and quiet; you hear it a lot.
+            Sfx::Jump => s.tone(0.0, 0.07, 260.0, 480.0, Wave::Tri, 0.004, 28.0, 0.12),
+            Sfx::Land => s.noise(0.0, 0.06, 400.0, 120.0, 0.002, 50.0, 0.3),
             Sfx::Step => s.noise(0.0, 0.035, 700.0, 300.0, 0.002, 90.0, 0.22),
             Sfx::Swing => s.noise(0.0, 0.14, 900.0, 3500.0, 0.05, 22.0, 0.3),
             Sfx::Punch => {
@@ -184,7 +185,7 @@ impl Sfx {
     }
 }
 
-const BOMB_CRUNCH_SECS: f32 = go_box_sim::character::BOMB_CRUNCH as f32 / 60.0;
+const BOMB_CRUNCH_SECS: f32 = go_box_sim::character::BOMB_CRUNCH as f32 * DT;
 
 #[derive(Clone, Copy)]
 enum Wave {
@@ -410,7 +411,7 @@ impl Sounds {
                 Event::Jump { who, pos } if Some(who) != own => self.at(Sfx::Jump, pos, ear, 0.25),
                 Event::Swing { who } if Some(who) != own => self.at(Sfx::Swing, m.f[who].center(), ear, 0.7),
                 Event::Jump { .. } | Event::Swing { .. } => {}
-                Event::Land { pos } => self.at(Sfx::Land, pos, ear, 0.6),
+                Event::Land { pos } => self.at(Sfx::Land, pos, ear, 0.4),
                 Event::Throw { who } => self.at(Sfx::Throw, m.f[who].center(), ear, 0.9),
                 Event::Grab { pos } => self.at(Sfx::Grab, pos, ear, 0.8),
                 Event::Explosion { pos } => self.play(Sfx::Explosion, 1.0 - (pos.distance(ear) / W * 0.3)),

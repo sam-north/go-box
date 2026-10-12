@@ -98,6 +98,34 @@ impl Brain {
         self.w.len() == Self::N_WEIGHTS
     }
 
+    /// A brain saved as JSON (as in `brains/`), checked to fit this network.
+    pub fn from_json(text: &str) -> Result<Self, String> {
+        let brain: Brain = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        if !brain.is_current() {
+            return Err(format!("wrong shape: {} weights, expected {}", brain.w.len(), Self::N_WEIGHTS));
+        }
+        Ok(brain)
+    }
+
+    pub fn load(path: &std::path::Path) -> Result<Self, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("can't read brain {}: {e}", path.display()))?;
+        Self::from_json(&text).map_err(|e| format!("bad brain {}: {e}", path.display()))
+    }
+
+    /// Every brain (`*.json`) in `dir`, in file-name order.
+    pub fn load_dir(dir: &std::path::Path) -> Result<Vec<Self>, String> {
+        let entries = std::fs::read_dir(dir).map_err(|e| format!("can't read {}: {e}", dir.display()))?;
+        let mut paths: Vec<_> = entries.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "json")).collect();
+        paths.sort();
+        paths.iter().map(|p| Self::load(p)).collect()
+    }
+
+    /// The champions committed in the repo's `brains/` (for tests).
+    #[cfg(test)]
+    pub(crate) fn committed() -> Vec<Self> {
+        Self::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../brains")).unwrap()
+    }
+
     pub fn forward(&self, input: &[f32; N_IN], out: &mut [f32; N_OUT]) {
         let mut hid = [0.0f32; N_HID];
         for (j, h) in hid.iter_mut().enumerate() {

@@ -16,7 +16,7 @@ use go_box_render::sound::{Sfx, Sounds};
 use go_box_render::{self as render, Art};
 use go_box_sim::brain::Brain;
 use go_box_sim::character::Character;
-use go_box_sim::sim::{Action, DT, H, HEALS_PER_ROUND, MAX_TICKS, Match, N_FIGHTERS, W};
+use go_box_sim::sim::{Action, DT, H, HEALS_PER_ROUND, MAX_TICKS, Match, N_FIGHTERS, TICK_RATE, W};
 use macroquad::prelude::*;
 use net::{Net, State};
 use ::rand::rngs::SmallRng;
@@ -60,7 +60,7 @@ impl Options {
         let val = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1)).cloned();
         let has = |k: &str| args.iter().any(|a| a == k);
         Options {
-            server: val("--server").unwrap_or_else(|| "ws://127.0.0.1:7878/ws".into()),
+            server: val("--server").unwrap_or_else(|| format!("ws://127.0.0.1:{DEFAULT_PORT}{WS_PATH}")),
             name: val("--name"),
             join: val("--join"),
             create: has("--create"),
@@ -94,7 +94,7 @@ struct Attract {
 
 impl Attract {
     fn new() -> Self {
-        let brain: Brain = serde_json::from_str(include_str!("../../../brains/gen_219000.json")).expect("embedded brain");
+        let brain = Brain::from_json(include_str!("../../../brains/gen_219000.json")).expect("embedded brain");
         let mut rng = SmallRng::seed_from_u64((get_time() * 1e6) as u64 ^ 0x9e37_79b9);
         let m = Self::fresh(&mut rng);
         Self { m, brain, rng, acc: 0.0, pause: 0.0, restarted: false }
@@ -331,20 +331,23 @@ async fn main() {
 
     loop {
         let dt = get_frame_time().min(0.1);
-        ui.begin();
         app.update_net(&mut art, &mut sfx);
-
-        // Your inputs, at the sim's fixed 60/s.
         app.controls.poll();
         if app.controls.settings_pressed() {
             app.settings_open = !app.settings_open;
         }
+        let seat = app.game.as_ref().and_then(|g| g.seat());
+        let playing = app.room.as_ref().is_some_and(|r| r.phase == Phase::Playing) && app.game.as_ref().is_some_and(|g| !g.over());
+        // The gamepad drives the menus whenever you're not mid-match (or the settings are up).
+        let in_menus = !playing || app.settings_open;
+        let nav = app.controls.nav();
+        ui.begin(if in_menus { nav } else { ui::Nav::default() }, in_menus && app.controls.using_pad);
+
+        // Your inputs, at the sim's fixed 60/s.
         let mouse: Vec2 = mouse_position().into();
         let mouse_arena = (mouse - app.view.0) / app.view.1;
         // Clicks on the menu or its button aren't throws.
         let mouse_free = !app.settings_open && !settings_button(&ui).contains(mouse);
-        let seat = app.game.as_ref().and_then(|g| g.seat());
-        let playing = app.room.as_ref().is_some_and(|r| r.phase == Phase::Playing) && app.game.as_ref().is_some_and(|g| !g.over());
         let me = app.game.as_ref().and_then(|g| g.me()).cloned();
         if let (true, Some(seat), Some(me)) = (playing, seat, me) {
             app.controls.latch(me.holding.is_some(), mouse_free);
@@ -656,7 +659,7 @@ fn home_screen(ui: &mut Ui, app: &mut App) {
 /// The special's name and its cooldown, as two short lines for a character card.
 fn character_lines(c: Character) -> (String, String) {
     match c.special() {
-        Some(s) => (s.name().into(), format!("every {}s", s.cooldown() / 60)),
+        Some(s) => (s.name().into(), format!("every {}s", s.cooldown() / TICK_RATE)),
         None => ("No special".into(), "the original".into()),
     }
 }
@@ -751,9 +754,24 @@ fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Render
         let status = if p.ready && p.id != room.leader { "ready" } else { "" };
         ui.text(&format!("{}  {status}", p.character.name()), char_x, py, 20.0, if p.ready { ACCENT } else { DIM });
     }
-    for _ in room.players.len()..MAX_PLAYERS {
+    // Seats without a player: a bot or nobody. The leader picks; down to just you.
+    for seat in room.players.len()..MAX_PLAYERS {
         py += ui.px(28.0);
-        ui.text("(bot)", r.x + pad, py, 20.0, DIM);
+        let fill = room.fills[seat];
+        ui.text(&format!("Seat {}", seat + 1), r.x + pad, py, 20.0, DIM);
+        let bx = r.x + pad + ui.px(72.0);
+        if leader {
+            let bw = ui.px(64.0);
+            for (k, (label, f)) in [("Bot", SeatFill::Bot), ("None", SeatFill::Empty)].into_iter().enumerate() {
+                let br = Rect::new(bx + k as f32 * (bw + ui.px(6.0)), py - ui.px(20.0), bw, ui.px(26.0));
+                if ui.button(br, label, true, if fill == f { ACCENT } else { ui::EDGE }) && fill != f {
+                    app.send(ClientMsg::SetSeatFill { seat: seat as u8, fill: f });
+                }
+            }
+        } else {
+            let label = if fill == SeatFill::Bot { "bot" } else { "empty" };
+            ui.text(label, bx, py, 20.0, DIM);
+        }
     }
     // Difficulty: buttons for the leader, a label for everyone else.
     let mut dx = diff_x;
@@ -799,9 +817,8 @@ fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Render
         if selected {
             ui.text("picked", tx, rr.y + rr.h - ui.px(8.0), 15.0, color);
         }
-        if is_mouse_button_pressed(MouseButton::Left) && !ui.blocked && rr.contains(mouse_position().into()) && !selected {
+        if ui.area(rr) && !selected {
             app.send(ClientMsg::SetCharacter(c));
-            ui.pressed = true;
         }
     }
     y += ch + ui.px(20.0);
@@ -844,6 +861,9 @@ fn hud(ui: &Ui, app: &App, m: &Match) {
     let colw = (sw - ui.px(32.0)) / N_FIGHTERS as f32;
     for i in 0..N_FIGHTERS {
         let f = &m.f[i];
+        if f.absent {
+            continue;
+        }
         let seat = &g.start.seats[i];
         let color = if f.alive() { render::look(f.character, i).accent } else { DIM };
         let x = ui.px(16.0) + i as f32 * colw;

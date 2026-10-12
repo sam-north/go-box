@@ -8,7 +8,7 @@ use crate::sim::{Aabb, Event, Fighter, Match, Source, DT, N_FIGHTERS, PLATFORMS,
 use glam::{vec2, Vec2};
 use serde::{Deserialize, Serialize};
 
-const SECOND: u32 = 60;
+const SECOND: u32 = crate::sim::TICK_RATE;
 
 // Sam — Gravity Bomb. Lobbed ahead of him; it goes off when it lands, touches someone, or its
 // fuse runs out. Going off, it yanks everyone on the map toward it for BOMB_CRUNCH ticks (no
@@ -31,6 +31,8 @@ pub const BOMB_BLAST_RADIUS: f32 = 30.0;
 const BOMB_DAMAGE: f32 = 34.0;
 /// Damage at the blast's edge, as a fraction of the full hit.
 const BOMB_EDGE: f32 = 0.4;
+/// Bots hold the bomb for the first seconds of a match.
+const BOT_BOMB_HOLD: u32 = 3 * SECOND;
 
 // Austin — Pop-Up.
 const POPUP_COOLDOWN: u32 = 15 * SECOND;
@@ -107,17 +109,22 @@ impl Special for GravityBomb {
         BOMB_COOLDOWN
     }
     fn activate(&self, m: &mut Match, who: usize) {
-        let f = &m.f[who];
-        let vel = vec2(BOMB_THROW.x * f.facing, BOMB_THROW.y) + f.vel * 0.5;
-        m.bombs.push(Bomb { pos: f.hand(), vel, owner: who, fuse: BOMB_FUSE, crunch: None, pull: [0.0; N_FIGHTERS] });
+        m.bombs.push(new_bomb(&m.f[who], who));
     }
+    /// Works out where the bomb would go off and who'd be hauled into the blast (everyone
+    /// within BOMB_PULL_RADIUS of it), then throws only when it pays: two or more caught, or
+    /// one caught who it would finish off, or one caught while Sam is losing the fight.
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
-        let me = &m.f[who];
-        // Someone roughly where the bomb would land, or right in my face.
-        foes(m, who).any(|f| {
-            let (dx, dy) = ((f.pos.x - me.pos.x) * me.facing, f.pos.y - me.pos.y);
-            (dx > 30.0 && dx < 140.0 && dy.abs() < 50.0) || f.pos.distance(me.pos) < 16.0
-        })
+        if m.tick < BOT_BOMB_HOLD {
+            return false;
+        }
+        let at = bomb_landing(m, who);
+        let caught: Vec<&Fighter> = foes(m, who).filter(|f| f.center().distance(at) < BOMB_PULL_RADIUS).collect();
+        match caught.as_slice() {
+            [] => false,
+            [one] => one.hp <= BOMB_DAMAGE || m.f[who].hp < one.hp.min(50.0),
+            _ => true,
+        }
     }
 }
 
@@ -293,33 +300,10 @@ impl Match {
     /// A bomb in flight: arcs under gravity and goes off on terrain, on a foe, or when its
     /// fuse runs out.
     fn fly_bomb(&mut self, b: usize) {
-        let bomb = &mut self.bombs[b];
-        bomb.vel.y += BOMB_GRAVITY * DT;
-        let prev = bomb.pos;
-        bomb.pos += bomb.vel * DT;
-        bomb.fuse = bomb.fuse.saturating_sub(1);
-        let mut hit = bomb.fuse == 0;
-        if let Some(s) = SOLIDS.iter().find(|s| s.contains(bomb.pos)) {
-            // Stop on the surface it hit.
-            bomb.pos = vec2(bomb.pos.x.clamp(s.x - 0.5, s.x + s.w + 0.5), bomb.pos.y);
-            if prev.y <= s.y {
-                bomb.pos.y = s.y - 0.5;
-            } else if prev.x < s.x || prev.x > s.x + s.w {
-                bomb.pos.x = prev.x;
-            } else {
-                bomb.pos.y = prev.y;
-            }
-            hit = true;
-        }
-        if bomb.vel.y > 0.0 && PLATFORMS.iter().any(|p| bomb.pos.x > p.x && bomb.pos.x < p.x + p.w && prev.y <= p.y && bomb.pos.y >= p.y) {
-            bomb.pos.y = PLATFORMS.iter().find(|p| bomb.pos.x > p.x && bomb.pos.x < p.x + p.w && prev.y <= p.y).map_or(bomb.pos.y, |p| p.y - 0.5);
-            hit = true;
-        }
-        let (pos, owner) = (bomb.pos, bomb.owner);
-        hit |= (0..N_FIGHTERS).any(|j| j != owner && self.f[j].alive() && self.f[j].body().overlaps(&Aabb::around(pos, 2.0)));
-        if !hit {
+        if !fly(&mut self.bombs[b], &self.f) {
             return;
         }
+        let (pos, owner) = (self.bombs[b].pos, self.bombs[b].owner);
         let pull = std::array::from_fn(|j| if j == owner || !self.f[j].alive() { 0.0 } else { pull_strength(self.f[j].center().distance(pos)) });
         let bomb = &mut self.bombs[b];
         bomb.vel = Vec2::ZERO;
@@ -364,6 +348,49 @@ impl Match {
     }
 }
 
+/// One tick of a bomb in flight. True when it goes off: it hit terrain or a foe (it stops
+/// there), or its fuse ran out.
+fn fly(bomb: &mut Bomb, fighters: &[Fighter; N_FIGHTERS]) -> bool {
+    bomb.vel.y += BOMB_GRAVITY * DT;
+    let prev = bomb.pos;
+    bomb.pos += bomb.vel * DT;
+    bomb.fuse = bomb.fuse.saturating_sub(1);
+    let mut hit = bomb.fuse == 0;
+    if let Some(s) = SOLIDS.iter().find(|s| s.contains(bomb.pos)) {
+        // Stop on the surface it hit.
+        bomb.pos = vec2(bomb.pos.x.clamp(s.x - 0.5, s.x + s.w + 0.5), bomb.pos.y);
+        if prev.y <= s.y {
+            bomb.pos.y = s.y - 0.5;
+        } else if prev.x < s.x || prev.x > s.x + s.w {
+            bomb.pos.x = prev.x;
+        } else {
+            bomb.pos.y = prev.y;
+        }
+        hit = true;
+    }
+    if bomb.vel.y > 0.0
+        && let Some(p) = PLATFORMS.iter().find(|p| bomb.pos.x > p.x && bomb.pos.x < p.x + p.w && prev.y <= p.y && bomb.pos.y >= p.y)
+    {
+        bomb.pos.y = p.y - 0.5;
+        hit = true;
+    }
+    let pos = bomb.pos;
+    hit || (0..N_FIGHTERS).any(|j| j != bomb.owner && fighters[j].alive() && fighters[j].body().overlaps(&Aabb::around(pos, 2.0)))
+}
+
+/// Where a bomb Sam threw right now would go off: flown through the same physics, everyone
+/// else standing still.
+fn bomb_landing(m: &Match, who: usize) -> Vec2 {
+    let mut b = new_bomb(&m.f[who], who);
+    while !fly(&mut b, &m.f) {}
+    b.pos
+}
+
+fn new_bomb(f: &Fighter, who: usize) -> Bomb {
+    let vel = vec2(BOMB_THROW.x * f.facing, BOMB_THROW.y) + f.vel * 0.5;
+    Bomb { pos: f.hand(), vel, owner: who, fuse: BOMB_FUSE, crunch: None, pull: [0.0; N_FIGHTERS] }
+}
+
 /// How hard a gravity bomb yanks someone `d` px away: fully within BOMB_PULL_RADIUS, then
 /// weaker with distance (but never nothing).
 fn pull_strength(d: f32) -> f32 {
@@ -402,13 +429,6 @@ mod tests {
     use rand::SeedableRng;
     use rand::rngs::SmallRng;
 
-    fn brains() -> Vec<Brain> {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../brains");
-        let mut paths: Vec<_> = std::fs::read_dir(dir).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "json")).collect();
-        paths.sort();
-        paths.iter().map(|p| serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap()).collect()
-    }
-
     /// A match with the given cast, everyone standing still on the floor at chosen x positions.
     fn staged(cast: [Character; N_FIGHTERS], xs: [f32; N_FIGHTERS]) -> Match {
         let mut m = Match::new(&mut SmallRng::seed_from_u64(7), 0..=0);
@@ -433,7 +453,7 @@ mod tests {
 
     #[test]
     fn bots_use_every_special_and_matches_finish() {
-        let brains = brains();
+        let brains = Brain::committed();
         let mut fired = [0u32; 4];
         for seed in 0..12u64 {
             let mut rng = SmallRng::seed_from_u64(seed);
@@ -542,6 +562,24 @@ mod tests {
         assert!(dragged > 25.0 && dragged < 70.0, "far fighter dragged {dragged}px");
         assert_eq!(m.f[0].hp, MAX_HP, "Sam is unaffected");
         assert!(m.f[0].dmg_special > 0.0);
+    }
+
+    #[test]
+    fn sam_bots_only_bomb_when_it_pays() {
+        let wants = |xs: [f32; N_FIGHTERS], hp1: f32| {
+            let mut m = staged([Character::Sam, Character::Classic, Character::Classic, Character::Classic], xs);
+            m.tick = BOT_BOMB_HOLD;
+            m.f[0].facing = 1.0;
+            m.f[1].hp = hp1;
+            GravityBomb.bot_wants(&m, 0)
+        };
+        // The bomb hits the fighter ~100px ahead: alone and healthy, not worth it...
+        assert!(!wants([100.0, 200.0, 440.0, 460.0], MAX_HP));
+        // ...but worth it with a second fighter close by, or to finish a weak one.
+        assert!(wants([100.0, 200.0, 240.0, 460.0], MAX_HP));
+        assert!(wants([100.0, 200.0, 440.0, 460.0], 20.0));
+        // Nobody near where it would land.
+        assert!(!wants([100.0, 330.0, 400.0, 460.0], MAX_HP));
     }
 
     #[test]
