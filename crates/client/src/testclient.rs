@@ -31,6 +31,9 @@ pub struct Options {
     pub code_file: Option<String>,
     pub shots: Option<String>,
     pub shot_every: f32,
+    /// Only take a shot while the match has this kind of effect in it (bomb, pet, table, chain),
+    /// e.g. to catch a special in action.
+    pub shot_when: Option<String>,
     pub quit_after: Option<f32>,
     /// Open the settings menu at startup (for screenshots).
     pub settings: bool,
@@ -64,6 +67,7 @@ impl Options {
             code_file: val("--code-file"),
             shots: val("--shots"),
             shot_every: val("--shot-every").and_then(|v| v.parse().ok()).unwrap_or(3.0),
+            shot_when: val("--shot-when"),
             quit_after: val("--quit-after").and_then(|v| v.parse().ok()),
             mute: has("--mute"),
             settings: has("--settings"),
@@ -106,7 +110,7 @@ impl Automation {
     }
 
     /// True when it's time to quit.
-    pub fn step(&mut self, app: &mut App) -> bool {
+    pub fn step(&mut self, app: &mut App, shown: Option<&Match>) -> bool {
         let opts = Options::get();
         if let Some(r) = &app.room {
             if let Some(path) = &opts.code_file
@@ -120,13 +124,26 @@ impl Automation {
                 app.send(ClientMsg::Start);
             }
         }
+        let wanted = opts.shot_when.as_deref().is_none_or(|kind| shown.is_some_and(|m| m.effects.iter().any(|e| effect_kind(e) == kind)));
         if let Some(prefix) = &opts.shots
             && get_time() as f32 >= self.next_shot
+            && wanted
         {
             self.shot_n += 1;
             get_screen_data().export_png(&format!("{prefix}_{:02}.png", self.shot_n));
             self.next_shot += opts.shot_every;
         }
         opts.quit_after.is_some_and(|q| get_time() as f32 >= q)
+    }
+}
+
+/// What `--shot-when` calls an effect.
+fn effect_kind(e: &go_box_sim::character::Effect) -> &'static str {
+    use go_box_sim::character::Effect;
+    match e {
+        Effect::Bomb(_) => "bomb",
+        Effect::Pet(_) => "pet",
+        Effect::Table(_) => "table",
+        Effect::Chain(_) => "chain",
     }
 }

@@ -261,7 +261,7 @@ async fn main() {
         }
         ui.end();
 
-        if automation.step(&mut app) {
+        if automation.step(&mut app, shown.as_ref()) {
             break;
         }
         next_frame().await;
