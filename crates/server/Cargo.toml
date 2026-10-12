@@ -15,7 +15,8 @@ go-box-protocol.workspace = true
 go-box-sim.workspace = true
 rand = { workspace = true, features = ["std", "std_rng"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "signal"] }
-tower-http = { version = "0.6", features = ["fs"] }
+tower-http = { version = "0.6", features = ["fs", "set-header"] }
+tower = "0.5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

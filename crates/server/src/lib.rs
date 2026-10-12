@@ -6,7 +6,7 @@ mod room;
 use axum::Router;
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{ConnectInfo, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use go_box_protocol::{CODE_ALPHABET, CODE_LEN, DEFAULT_PORT, WS_PATH};
@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tower_http::services::ServeDir;
+use tower_http::set_header::SetResponseHeaderLayer;
 
 pub use room::RoomCmd;
 
@@ -121,7 +122,14 @@ pub async fn serve(listener: tokio::net::TcpListener, config: Config, shutdown: 
     }
     let web = config.web.clone();
     let hub = Hub::new(config);
-    let app = Router::new().route(WS_PATH, get(ws_handler)).route("/healthz", get(healthz)).fallback_service(ServeDir::new(web)).with_state(hub);
+    // The browser client: served pre-compressed when the build made `.br`/`.gz` copies (the Docker
+    // image does; it saves ~2/3 of the 1MB download at no CPU cost), and marked to be re-checked
+    // on every load, so players pick up a new version right after a deploy (unchanged files
+    // just get a quick "not modified").
+    let files = tower::ServiceBuilder::new()
+        .layer(SetResponseHeaderLayer::overriding(header::CACHE_CONTROL, HeaderValue::from_static("no-cache")))
+        .service(ServeDir::new(web).precompressed_br().precompressed_gzip());
+    let app = Router::new().route(WS_PATH, get(ws_handler)).route("/healthz", get(healthz)).fallback_service(files).with_state(hub);
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).with_graceful_shutdown(shutdown).await.unwrap();
 }
 

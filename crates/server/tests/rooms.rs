@@ -293,3 +293,20 @@ async fn creating_a_room_can_need_a_passphrase() {
     c.send(ClientMsg::CreateRoom { passphrase: "guess".into() }).await;
     assert!(c.closed().await);
 }
+
+#[tokio::test]
+async fn the_page_comes_compressed_when_possible_and_always_fresh() {
+    let web = std::env::temp_dir().join(format!("go-box-web-{}", std::process::id()));
+    std::fs::create_dir_all(&web).unwrap();
+    std::fs::write(web.join("index.html"), "<p>plain</p>").unwrap();
+    std::fs::write(web.join("index.html.gz"), "pretend-gzip").unwrap();
+    let url = start_server_with(|c| c.web = web.clone()).await;
+
+    let plain = http_get(&url, "/index.html", "").await.to_ascii_lowercase();
+    assert!(plain.contains("cache-control: no-cache"), "{plain}");
+    assert!(plain.ends_with("<p>plain</p>") && !plain.contains("content-encoding"));
+
+    let gz = http_get(&url, "/index.html", "Accept-Encoding: gzip\r\n").await.to_ascii_lowercase();
+    assert!(gz.contains("content-encoding: gzip") && gz.ends_with("pretend-gzip"), "{gz}");
+    let _ = std::fs::remove_dir_all(&web);
+}
