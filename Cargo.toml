@@ -1,9 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-# `cargo run --release` from the repo root still starts the trainer/viewer.
-default-members = ["crates/trainer"]
-exclude = ["archive"]
+# `cargo run --release` from the repo root starts the server.
+default-members = ["crates/server"]
 
 [workspace.package]
 version = "0.1.0"

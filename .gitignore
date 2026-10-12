@@ -1,15 +1,12 @@
 # Build output
 /target
-/target-exp
 **/target
 
-# Local training state: full populations, every-1000th-gen champions, logs (~160MB).
-# The few brains worth keeping live in /brains instead.
+# Local training state from the retired trainer (~160MB, never committed).
 /save/
 
-# Screenshots from --screenshot, editor and OS cruft
+# Screenshots, editor and OS cruft
 *.png
-!/assets/**/*.png
 .vscode/
 .idea/
 Thumbs.db
