@@ -40,33 +40,20 @@ const GROUND_ACC: f32 = 900.0;
 const AIR_ACC: f32 = 420.0;
 pub const MAX_HP: f32 = 100.0;
 
-// Melee: fists when empty-handed (or holding a rock/grenade), a stab when holding a spear.
+// Melee: fists, or the held item's own melee (a spear stabs); see `item.rs`.
 pub const ATK_WINDUP: u32 = 5;
 pub const ATK_ACTIVE: u32 = 5;
 pub const ATK_TOTAL: u32 = 16;
 const ATK_COOLDOWN: u32 = 18;
 const HITSTUN: u32 = 12;
-const FIST_DAMAGE: f32 = 8.0;
-const FIST_REACH: f32 = 9.0;
-const STAB_DAMAGE: f32 = 16.0;
-const STAB_REACH: f32 = 14.0;
 
 // Throwing.
 const AIM_RANGE: f32 = 0.9;
 const GRAB_COOLDOWN: u32 = 10;
 const THROW_COOLDOWN: u32 = 20;
-const SPEAR_THROW_DAMAGE: f32 = 28.0;
-const ROCK_DAMAGE: f32 = 10.0;
-/// Headshots multiply damage: rocks "hitting the right spot" are devastating.
-const HEADSHOT_MULT: f32 = 2.0;
-const ROCK_HEADSHOT_MULT: f32 = 3.0;
-pub const GRENADE_FUSE: u32 = 60;
-/// A grenade dropped by someone who dies while holding it goes off this soon.
-const DROPPED_GRENADE_FUSE: u32 = 30;
-pub const GRENADE_RADIUS: f32 = 34.0;
-const GRENADE_DAMAGE: f32 = 85.0;
-/// Damage at the very edge of the blast, as a fraction of the full hit.
-const GRENADE_EDGE: f32 = 0.35;
+pub use crate::item::{GRENADE_FUSE, ItemKind};
+use crate::item::{Blast, DROPPED_FUSE, FISTS, Hit, N_SENSED, SPAWN_ORDER};
+pub const GRENADE_RADIUS: f32 = crate::item::GRENADE_BLAST.radius;
 pub const ITEM_R: f32 = 1.5;
 const LETHAL_SPEED: f32 = 110.0;
 const OWN_GRACE: u32 = 15;
@@ -76,9 +63,6 @@ const START_SPEARS: usize = 2;
 const START_ROCKS: usize = 4;
 const ITEM_SPAWN_EVERY: Range<u32> = secs(5)..secs(8);
 const MAX_LOOSE_ITEMS: usize = 10;
-const MAX_GRENADES: usize = 2;
-/// Chance that a spawned item is a grenade (when fewer than MAX_GRENADES are around).
-const GRENADE_CHANCE: f32 = 0.35;
 
 // Health pickups: restore half your health; rare and on a reachable surface.
 pub const HEAL_AMOUNT: f32 = 50.0;
@@ -87,36 +71,17 @@ pub const HEAL_R: f32 = 2.5;
 /// this), at random times inside HEAL_WINDOW (ticks).
 pub const HEALS_PER_ROUND: RangeInclusive<u32> = 1..=2;
 
+const HEAL_WINDOW: Range<u32> = secs(6)..secs(24);
+
 /// The sim's random number generator, named explicitly so a seed plays out the same on every
 /// platform (rand's `SmallRng` is a different algorithm on 32-bit targets such as wasm).
 pub type SimRng = Xoshiro256PlusPlus;
-const HEAL_WINDOW: Range<u32> = secs(6)..secs(24);
 
 // Senses.
 pub const N_RAYS: usize = 12;
 pub const N_SECTORS: usize = 12;
 pub const RAY_MAX: f32 = 200.0;
 const VIS_MAX: f32 = 370.0;
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub enum ItemKind {
-    Spear,
-    Rock,
-    Grenade,
-}
-
-impl ItemKind {
-    pub fn index(self) -> usize {
-        self as usize
-    }
-    fn throw_speed(self) -> f32 {
-        match self {
-            ItemKind::Spear => 280.0,
-            ItemKind::Rock => 230.0,
-            ItemKind::Grenade => 180.0,
-        }
-    }
-}
 
 /// Where damage came from (hit sounds differ by weapon).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -293,8 +258,13 @@ impl Fighter {
         self.atk_timer > ATK_WINDUP && self.atk_timer <= ATK_WINDUP + ATK_ACTIVE
     }
 
+    /// What a swing does now: the held item's melee (a spear stabs), else fists: (reach, hit).
+    pub fn melee(&self) -> (f32, Hit) {
+        self.holding.and_then(|k| k.def().melee).unwrap_or(FISTS)
+    }
+
     pub fn melee_reach(&self) -> f32 {
-        if self.holding == Some(ItemKind::Spear) { STAB_REACH } else { FIST_REACH }
+        self.melee().0
     }
 
     pub fn attack_box(&self) -> Aabb {
@@ -428,10 +398,16 @@ fn mark(s: &mut [f32; N_IN], base: usize, seen: Option<(f32, usize)>) {
     }
 }
 
-fn one_hot(kind: Option<ItemKind>) -> [f32; 3] {
-    let mut v = [0.0; 3];
+/// How far a lit item's fuse has burnt down (0 just lit .. 1 about to go off).
+fn fuse_burnt(it: &Item) -> Option<f32> {
+    Some(1.0 - it.fuse? as f32 / it.kind.def().fuse? as f32)
+}
+
+/// Which of the three kinds the brains know an item looks like, as one-hot inputs.
+fn one_hot(kind: Option<ItemKind>) -> [f32; N_SENSED] {
+    let mut v = [0.0; N_SENSED];
     if let Some(k) = kind {
-        v[k.index()] = 1.0;
+        v[k.def().sensed_as as usize] = 1.0;
     }
     v
 }
@@ -562,7 +538,7 @@ impl Match {
             if it.lethal || it.fuse.is_some() {
                 mark(&mut s, IN_THREAT, seen);
             } else {
-                mark(&mut s, IN_ITEMS + it.kind.index() * N_SECTORS, seen);
+                mark(&mut s, IN_ITEMS + it.kind.def().sensed_as as usize * N_SECTORS, seen);
             }
         }
         for &h in &self.heals {
@@ -587,7 +563,7 @@ impl Match {
         s[k + 10] = (me.holding.is_some() && me.hand_cd == 0) as u8 as f32;
         let body = me.body();
         s[k + 11] = (me.holding.is_none() && self.items.iter().any(|it| it.loose() && body.overlaps(&Aabb::around(it.pos, ITEM_R)))) as u8 as f32;
-        s[k + 12] = self.held_item(i).and_then(|h| self.items[h].fuse).map_or(0.0, |t| 1.0 - t as f32 / GRENADE_FUSE as f32);
+        s[k + 12] = self.held_item(i).and_then(|h| fuse_burnt(&self.items[h])).unwrap_or(0.0);
         s[IN_MEM..IN_MEM + MEM].copy_from_slice(&me.memory);
 
         // v2 senses.
@@ -621,8 +597,8 @@ impl Match {
         s[e + 10] = self
             .items
             .iter()
-            .filter_map(|it| it.fuse.map(|t| (it, t)))
-            .map(|(it, t)| (1.0 - it.pos.distance(c) / GRENADE_RADIUS).max(0.0) * (1.0 - t as f32 / GRENADE_FUSE as f32))
+            .filter_map(|it| Some((it, it.kind.def().blast?, fuse_burnt(it)?)))
+            .map(|(it, b, burnt)| (1.0 - it.pos.distance(c) / b.radius).max(0.0) * burnt)
             .fold(0.0, f32::max);
         s[e + 11] = 1.0 - self.tick as f32 / MAX_TICKS as f32;
         let best_other = (0..N_FIGHTERS).filter(|&j| j != i && self.f[j].alive()).map(|j| self.f[j].hp).fold(0.0, f32::max);
@@ -714,11 +690,11 @@ impl Match {
             self.f[i].hit_mask |= 1 << j;
             let a = &self.f[i];
             let dir = a.facing;
-            let (base, source) = if a.holding == Some(ItemKind::Spear) { (STAB_DAMAGE, Source::Stab) } else { (FIST_DAMAGE, Source::Fist) };
+            let (_, hit) = a.melee();
             // A strike lands on the head when it comes from above, e.g. from a jump or a ledge.
             let headshot = self.f[j].is_head(a.pos.y - 8.0);
-            let dmg = if headshot { base * HEADSHOT_MULT } else { base };
-            self.damage(i, j, dmg, vec2(dir * 150.0, -140.0), HITSTUN, dir, source, headshot);
+            let dmg = if headshot { hit.damage * hit.headshot_mult } else { hit.damage };
+            self.damage(i, j, dmg, vec2(dir * 150.0, -140.0), HITSTUN, dir, hit.source, headshot);
         }
         for f in self.f.iter_mut() {
             if f.atk_timer > 0 {
@@ -798,12 +774,15 @@ impl Match {
             it.held_by = None;
             it.owner = Some(i);
             it.pos = f.hand();
-            it.vel = dir * it.kind.throw_speed() + f.vel * 0.5;
+            let def = it.kind.def();
+            it.vel = dir * def.throw_speed + f.vel * 0.5;
             it.age = 0;
-            if it.kind == ItemKind::Grenade {
-                it.fuse.get_or_insert(GRENADE_FUSE);
-            } else {
-                it.lethal = true;
+            // Something with a fuse is lit (and goes off later); anything else hurts on impact.
+            match def.fuse {
+                Some(fuse) => {
+                    it.fuse.get_or_insert(fuse);
+                }
+                None => it.lethal = true,
             }
             self.events.push(Event::Throw { who: i });
         }
@@ -838,15 +817,12 @@ impl Match {
                 let dir = it.vel.x.signum();
                 let src = it.owner.unwrap_or(j);
                 let headshot = self.f[j].is_head(it.pos.y);
-                let (base, mult, source) = match it.kind {
-                    ItemKind::Spear => (SPEAR_THROW_DAMAGE, HEADSHOT_MULT, Source::SpearThrow),
-                    _ => (ROCK_DAMAGE, ROCK_HEADSHOT_MULT, Source::Rock),
-                };
-                let dmg = if headshot { base * mult } else { base };
+                let Some(hit) = it.kind.def().thrown else { continue };
+                let dmg = if headshot { hit.damage * hit.headshot_mult } else { hit.damage };
                 let it = &mut self.items[k];
                 it.vel *= -0.2;
                 it.lethal = false;
-                self.damage(src, j, dmg, vec2(dir * 110.0, -100.0), 10, dir, source, headshot);
+                self.damage(src, j, dmg, vec2(dir * 110.0, -100.0), 10, dir, hit.source, headshot);
             }
         }
         // Explode back-to-front so indices stay valid.
@@ -856,25 +832,27 @@ impl Match {
             if let Some(h) = it.held_by {
                 self.f[h].holding = None;
             }
-            self.explode(it.pos, it.owner);
+            if let Some(blast) = it.kind.def().blast {
+                self.explode(it.pos, it.owner, blast);
+            }
         }
     }
 
-    fn explode(&mut self, pos: Vec2, owner: Option<usize>) {
+    fn explode(&mut self, pos: Vec2, owner: Option<usize>, blast: Blast) {
         self.events.push(Event::Explosion { pos });
         for j in 0..N_FIGHTERS {
             let d = self.f[j].center().distance(pos);
-            if !self.f[j].alive() || d >= GRENADE_RADIUS {
+            if !self.f[j].alive() || d >= blast.radius {
                 continue;
             }
             let away = (self.f[j].center() - pos).normalize_or(vec2(0.0, -1.0));
-            let dmg = GRENADE_DAMAGE * (1.0 - d / GRENADE_RADIUS).max(GRENADE_EDGE);
+            let dmg = blast.damage * (1.0 - d / blast.radius).max(blast.edge);
             self.damage(owner.unwrap_or(j), j, dmg, away * 220.0 + vec2(0.0, -80.0), 14, away.x.signum(), Source::Grenade, false);
         }
         for it in self.items.iter_mut().filter(|it| it.held_by.is_none()) {
             let d = it.pos.distance(pos);
-            if d < GRENADE_RADIUS * 1.5 {
-                it.vel += (it.pos - pos).normalize_or(vec2(0.0, -1.0)) * 150.0 * (1.0 - d / (GRENADE_RADIUS * 1.5));
+            if d < blast.radius * 1.5 {
+                it.vel += (it.pos - pos).normalize_or(vec2(0.0, -1.0)) * 150.0 * (1.0 - d / (blast.radius * 1.5));
             }
         }
     }
@@ -918,15 +896,17 @@ impl Match {
         if loose >= MAX_LOOSE_ITEMS {
             return;
         }
-        let grenades = self.items.iter().filter(|it| it.kind == ItemKind::Grenade).count();
         let roll: f32 = self.rng.r#gen();
-        let kind = if roll < GRENADE_CHANCE && grenades < MAX_GRENADES {
-            ItemKind::Grenade
-        } else if roll < GRENADE_CHANCE + 0.35 {
-            ItemKind::Spear
-        } else {
-            ItemKind::Rock
-        };
+        let mut total = 0.0;
+        let mut kind = SPAWN_ORDER[SPAWN_ORDER.len() - 1];
+        for k in SPAWN_ORDER {
+            total += k.def().spawn_chance;
+            let room = k.def().max_alive.is_none_or(|max| self.items.iter().filter(|it| it.kind == k).count() < max);
+            if roll < total && room {
+                kind = k;
+                break;
+            }
+        }
         let pos = random_surface_spot(&mut self.rng) - vec2(0.0, ITEM_R);
         self.items.push(Item::new(kind, pos));
         self.events.push(Event::Spawn { pos });
@@ -950,14 +930,14 @@ impl Match {
         let died = !v.alive();
         self.events.push(Event::Hit { pos, dir, headshot, source });
         if died {
-            // Drop whatever was in hand. A grenade goes off: it arms (if it wasn't already
-            // lit) and blows shortly after, on the fallen fighter's account.
+            // Drop whatever was in hand. Anything with a fuse (a grenade) goes off: it arms (if it
+            // wasn't already lit) and blows shortly after, on the fallen fighter's account.
             if let Some(k) = self.held_item(victim) {
                 let it = &mut self.items[k];
                 it.held_by = None;
                 it.vel = Vec2::ZERO;
-                if it.kind == ItemKind::Grenade {
-                    it.fuse = Some(it.fuse.map_or(DROPPED_GRENADE_FUSE, |t| t.min(DROPPED_GRENADE_FUSE)));
+                if it.kind.def().fuse.is_some() {
+                    it.fuse = Some(it.fuse.map_or(DROPPED_FUSE, |t| t.min(DROPPED_FUSE)));
                     it.owner.get_or_insert(victim);
                 }
             }
@@ -1047,15 +1027,12 @@ pub fn predict(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) 
 fn step_item(it: &mut Item) -> bool {
     it.age += 1;
     let mut struck = false;
-    // Thrown spears fly flat; everything else arcs.
-    let g = if it.kind == ItemKind::Spear && it.lethal { 0.35 } else { 0.8 };
+    // Flying fast enough to hurt, an item falls at its own rate (spears fly flat); else it arcs.
+    let def = it.kind.def();
+    let g = if it.lethal { def.flight_gravity } else { 0.8 };
     it.vel.y = (it.vel.y + GRAVITY * g * DT).min(MAX_FALL);
     let rb = |p: Vec2| Aabb::around(p, ITEM_R);
-    let bounce = match it.kind {
-        ItemKind::Spear => 0.15,
-        ItemKind::Rock => 0.35,
-        ItemKind::Grenade => 0.45,
-    };
+    let bounce = def.bounce;
 
     it.pos.x += it.vel.x * DT;
     if let Some(s) = SOLIDS.iter().find(|s| rb(it.pos).overlaps(s)) {
@@ -1236,7 +1213,7 @@ mod tests {
         m.damage(0, 1, MAX_HP, Vec2::ZERO, 0, 1.0, Source::Fist, false);
         assert!(!m.f[1].alive());
         let mut boom = false;
-        for _ in 0..DROPPED_GRENADE_FUSE + 2 {
+        for _ in 0..DROPPED_FUSE + 2 {
             m.step([&z; N_FIGHTERS]);
             boom |= m.events.iter().any(|e| matches!(e, Event::Explosion { .. }));
         }

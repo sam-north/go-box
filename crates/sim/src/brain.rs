@@ -11,9 +11,9 @@ pub const MEM: usize = 4;
 //   loose rocks, loose grenades, health | nearest opponent (5) | self (13) | memory
 pub const IN_OPP: usize = N_RAYS;
 pub const IN_THREAT: usize = IN_OPP + N_SECTORS;
-/// Loose-item retinas, one per `ItemKind` in order (spear, rock, grenade).
+/// Loose-item retinas, one per `item::Sensed` kind (spear, rock, grenade): new items share them.
 pub const IN_ITEMS: usize = IN_THREAT + N_SECTORS;
-pub const IN_HEAL: usize = IN_ITEMS + 3 * N_SECTORS;
+pub const IN_HEAL: usize = IN_ITEMS + crate::item::N_SENSED * N_SECTORS;
 pub const IN_NEAREST: usize = IN_HEAL + N_SECTORS;
 pub const IN_SELF: usize = IN_NEAREST + 5;
 pub const IN_MEM: usize = IN_SELF + 13;
