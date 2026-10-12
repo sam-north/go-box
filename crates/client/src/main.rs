@@ -72,6 +72,7 @@ async fn main() {
         game: None,
         name: opts.name.clone().unwrap_or_else(platform::load_name),
         code: platform::url_room().unwrap_or_default(),
+        passphrase: opts.passphrase.clone().unwrap_or_else(|| platform::load_pref(PREF_PASSPHRASE)),
         notice: None,
         lost: false,
         seq: 0,
@@ -87,7 +88,7 @@ async fn main() {
         was_over: false,
     };
     if opts.create {
-        app.enter(ClientMsg::CreateRoom);
+        app.create_room();
     } else if let Some(code) = &opts.join {
         app.enter(ClientMsg::JoinRoom { code: code.clone() });
     }
@@ -219,7 +220,9 @@ async fn main() {
 
         // Screens (under the settings menu, if it's open, they ignore the mouse).
         ui.blocked = app.settings_open;
-        match (&app.room, app.net.is_some()) {
+        // "Connecting..." only until the server says hello; after a refusal (wrong code or
+        // passphrase) you are still connected, and back on the home screen to try again.
+        match (&app.room, app.net.is_some() && app.me.is_none()) {
             (None, true) => connecting_screen(&mut ui),
             (None, false) => home_screen(&mut ui, &mut app),
             (Some(r), _) if r.phase == Phase::Lobby => {

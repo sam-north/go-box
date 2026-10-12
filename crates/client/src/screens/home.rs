@@ -28,7 +28,11 @@ pub fn home_screen(ui: &mut Ui, app: &mut App) {
     y += ui.px(10.0);
     let name_enter = ui.field(Field::Name, Rect::new(r.x + pad, y, fw, rowh), &mut app.name, t("home.name_placeholder"), MAX_NAME_LEN, |c| (!c.is_control()).then_some(c));
     y += rowh + ui.px(18.0);
-    let create = ui.button(Rect::new(r.x + pad, y, fw, rowh), t("home.create"), true, ACCENT);
+    // Creating a room may need the server's passphrase (the cloud server asks for one; on your
+    // own machine it doesn't). It's remembered in this browser.
+    let cw = ui.px(170.0);
+    let pass_enter = ui.field(Field::Passphrase, Rect::new(r.x + pad, y, fw - cw - ui.px(12.0), rowh), &mut app.passphrase, t("home.passphrase_placeholder"), 64, |c| (!c.is_control()).then_some(c));
+    let create = ui.button(Rect::new(r.x + pad + fw - cw, y, cw, rowh), t("home.create"), true, ACCENT) || pass_enter;
     y += rowh + ui.px(32.0);
     ui.text(t("home.join_heading"), r.x + pad, y, 18.0, DIM);
     y += ui.px(10.0);
@@ -39,7 +43,7 @@ pub fn home_screen(ui: &mut Ui, app: &mut App) {
     });
     let join = ui.button(Rect::new(r.x + pad + fw - bw, y, bw, rowh), t("home.join"), app.code.len() == CODE_LEN, ACCENT);
     if create || (name_enter && app.code.len() != CODE_LEN) {
-        app.enter(ClientMsg::CreateRoom);
+        app.create_room();
     } else if (join || code_enter || name_enter) && app.code.len() == CODE_LEN {
         let code = app.code.clone();
         app.enter(ClientMsg::JoinRoom { code });

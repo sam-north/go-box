@@ -82,7 +82,7 @@ mod tests {
         for a in go_box_sim::sim::ArenaId::ALL {
             keys.insert(format!("arena.{}", a.id()));
         }
-        for r in [Refusal::ServerFull, Refusal::OutOfDate, Refusal::TooManyRooms, Refusal::NoSuchRoom, Refusal::RoomFull, Refusal::RoomClosed] {
+        for r in Refusal::ALL {
             keys.insert(format!("refusal.{}", r.id()));
         }
         for k in crate::settings::KEY_NAMES.iter().filter_map(|(_, name)| name.strip_prefix("key.")) {

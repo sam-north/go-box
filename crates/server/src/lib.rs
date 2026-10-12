@@ -37,6 +37,9 @@ pub struct Config {
     /// `X-Forwarded-For` header. Only set this when the proxy is the only way in, else anyone could
     /// claim any address.
     pub trust_proxy: bool,
+    /// When set, creating a room needs this passphrase (joining one only needs its code). Keep it
+    /// out of the repo: on Fly it's a secret (`fly secrets set GO_BOX_CREATE_PASSPHRASE=...`).
+    pub create_passphrase: Option<String>,
 }
 
 impl Config {
@@ -51,6 +54,7 @@ impl Config {
             max_per_ip: num("GO_BOX_MAX_PER_IP", 8)?,
             origins: var("GO_BOX_ORIGINS", "").split(',').map(|o| o.trim().trim_end_matches('/').to_string()).filter(|o| !o.is_empty()).collect(),
             trust_proxy: var("GO_BOX_TRUST_PROXY", "") == "1",
+            create_passphrase: Some(var("GO_BOX_CREATE_PASSPHRASE", "")).filter(|p| !p.is_empty()),
         })
     }
 }
@@ -205,4 +209,24 @@ impl Drop for ConnectionSlot {
     fn drop(&mut self) {
         self.0.connections.fetch_sub(1, Ordering::SeqCst);
     }
+}
+
+impl Hub {
+    /// May whoever offers `passphrase` create a room? (Yes for anyone if no passphrase is set.)
+    fn may_create(&self, passphrase: &str) -> bool {
+        match &self.config.create_passphrase {
+            None => true,
+            Some(want) => constant_time_eq(want.as_bytes(), passphrase.as_bytes()),
+        }
+    }
+}
+
+/// Compares without stopping at the first difference, so timing doesn't reveal how much of a guess
+/// was right.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    let mut diff = (a.len() != b.len()) as u8;
+    for i in 0..a.len().max(b.len()) {
+        diff |= a.get(i).copied().unwrap_or(0) ^ b.get(i).copied().unwrap_or(0);
+    }
+    diff == 0
 }

@@ -14,6 +14,8 @@ pub const BAD: Color = Color::new(0.95, 0.42, 0.36, 1.0);
 pub enum Field {
     Name,
     Code,
+    /// Shown as stars.
+    Passphrase,
 }
 
 /// Menu navigation from a gamepad this frame (fresh presses only).
@@ -305,12 +307,13 @@ impl Ui {
         draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0.02, 0.02, 0.03, 0.95));
         draw_rectangle_lines(r.x, r.y, r.w, r.h, 2.0, if focused { ACCENT } else { EDGE });
         let size = (r.h / self.s * 0.5).min(24.0);
-        let (shown, c) = if text.is_empty() && !focused { (placeholder.to_string(), DIM) } else { (text.clone(), INK) };
+        let display = if id == Field::Passphrase { "*".repeat(text.chars().count()) } else { text.clone() };
+        let (shown, c) = if text.is_empty() && !focused { (placeholder.to_string(), DIM) } else { (display.clone(), INK) };
         let x = r.x + self.px(10.0);
         let y = r.y + r.h / 2.0 + self.px(size) * 0.3;
         self.text(&shown, x, y, size, c);
         if focused && (get_time() * 2.0).fract() < 0.5 {
-            let cx = x + self.text_width(text, size) + 2.0;
+            let cx = x + self.text_width(&display, size) + 2.0;
             draw_rectangle(cx, r.y + r.h * 0.22, 2.0, r.h * 0.56, INK);
         }
         focused && self.enter

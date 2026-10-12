@@ -26,6 +26,8 @@ pub struct App {
     pub game: Option<Game>,
     pub name: String,
     pub code: String,
+    /// The passphrase for creating rooms (remembered in this browser).
+    pub passphrase: String,
     pub notice: Option<(String, f64)>,
     pub lost: bool,
     pub seq: u32,
@@ -67,6 +69,13 @@ impl App {
             self.after_welcome = Some(msg);
             self.lost = false;
         }
+    }
+
+    /// Creates a room with the remembered passphrase.
+    pub fn create_room(&mut self) {
+        platform::save_pref(PREF_PASSPHRASE, &self.passphrase);
+        let passphrase = self.passphrase.clone();
+        self.enter(ClientMsg::CreateRoom { passphrase });
     }
 
     pub fn send(&mut self, msg: ClientMsg) {
@@ -162,6 +171,9 @@ impl App {
         }
     }
 }
+
+/// Where the room passphrase is remembered (localStorage).
+pub const PREF_PASSPHRASE: &str = "go-box-passphrase";
 
 impl App {
     /// The controls line for whichever device you're using.

@@ -28,7 +28,7 @@ use go_box_sim::sim::{Action, ArenaId, Event, MatchConfig, MatchView, N_FIGHTERS
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 12;
+pub const PROTOCOL_VERSION: u16 = 13;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -65,7 +65,8 @@ pub enum SeatFill {
 pub enum ClientMsg {
     /// First message on every connection. Never change it: it's how versions recognise each other.
     Hello { version: u16, name: String },
-    CreateRoom,
+    /// Opens a new room. On a server with a creation passphrase (the cloud one), only with it.
+    CreateRoom { passphrase: String },
     JoinRoom { code: String },
     LeaveRoom,
     SetCharacter(Character),
@@ -81,19 +82,23 @@ pub enum ClientMsg {
     Input { seq: u32, action: Action },
 }
 
-/// Why the server refused something. The client shows it in the player's language.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub enum Refusal {
-    /// Too many connections right now (sent as `CLOSE_SERVER_FULL`, not a message).
-    ServerFull,
-    /// The page (client) is a different version from the server: reload. (Sent as
-    /// `CLOSE_OUT_OF_DATE`, not a message.)
-    OutOfDate,
-    TooManyRooms,
-    NoSuchRoom,
-    RoomFull,
-    /// The room closed while you were joining.
-    RoomClosed,
+go_box_sim::enum_all! {
+    /// Why the server refused something. The client shows it in the player's language.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+    pub enum Refusal {
+        /// Too many connections right now (sent as `CLOSE_SERVER_FULL`, not a message).
+        ServerFull,
+        /// The page (client) is a different version from the server: reload. (Sent as
+        /// `CLOSE_OUT_OF_DATE`, not a message.)
+        OutOfDate,
+        TooManyRooms,
+        NoSuchRoom,
+        RoomFull,
+        /// The room closed while you were joining.
+        RoomClosed,
+        /// Creating a room needs the server's passphrase, and this wasn't it.
+        WrongPassphrase,
+    }
 }
 
 impl Refusal {
@@ -106,6 +111,7 @@ impl Refusal {
             Refusal::NoSuchRoom => "no_such_room",
             Refusal::RoomFull => "room_full",
             Refusal::RoomClosed => "room_closed",
+            Refusal::WrongPassphrase => "wrong_passphrase",
         }
     }
 }
@@ -259,7 +265,7 @@ mod tests {
         let action = Action { mv: -1.0, run: true, jump: true, attack: false, throw: true, aim: 0.3, grab: false, special: true, target: Some(glam_vec(0.6, -0.8)) };
         let client = [
             ClientMsg::Hello { version: PROTOCOL_VERSION, name: "Sam".into() },
-            ClientMsg::CreateRoom,
+            ClientMsg::CreateRoom { passphrase: "open sesame".into() },
             ClientMsg::JoinRoom { code: "ABCD".into() },
             ClientMsg::LeaveRoom,
             ClientMsg::SetCharacter(Character::Tyler),
@@ -272,7 +278,7 @@ mod tests {
         for m in &client {
             match m {
                 ClientMsg::Hello { .. }
-                | ClientMsg::CreateRoom
+                | ClientMsg::CreateRoom { .. }
                 | ClientMsg::JoinRoom { .. }
                 | ClientMsg::LeaveRoom
                 | ClientMsg::SetCharacter(_)
@@ -327,7 +333,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (12, 0xba1c_a3bb_af77_f1e1);
+    const WIRE: (u16, u64) = (13, 0xf601_5439_6a2b_dd31);
 
     #[test]
     fn every_sample_round_trips() {

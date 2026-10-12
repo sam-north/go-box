@@ -12,6 +12,7 @@ home.create = Create a room
 home.join_heading = Or join a friend's room
 home.code_placeholder = Room code
 home.join = Join
+home.passphrase_placeholder = Passphrase (if asked)
 home.connecting = Connecting...
 
 # Room and scoreboard
@@ -82,6 +83,7 @@ refusal.too_many_rooms = The server has too many rooms open. Try again later.
 refusal.no_such_room = No room with that code.
 refusal.room_full = That room is full.
 refusal.room_closed = That room just closed.
+refusal.wrong_passphrase = Wrong passphrase.
 
 # Settings
 settings.button = Settings

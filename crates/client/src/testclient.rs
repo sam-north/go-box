@@ -16,6 +16,8 @@ use std::sync::OnceLock;
 pub struct Options {
     pub server: String,
     pub name: Option<String>,
+    /// The room-creation passphrase, if the server wants one.
+    pub passphrase: Option<String>,
     pub join: Option<String>,
     pub create: bool,
     pub character: Option<Character>,
@@ -52,6 +54,7 @@ impl Options {
         Options {
             server: val("--server").unwrap_or_else(|| format!("ws://127.0.0.1:{DEFAULT_PORT}{WS_PATH}")),
             name: val("--name"),
+            passphrase: val("--passphrase"),
             join: val("--join"),
             create: has("--create"),
             character: val("--character").and_then(|c| Character::ALL.into_iter().find(|x| x.id().eq_ignore_ascii_case(&c))),

@@ -21,7 +21,7 @@ async fn start_server_with(tweak: impl FnOnce(&mut Config)) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut config = Config { bind: addr.to_string(), web: root.join("web"), max_rooms: 2, max_connections: 16, max_per_ip: 16, origins: Vec::new(), trust_proxy: false };
+    let mut config = Config { bind: addr.to_string(), web: root.join("web"), max_rooms: 2, max_connections: 16, max_per_ip: 16, origins: Vec::new(), trust_proxy: false, create_passphrase: None };
     tweak(&mut config);
     tokio::spawn(serve(listener, config, std::future::pending()));
     format!("ws://{addr}/ws")
@@ -91,7 +91,7 @@ async fn create_join_play_and_leave() {
     let mut a = Client::connect(&url, "Alice").await;
     let mut b = Client::connect(&url, "  Bob\n").await;
 
-    a.send(ClientMsg::CreateRoom).await;
+    a.send(ClientMsg::CreateRoom { passphrase: String::new() }).await;
     let room = a.room().await;
     assert_eq!(room.leader, a.id);
     assert_eq!(room.code.len(), CODE_LEN);
@@ -168,7 +168,7 @@ async fn refusals() {
     a.send(ClientMsg::JoinRoom { code: "ZZZZ".into() }).await;
     assert_eq!(a.error().await, Refusal::NoSuchRoom);
 
-    a.send(ClientMsg::CreateRoom).await;
+    a.send(ClientMsg::CreateRoom { passphrase: String::new() }).await;
     let code = a.room().await.code;
     let mut others = Vec::new();
     for n in 0..3 {
@@ -182,10 +182,10 @@ async fn refusals() {
     assert_eq!(fifth.error().await, Refusal::RoomFull);
 
     // Room cap is 2 in this config.
-    fifth.send(ClientMsg::CreateRoom).await;
+    fifth.send(ClientMsg::CreateRoom { passphrase: String::new() }).await;
     fifth.room().await;
     let mut sixth = Client::connect(&url, "Six").await;
-    sixth.send(ClientMsg::CreateRoom).await;
+    sixth.send(ClientMsg::CreateRoom { passphrase: String::new() }).await;
     assert_eq!(sixth.error().await, Refusal::TooManyRooms);
 
     // Another protocol version, or a first message that doesn't even decode (a much older or
@@ -206,7 +206,7 @@ async fn garbage_and_silence_dont_hurt() {
     ws.send(Message::Text("hello?".into())).await.unwrap();
     // Still a working server for everyone else.
     let mut a = Client::connect(&url, "A").await;
-    a.send(ClientMsg::CreateRoom).await;
+    a.send(ClientMsg::CreateRoom { passphrase: String::new() }).await;
     a.room().await;
 }
 
@@ -270,4 +270,26 @@ async fn one_address_cant_take_every_connection() {
     drop(b);
     tokio::time::sleep(Duration::from_millis(200)).await;
     let _c = Client::connect(&url, "C").await;
+}
+
+#[tokio::test]
+async fn creating_a_room_can_need_a_passphrase() {
+    let url = start_server_with(|c| c.create_passphrase = Some("correct horse".into())).await;
+    let mut a = Client::connect(&url, "A").await;
+    a.send(ClientMsg::CreateRoom { passphrase: "wrong".into() }).await;
+    assert_eq!(a.error().await, Refusal::WrongPassphrase);
+    a.send(ClientMsg::CreateRoom { passphrase: "correct horse".into() }).await;
+    let room = a.room().await;
+    // Joining only needs the code.
+    let mut b = Client::connect(&url, "B").await;
+    b.send(ClientMsg::JoinRoom { code: room.code.clone() }).await;
+    assert_eq!(b.room().await.players.len(), 2);
+    // Guessing the passphrase is cut off like guessing codes.
+    let mut c = Client::connect(&url, "C").await;
+    for _ in 0..5 {
+        c.send(ClientMsg::CreateRoom { passphrase: "guess".into() }).await;
+        assert_eq!(c.error().await, Refusal::WrongPassphrase);
+    }
+    c.send(ClientMsg::CreateRoom { passphrase: "guess".into() }).await;
+    assert!(c.closed().await);
 }

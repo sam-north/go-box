@@ -8,6 +8,8 @@
 //! - `GO_BOX_ORIGINS` comma-separated pages allowed to connect, e.g. `https://go-box.fly.dev`
 //!   (default: any).
 //! - `GO_BOX_TRUST_PROXY=1` behind Fly's proxy: take client addresses from its headers.
+//! - `GO_BOX_CREATE_PASSPHRASE` when set, creating a room needs it (joining needs only the code).
+//!   A secret: on Fly, `fly secrets set GO_BOX_CREATE_PASSPHRASE=...`, never in the repo.
 //! - `RUST_LOG`      log filter (default `info`).
 
 use go_box_server::{Config, serve};

@@ -80,12 +80,13 @@ pub async fn run(socket: WebSocket, hub: Arc<Hub>) {
         }
         match msg {
             ClientMsg::Hello { .. } => {}
-            ClientMsg::CreateRoom | ClientMsg::JoinRoom { .. } => {
+            ClientMsg::CreateRoom { .. } | ClientMsg::JoinRoom { .. } => {
                 if let Some(r) = room.take() {
                     let _ = r.send(RoomCmd::Leave { id }).await;
                 }
                 let target = match &msg {
-                    ClientMsg::CreateRoom => hub.create_room().map(|(_, tx)| tx).ok_or(Refusal::TooManyRooms),
+                    ClientMsg::CreateRoom { passphrase } if !hub.may_create(passphrase) => Err(Refusal::WrongPassphrase),
+                    ClientMsg::CreateRoom { .. } => hub.create_room().map(|(_, tx)| tx).ok_or(Refusal::TooManyRooms),
                     ClientMsg::JoinRoom { code } => hub.find_room(code).ok_or(Refusal::NoSuchRoom),
                     _ => unreachable!(),
                 };
@@ -96,7 +97,8 @@ pub async fn run(socket: WebSocket, hub: Arc<Hub>) {
                 match joined {
                     Ok(tx) => room = Some(tx),
                     Err(e) => {
-                        if e == Refusal::NoSuchRoom {
+                        // Guessing either is limited the same way.
+                        if matches!(e, Refusal::NoSuchRoom | Refusal::WrongPassphrase) {
                             limits.bad_codes += 1;
                         }
                         let _ = out.send(encode(&ServerMsg::Error(e))).await;
@@ -196,7 +198,7 @@ mod tests {
 struct Limits {
     inputs: Bucket,
     other: Bucket,
-    /// Room codes tried that don't exist (guessing codes would let strangers into rooms).
+    /// Wrong room codes and creation passphrases tried (guessing either must be slow).
     bad_codes: u32,
 }
 
@@ -208,7 +210,7 @@ impl Limits {
     /// Ok if `msg` is within the limits, else why not.
     fn allow(&mut self, msg: &ClientMsg) -> Result<(), &'static str> {
         if self.bad_codes >= MAX_BAD_CODES {
-            return Err("too many wrong room codes");
+            return Err("too many wrong room codes or passphrases");
         }
         let bucket = if matches!(msg, ClientMsg::Input { .. }) { &mut self.inputs } else { &mut self.other };
         if bucket.take() { Ok(()) } else { Err("too many messages") }
