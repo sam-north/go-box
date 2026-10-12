@@ -5,8 +5,8 @@ A few trained champions from the (retired) genetic-algorithm trainer. Each file 
 
 | file | generation | used by |
 |---|---|---|
-| `gen_031000.json` | 31k | Easy bots |
+| `gen_031000.json` | 31k | tests, tournament |
 | `gen_100000.json` | 100k | tests, tournament |
-| `gen_150000.json` | 150k | Normal bots |
+| `gen_150000.json` | 150k | tests, tournament |
 | `gen_184000.json` | 184k | tests, tournament |
-| `gen_219000.json` | 219k | Hard bots, the bots behind the menus |
+| `gen_219000.json` | 219k | **every bot** (`BOT_BRAIN` in the server), the bots behind the menus |

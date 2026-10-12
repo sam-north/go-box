@@ -5,6 +5,7 @@
 (function () {
   let ws = null;
   let state = 0; // 0 connecting, 1 open, 2 closed
+  let closeCode = 0; // the code the connection was closed with (see CLOSE_* in crates/protocol)
   const inbox = [];
   const mem = (ptr, len) => new Uint8Array(wasm_memory.buffer, ptr, len);
   const str = (ptr, len) => new TextDecoder().decode(mem(ptr, len));
@@ -25,13 +26,16 @@
       env.go_ws_open = () => {
         const proto = location.protocol === "https:" ? "wss:" : "ws:";
         state = 0;
+        closeCode = 0;
         ws = new WebSocket(proto + "//" + location.host + "/ws"); // WS_PATH in crates/protocol
         ws.binaryType = "arraybuffer";
         ws.onopen = () => { state = 1; };
-        ws.onclose = ws.onerror = () => { state = 2; };
+        ws.onerror = () => { state = 2; };
+        ws.onclose = (e) => { state = 2; closeCode = e.code; };
         ws.onmessage = (e) => { if (e.data instanceof ArrayBuffer) inbox.push(new Uint8Array(e.data)); };
       };
       env.go_ws_state = () => state;
+      env.go_ws_close_code = () => closeCode;
       env.go_ws_send = (ptr, len) => { if (state === 1) ws.send(mem(ptr, len).slice()); };
       env.go_ws_next_len = () => (inbox.length ? inbox[0].length : -1);
       env.go_ws_take = (ptr) => { const m = inbox.shift(); mem(ptr, m.length).set(m); };

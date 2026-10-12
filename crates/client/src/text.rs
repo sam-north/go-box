@@ -70,7 +70,7 @@ mod tests {
     /// Keys the code builds at run time from an id, rather than spelling out: `t(&format!(..))`.
     /// Each prefix's keys are checked against the ids they're built from.
     fn built_keys() -> BTreeSet<String> {
-        use go_box_protocol::{Difficulty, Refusal};
+        use go_box_protocol::Refusal;
         use go_box_sim::character::Character;
         let mut keys = BTreeSet::new();
         for c in Character::ALL {
@@ -78,9 +78,6 @@ mod tests {
             if let Some(s) = c.special() {
                 keys.insert(format!("special.{}", s.id()));
             }
-        }
-        for d in Difficulty::ALL {
-            keys.insert(format!("difficulty.{}", d.id()));
         }
         for a in go_box_sim::sim::ArenaId::ALL {
             keys.insert(format!("arena.{}", a.id()));

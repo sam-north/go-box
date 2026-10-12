@@ -28,12 +28,17 @@ use go_box_sim::sim::{Action, ArenaId, Event, MatchConfig, MatchView, N_FIGHTERS
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 10;
+pub const PROTOCOL_VERSION: u16 = 11;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
 /// The WebSocket endpoint, on the same host as the page. (`web/net.js` uses it too.)
 pub const WS_PATH: &str = "/ws";
+
+/// WebSocket close codes the server uses to turn a connection away. Unlike messages, these read
+/// the same on every protocol version, so a client on another version still learns why.
+pub const CLOSE_OUT_OF_DATE: u16 = 4001;
+pub const CLOSE_SERVER_FULL: u16 = 4002;
 
 /// Players per room (one per seat). Seats without a player hold a bot or nobody.
 pub const MAX_PLAYERS: usize = N_FIGHTERS;
@@ -48,26 +53,6 @@ pub const SNAPSHOT_EVERY: u32 = 2;
 
 pub type PlayerId = u32;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
-pub enum Difficulty {
-    Easy,
-    #[default]
-    Normal,
-    Hard,
-}
-
-impl Difficulty {
-    pub const ALL: [Difficulty; 3] = [Difficulty::Easy, Difficulty::Normal, Difficulty::Hard];
-    /// A stable id; players see the text `difficulty.<id>`.
-    pub fn id(self) -> &'static str {
-        match self {
-            Difficulty::Easy => "easy",
-            Difficulty::Normal => "normal",
-            Difficulty::Hard => "hard",
-        }
-    }
-}
-
 /// What fills a seat no player is in: a bot, or nobody (fewer fighters; down to just you).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub enum SeatFill {
@@ -78,7 +63,7 @@ pub enum SeatFill {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ClientMsg {
-    /// First message on every connection.
+    /// First message on every connection. Never change it: it's how versions recognise each other.
     Hello { version: u16, name: String },
     CreateRoom,
     JoinRoom { code: String },
@@ -86,8 +71,6 @@ pub enum ClientMsg {
     SetCharacter(Character),
     /// "Play again" from a non-leader: shown to the leader, who can start regardless.
     SetReady(bool),
-    /// Leader only.
-    SetDifficulty(Difficulty),
     /// Leader only: the map for the next match.
     SetArena(ArenaId),
     /// Leader only: what fills seat `seat` when no player is in it.
@@ -101,9 +84,10 @@ pub enum ClientMsg {
 /// Why the server refused something. The client shows it in the player's language.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Refusal {
-    /// Too many connections right now.
+    /// Too many connections right now (sent as `CLOSE_SERVER_FULL`, not a message).
     ServerFull,
-    /// The page (client) is a different version from the server: reload.
+    /// The page (client) is a different version from the server: reload. (Sent as
+    /// `CLOSE_OUT_OF_DATE`, not a message.)
     OutOfDate,
     TooManyRooms,
     NoSuchRoom,
@@ -160,7 +144,6 @@ pub struct RoomInfo {
     pub leader: PlayerId,
     /// In join order.
     pub players: Vec<PlayerInfo>,
-    pub difficulty: Difficulty,
     pub arena: ArenaId,
     /// Per seat: what fills it when no player is in it. Players take seats in join order.
     pub fills: [SeatFill; MAX_PLAYERS],
@@ -281,7 +264,6 @@ mod tests {
             ClientMsg::LeaveRoom,
             ClientMsg::SetCharacter(Character::Tyler),
             ClientMsg::SetReady(true),
-            ClientMsg::SetDifficulty(Difficulty::Hard),
             ClientMsg::SetArena(ArenaId::Bridges),
             ClientMsg::SetSeatFill { seat: 2, fill: SeatFill::Empty },
             ClientMsg::Start,
@@ -295,7 +277,6 @@ mod tests {
                 | ClientMsg::LeaveRoom
                 | ClientMsg::SetCharacter(_)
                 | ClientMsg::SetReady(_)
-                | ClientMsg::SetDifficulty(_)
                 | ClientMsg::SetArena(_)
                 | ClientMsg::SetSeatFill { .. }
                 | ClientMsg::Start
@@ -308,7 +289,6 @@ mod tests {
             code: "ABCD".into(),
             leader: 1,
             players: vec![PlayerInfo { id: 1, name: "Sam".into(), character: Character::Austin, ready: true }],
-            difficulty: Difficulty::Easy,
             arena: ArenaId::Bridges,
             fills: [SeatFill::Bot, SeatFill::Bot, SeatFill::Empty, SeatFill::Bot],
             phase: Phase::Lobby,
@@ -346,15 +326,15 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (10, 0x096a_0abf_30e3_fe27);
+    const WIRE: (u16, u64) = (11, 0xed18_3c23_845d_5327);
 
     #[test]
     fn every_sample_round_trips() {
         let samples = samples();
-        for bytes in &samples[..11] {
+        for bytes in &samples[..10] {
             assert_eq!(encode(&decode::<ClientMsg>(bytes).unwrap()), *bytes);
         }
-        for bytes in &samples[11..] {
+        for bytes in &samples[10..] {
             assert_eq!(encode(&decode::<ServerMsg>(bytes).unwrap()), *bytes);
         }
     }

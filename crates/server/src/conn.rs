@@ -5,7 +5,7 @@ use crate::room::{Joined, RoomCmd};
 use crate::{ConnectionSlot, Hub};
 use axum::extract::ws::{Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
-use go_box_protocol::{ClientMsg, MAX_NAME_LEN, PROTOCOL_VERSION, PlayerId, Refusal, ServerMsg, decode, encode};
+use go_box_protocol::{CLOSE_OUT_OF_DATE, CLOSE_SERVER_FULL, ClientMsg, MAX_NAME_LEN, PROTOCOL_VERSION, PlayerId, Refusal, ServerMsg, decode, encode};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
@@ -19,9 +19,25 @@ pub type Outbox = mpsc::Sender<Vec<u8>>;
 pub async fn run(socket: WebSocket, hub: Arc<Hub>) {
     let (mut sink, mut stream) = socket.split();
     let Some(_slot) = ConnectionSlot::take(&hub) else {
-        let _ = sink.send(Message::Binary(encode(&ServerMsg::Error(Refusal::ServerFull)).into())).await;
+        close(&mut sink, CLOSE_SERVER_FULL).await;
         return;
     };
+
+    // The first message must be a Hello on our protocol version, and soon. Anything else (a
+    // client on another version, whose messages may not even decode) is turned away with a close
+    // code, which every version can read.
+    let first = tokio::time::timeout(Duration::from_secs(10), next_frame(&mut stream)).await;
+    let name = match first {
+        Ok(Some(bytes)) => match decode::<ClientMsg>(&bytes) {
+            Some(ClientMsg::Hello { version, name }) if version == PROTOCOL_VERSION => clean_name(&name),
+            _ => {
+                close(&mut sink, CLOSE_OUT_OF_DATE).await;
+                return;
+            }
+        },
+        _ => return,
+    };
+
     let (out, mut outbox) = mpsc::channel::<Vec<u8>>(OUTBOX);
     let writer = tokio::spawn(async move {
         while let Some(bytes) = outbox.recv().await {
@@ -32,18 +48,6 @@ pub async fn run(socket: WebSocket, hub: Arc<Hub>) {
         let _ = sink.close().await;
     });
 
-    // The first message must be a Hello on our protocol version, and soon.
-    let hello = tokio::time::timeout(Duration::from_secs(10), next_msg(&mut stream)).await;
-    let name = match hello {
-        Ok(Some(ClientMsg::Hello { version, name })) if version == PROTOCOL_VERSION => clean_name(&name),
-        Ok(Some(ClientMsg::Hello { .. })) => {
-            let _ = out.send(encode(&ServerMsg::Error(Refusal::OutOfDate))).await;
-            drop(out);
-            let _ = writer.await;
-            return;
-        }
-        _ => return,
-    };
     let id: PlayerId = hub.next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     tracing::debug!(id, %name, "connected");
     let _ = out.send(encode(&ServerMsg::Welcome { you: id })).await;
@@ -110,6 +114,23 @@ async fn join(room: &mpsc::Sender<RoomCmd>, id: PlayerId, name: &str, out: &Outb
 
 /// Next decodable client message; None when the connection ends. Undecodable frames are
 /// skipped (a mismatched or hostile client can't crash anything).
+/// The next binary frame's bytes (None if the connection closed).
+async fn next_frame(stream: &mut futures_util::stream::SplitStream<WebSocket>) -> Option<Vec<u8>> {
+    loop {
+        match stream.next().await? {
+            Ok(Message::Binary(bytes)) => return Some(bytes.to_vec()),
+            Ok(Message::Close(_)) | Err(_) => return None,
+            Ok(_) => {}
+        }
+    }
+}
+
+/// Closes the connection with one of the protocol's close codes.
+async fn close(sink: &mut futures_util::stream::SplitSink<WebSocket, Message>, code: u16) {
+    let frame = axum::extract::ws::CloseFrame { code, reason: "".into() };
+    let _ = sink.send(Message::Close(Some(frame))).await;
+}
+
 async fn next_msg(stream: &mut futures_util::stream::SplitStream<WebSocket>) -> Option<ClientMsg> {
     loop {
         match stream.next().await? {

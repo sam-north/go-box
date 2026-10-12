@@ -80,7 +80,24 @@ impl App {
         match net.state() {
             State::Connecting => return,
             State::Closed => {
-                if !self.lost {
+                // The server may have said why it closed the connection (e.g. this page is out of
+                // date): show that rather than a plain "lost connection".
+                let refused = match net.close_code() {
+                    Some(CLOSE_OUT_OF_DATE) => Some(Refusal::OutOfDate),
+                    Some(CLOSE_SERVER_FULL) => Some(Refusal::ServerFull),
+                    _ => None,
+                };
+                if let Some(r) = refused {
+                    self.notice = Some((t(&format!("refusal.{}", r.id())).to_string(), get_time()));
+                }
+                let mut explained = refused.is_some();
+                for msg in net.poll() {
+                    if let ServerMsg::Error(e) = msg {
+                        self.notice = Some((t(&format!("refusal.{}", e.id())).to_string(), get_time()));
+                        explained = true;
+                    }
+                }
+                if !self.lost && !explained {
                     self.lost = true;
                     let msg = if self.me.is_some() { t("notice.connection_lost") } else { t("notice.server_unreachable") };
                     self.notify(msg);

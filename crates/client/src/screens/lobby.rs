@@ -1,4 +1,4 @@
-//! The room: who's in it, seats, bot difficulty, characters, and the last match's scoreboard.
+//! The room: who's in it, seats, the map, characters, and the last match's scoreboard.
 
 use crate::app::*;
 use crate::screens::{character_name, mmss, seat_name, special_name};
@@ -23,7 +23,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     let (sw, sh) = (screen_width(), screen_height());
     let w = ui.px(860.0).min(sw - 32.0);
     let results_h = if room.last_results.is_some() { ui.px(240.0) } else { 0.0 };
-    let h = (ui.px(510.0) + results_h).min(sh - 24.0);
+    let h = (ui.px(470.0) + results_h).min(sh - 24.0);
     let r = Rect::new((sw - w) / 2.0, (sh - h) / 2.0, w, h);
     ui.panel(r);
     let pad = ui.px(24.0);
@@ -79,8 +79,8 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     // Who's here.
     y += ui.px(34.0);
     ui.text(t("lobby.players"), r.x + pad, y, 20.0, DIM);
-    let diff_x = r.x + w * 0.55;
-    ui.text(t("lobby.difficulty"), diff_x, y, 20.0, DIM);
+    let map_x = r.x + w * 0.55;
+    ui.text(t("lobby.arena"), map_x, y, 20.0, DIM);
     let lines: Vec<String> = room
         .players
         .iter()
@@ -124,25 +124,9 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
             ui.text(label, bx, py, 20.0, DIM);
         }
     }
-    // Difficulty: buttons for the leader, a label for everyone else.
-    let mut dx = diff_x;
-    for d in Difficulty::ALL {
-        let bw = ui.px(90.0);
-        let rr = Rect::new(dx, y + ui.px(12.0), bw, ui.px(34.0));
-        let selected = room.difficulty == d;
-        if leader {
-            if ui.button(rr, t(&format!("difficulty.{}", d.id())), true, if selected { ACCENT } else { ui::EDGE }) && !selected {
-                app.send(ClientMsg::SetDifficulty(d));
-            }
-        } else if selected {
-            ui.text(t(&format!("difficulty.{}", d.id())), dx, y + ui.px(36.0), 22.0, INK);
-        }
-        dx += bw + ui.px(8.0);
-    }
-    // The map: the same, below.
-    let my = y + ui.px(76.0);
-    ui.text(t("lobby.arena"), diff_x, my, 20.0, DIM);
-    let mut dx = diff_x;
+    // The map: buttons for the leader, a label for everyone else.
+    let my = y;
+    let mut dx = map_x;
     for a in ArenaId::ALL {
         let bw = ui.px(120.0);
         let rr = Rect::new(dx, my + ui.px(12.0), bw, ui.px(34.0));
@@ -184,7 +168,8 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
         }
         ui.text(&cooldown, tx, ly, 15.0, DIM);
         if selected {
-            ui.text(t("lobby.picked"), tx, rr.y + rr.h - ui.px(8.0), 15.0, color);
+            let picked = t("lobby.picked");
+            ui.text(picked, rr.x + rr.w - ui.text_width(picked, 15.0) - ui.px(8.0), rr.y + ui.px(18.0), 15.0, color);
         }
         if ui.area(rr) && !selected {
             app.send(ClientMsg::SetCharacter(c));

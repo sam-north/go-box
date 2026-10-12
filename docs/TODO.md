@@ -31,11 +31,6 @@ they are (`127.0.0.1` only); every cloud difference should be an env var in `ser
 
 ## From the architecture review, not done yet
 
-- [ ] Bot difficulty may need re-matching: in the bigger arena the Easy brain (gen 31k) wins about
-      as often as Hard (219k) on Tiers (`--example tournament 1000 tiers`); Hard is clearly
-      stronger on Bridges.
-- [ ] Replays: the server logs each match's seed; also record the players' inputs per tick
-      (e.g. `GO_BOX_RECORD`) so any reported bug can be replayed exactly.
 - [ ] Gamepad menu focus is matched by where a control is drawn; give controls ids if layout
       shifts start dropping the focus.
 - [ ] Note in `web/gl.js` / `web/audio.js` which miniquad / quad-snd versions they're copied from

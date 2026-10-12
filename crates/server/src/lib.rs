@@ -8,7 +8,7 @@ use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::routing::get;
-use go_box_protocol::{CODE_ALPHABET, CODE_LEN, DEFAULT_PORT, Difficulty, WS_PATH};
+use go_box_protocol::{CODE_ALPHABET, CODE_LEN, DEFAULT_PORT, WS_PATH};
 use go_box_sim::brain::Brain;
 use rand::Rng;
 use std::collections::HashMap;
@@ -43,36 +43,21 @@ impl Config {
     }
 }
 
-/// The bot brain for each difficulty, from the committed champions.
-pub struct Brains {
-    by_difficulty: [Brain; 3],
-}
+/// The brain every bot plays with: the strongest committed champion.
+pub const BOT_BRAIN: &str = "gen_219000.json";
 
-impl Brains {
-    const FILES: [&str; 3] = ["gen_031000.json", "gen_150000.json", "gen_219000.json"];
-
-    pub fn load(dir: &std::path::Path) -> Result<Self, String> {
-        let load = |name: &str| Brain::load(&dir.join(name));
-        Ok(Self { by_difficulty: [load(Self::FILES[0])?, load(Self::FILES[1])?, load(Self::FILES[2])?] })
-    }
-
-    pub fn get(&self, d: Difficulty) -> &Brain {
-        &self.by_difficulty[d as usize]
-    }
-}
-
-/// Shared by every connection: the rooms that exist and the bot brains.
+/// Shared by every connection: the rooms that exist and the bots' brain.
 pub struct Hub {
     rooms: Mutex<HashMap<String, mpsc::Sender<RoomCmd>>>,
-    brains: Arc<Brains>,
+    brain: Arc<Brain>,
     next_id: AtomicU32,
     connections: AtomicUsize,
     config: Config,
 }
 
 impl Hub {
-    fn new(config: Config, brains: Brains) -> Arc<Self> {
-        Arc::new(Self { rooms: Mutex::new(HashMap::new()), brains: Arc::new(brains), next_id: AtomicU32::new(1), connections: AtomicUsize::new(0), config })
+    fn new(config: Config, brain: Brain) -> Arc<Self> {
+        Arc::new(Self { rooms: Mutex::new(HashMap::new()), brain: Arc::new(brain), next_id: AtomicU32::new(1), connections: AtomicUsize::new(0), config })
     }
 
     /// Opens a new room with a fresh code, or None if the server is at its room cap.
@@ -108,7 +93,7 @@ impl Hub {
 
 /// Serves until `shutdown` resolves.
 pub async fn serve(listener: tokio::net::TcpListener, config: Config, shutdown: impl Future<Output = ()> + Send + 'static) {
-    let brains = match Brains::load(&config.brains) {
+    let brain = match Brain::load(&config.brains.join(BOT_BRAIN)) {
         Ok(b) => b,
         Err(e) => {
             tracing::error!("{e}");
@@ -119,7 +104,7 @@ pub async fn serve(listener: tokio::net::TcpListener, config: Config, shutdown: 
         tracing::warn!("no browser client in {} (build it with scripts/build-web.sh); only {WS_PATH} works", config.web.display());
     }
     let web = config.web.clone();
-    let hub = Hub::new(config, brains);
+    let hub = Hub::new(config, brain);
     let app = Router::new().route(WS_PATH, get(ws_handler)).fallback_service(ServeDir::new(web)).with_state(hub);
     axum::serve(listener, app).with_graceful_shutdown(shutdown).await.unwrap();
 }

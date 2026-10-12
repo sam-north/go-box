@@ -4,7 +4,7 @@ use futures_util::{SinkExt, StreamExt};
 use go_box_protocol::*;
 use go_box_server::{Config, serve};
 use go_box_sim::character::Character;
-use go_box_sim::sim::Action;
+use go_box_sim::sim::{Action, ArenaId};
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -85,13 +85,16 @@ async fn create_join_play_and_leave() {
     assert_eq!(room.players.len(), 2);
     assert_eq!(room.players[1].name, "Bob");
 
+    // Only the leader can start or change the map; Bob's attempts are ignored. (His messages
+    // arrive in order, so once he shows as ready the earlier ones have been dealt with.)
     b.send(ClientMsg::SetCharacter(Character::Tyler)).await;
-    b.send(ClientMsg::SetReady(true)).await;
-    // Only the leader can start or change difficulty; Bob's attempts are ignored.
     b.send(ClientMsg::Start).await;
-    b.send(ClientMsg::SetDifficulty(Difficulty::Hard)).await;
-    a.send(ClientMsg::SetDifficulty(Difficulty::Easy)).await;
-    let room = a.until(|m| if let ServerMsg::Room(r) = m { (r.difficulty == Difficulty::Easy && r.players[1].ready).then_some(r) } else { None }).await;
+    b.send(ClientMsg::SetArena(ArenaId::Bridges)).await;
+    b.send(ClientMsg::SetReady(true)).await;
+    let room = a.until(|m| if let ServerMsg::Room(r) = m { r.players[1].ready.then_some(r) } else { None }).await;
+    assert_eq!(room.arena, ArenaId::Tiers, "not the leader: ignored");
+    a.send(ClientMsg::SetArena(ArenaId::Bridges)).await;
+    let room = a.until(|m| if let ServerMsg::Room(r) = m { (r.arena == ArenaId::Bridges).then_some(r) } else { None }).await;
     assert_eq!(room.phase, Phase::Lobby);
     assert_eq!(room.players[1].character, Character::Tyler);
     assert!(room.players[1].ready);
@@ -105,6 +108,7 @@ async fn create_join_play_and_leave() {
     a.send(ClientMsg::Start).await;
     let start = a.until(|m| if let ServerMsg::MatchStart(s) = m { Some(s) } else { None }).await;
     assert_eq!(start.your_seat, Some(0));
+    assert_eq!(start.config.arena, ArenaId::Bridges);
     assert_eq!(start.seats[1].character, Character::Tyler);
     assert!(start.seats[2].player.is_none(), "seat 3 is a bot");
     let b_start = b.until(|m| if let ServerMsg::MatchStart(s) = m { Some(s) } else { None }).await;
@@ -168,11 +172,14 @@ async fn refusals() {
     sixth.send(ClientMsg::CreateRoom).await;
     assert_eq!(sixth.error().await, Refusal::TooManyRooms);
 
-    // Wrong protocol version.
-    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
-    ws.send(Message::Binary(encode(&ClientMsg::Hello { version: PROTOCOL_VERSION + 1, name: "Old".into() }).into())).await.unwrap();
-    let Some(Ok(Message::Binary(b))) = ws.next().await else { panic!() };
-    assert!(matches!(decode(&b), Some(ServerMsg::Error(Refusal::OutOfDate))));
+    // Another protocol version, or a first message that doesn't even decode (a much older or
+    // newer client): turned away with a close code any version can read.
+    for first in [encode(&ClientMsg::Hello { version: PROTOCOL_VERSION + 1, name: "Old".into() }), vec![0xff, 0xfe, 0xfd]] {
+        let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+        ws.send(Message::Binary(first.into())).await.unwrap();
+        let Some(Ok(Message::Close(Some(frame)))) = ws.next().await else { panic!("expected a close") };
+        assert_eq!(u16::from(frame.code), CLOSE_OUT_OF_DATE);
+    }
 }
 
 #[tokio::test]

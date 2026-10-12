@@ -29,7 +29,6 @@ lobby.col_damage = Damage
 lobby.col_down = Went down
 lobby.survived = survived, {hp} HP
 lobby.players = Players
-lobby.difficulty = Bot difficulty
 lobby.arena = Map
 lobby.leader_tag = (leader)
 lobby.you_tag = - you
@@ -67,10 +66,6 @@ character.tyler = Tyler
 special.gravity_bomb = Gravity Bomb
 special.pop_up = Pop-Up
 special.hounds = Release the Hounds
-
-difficulty.easy = Easy
-difficulty.normal = Normal
-difficulty.hard = Hard
 
 # Maps (by id)
 arena.tiers = Tiers

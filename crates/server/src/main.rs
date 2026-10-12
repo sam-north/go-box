@@ -3,7 +3,7 @@
 //! Configuration (environment variables):
 //! - `GO_BOX_BIND`   address to listen on (default `127.0.0.1:7878`: this machine only).
 //! - `GO_BOX_WEB`    directory with the built browser client (default `web`).
-//! - `GO_BOX_BRAINS` directory with the bot brains (default `brains`).
+//! - `GO_BOX_BRAINS` directory holding the bots' brain, `gen_219000.json` (default `brains`).
 //! - `GO_BOX_MAX_ROOMS` / `GO_BOX_MAX_CONNECTIONS` caps (defaults 16 / 64).
 //! - `RUST_LOG`      log filter (default `info`).
 

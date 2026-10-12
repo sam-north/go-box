@@ -21,6 +21,7 @@ mod imp {
         fn go_ws_send(ptr: *const u8, len: u32);
         fn go_ws_next_len() -> i32;
         fn go_ws_take(ptr: *mut u8);
+        fn go_ws_close_code() -> i32;
     }
 
     /// The page's own server (same host, `/ws`).
@@ -42,6 +43,12 @@ mod imp {
 
         pub fn send(&mut self, bytes: &[u8]) {
             unsafe { go_ws_send(bytes.as_ptr(), bytes.len() as u32) }
+        }
+
+        /// The code the server closed the connection with, if it gave one.
+        pub fn close_code(&mut self) -> Option<u16> {
+            let code = unsafe { go_ws_close_code() };
+            (code > 0).then_some(code as u16)
         }
 
         pub fn recv(&mut self) -> Option<Vec<u8>> {
@@ -72,6 +79,7 @@ mod imp {
         connecting: Option<mpsc::Receiver<Option<Ws>>>,
         ws: Option<Ws>,
         closed: bool,
+        close_code: Option<u16>,
     }
 
     impl Socket {
@@ -81,7 +89,7 @@ mod imp {
             std::thread::spawn(move || {
                 let _ = tx.send(connect(&url));
             });
-            Self { connecting: Some(rx), ws: None, closed: false }
+            Self { connecting: Some(rx), ws: None, closed: false, close_code: None }
         }
 
         fn settle(&mut self) {
@@ -112,6 +120,10 @@ mod imp {
             }
         }
 
+        pub fn close_code(&mut self) -> Option<u16> {
+            self.close_code
+        }
+
         pub fn send(&mut self, bytes: &[u8]) {
             let Some(ws) = &mut self.ws else { return };
             match ws.send(Message::Binary(bytes.to_vec().into())) {
@@ -128,7 +140,8 @@ mod imp {
             loop {
                 match ws.read() {
                     Ok(Message::Binary(b)) => return Some(b.to_vec()),
-                    Ok(Message::Close(_)) => {
+                    Ok(Message::Close(frame)) => {
+                        self.close_code = frame.map(|f| u16::from(f.code));
                         self.closed = true;
                         return None;
                     }
@@ -170,6 +183,11 @@ impl Net {
 
     pub fn send(&mut self, msg: &ClientMsg) {
         self.socket.send(&encode(msg));
+    }
+
+    /// The code the server closed the connection with, if any (see `CLOSE_*` in the protocol).
+    pub fn close_code(&mut self) -> Option<u16> {
+        self.socket.close_code()
     }
 
     pub fn poll(&mut self) -> Vec<ServerMsg> {

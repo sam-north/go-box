@@ -1,10 +1,10 @@
 //! A room: its players, the lobby choices, and (while playing) the one real match, stepped at
 //! 60 ticks/s. Each room is its own task; connections talk to it through `RoomCmd`s.
 
-use crate::{Brains, Hub};
+use crate::Hub;
 use crate::conn::Outbox;
 use go_box_protocol::{
-    ClientMsg, Difficulty, MAX_PLAYERS, MatchStart, Phase, PlayerId, PlayerInfo, Refusal, Results, RoomInfo, SNAPSHOT_EVERY, Seat, SeatFill, SeatResult, ServerMsg,
+    ClientMsg, MAX_PLAYERS, MatchStart, Phase, PlayerId, PlayerInfo, Refusal, Results, RoomInfo, SNAPSHOT_EVERY, Seat, SeatFill, SeatResult, ServerMsg,
     Snapshot,
     encode,
 };
@@ -85,42 +85,40 @@ struct Running {
     names: [String; N_FIGHTERS],
     /// Events since the last snapshot.
     events: Vec<Event>,
-    brain: Brain,
+    brain: Arc<Brain>,
 }
 
 struct Room {
     code: String,
     players: Vec<Player>,
     leader: PlayerId,
-    difficulty: Difficulty,
     arena: ArenaId,
     fills: [SeatFill; MAX_PLAYERS],
     last_results: Option<Results>,
     running: Option<Running>,
     rng: SmallRng,
-    /// The bot brains (all a room needs from the server), passed in so rooms can be tested alone.
-    brains: Arc<Brains>,
+    /// The bots' brain (all a room needs from the server), passed in so rooms can be tested alone.
+    brain: Arc<Brain>,
 }
 
 impl Room {
-    fn new(code: String, brains: Arc<Brains>, seed: u64) -> Self {
+    fn new(code: String, brain: Arc<Brain>, seed: u64) -> Self {
         Room {
             code,
             players: Vec::new(),
             leader: 0,
-            difficulty: Difficulty::default(),
             arena: ArenaId::default(),
             fills: [SeatFill::Bot; MAX_PLAYERS],
             last_results: None,
             running: None,
             rng: SmallRng::seed_from_u64(seed),
-            brains,
+            brain,
         }
     }
 }
 
 pub async fn run(code: String, mut rx: mpsc::Receiver<RoomCmd>, hub: Arc<Hub>) {
-    let mut room = Room::new(code.clone(), hub.brains.clone(), rand::random());
+    let mut room = Room::new(code.clone(), hub.brain.clone(), rand::random());
     let tick = Duration::from_secs_f32(DT);
     // Wake often and run however many ticks are due: OS timers (Windows especially) are too
     // coarse to wake exactly every 16.7ms, but the average rate stays exact.
@@ -172,7 +170,6 @@ impl Room {
             code: self.code.clone(),
             leader: self.leader,
             players: self.players.iter().map(|p| PlayerInfo { id: p.id, name: p.name.clone(), character: p.character, ready: p.ready }).collect(),
-            difficulty: self.difficulty,
             arena: self.arena,
             fills: self.fills,
             phase: self.phase(),
@@ -260,10 +257,6 @@ impl Room {
                 self.arena = a;
                 self.broadcast_room();
             }
-            ClientMsg::SetDifficulty(d) if is_leader && lobby => {
-                self.difficulty = d;
-                self.broadcast_room();
-            }
             ClientMsg::SetSeatFill { seat, fill } if is_leader && lobby => {
                 if let Some(f) = self.fills.get_mut(seat as usize) {
                     *f = fill;
@@ -314,14 +307,13 @@ impl Room {
             p.inputs.clear();
             p.last_action = Action::default();
         }
-        let brain = self.brains.get(self.difficulty).clone();
-        let running = Running { m, seats, names, events: Vec::new(), brain };
+        let running = Running { m, seats, names, events: Vec::new(), brain: self.brain.clone() };
         for p in &self.players {
             let your_seat = running.seats.iter().position(|s| *s == Some(p.id));
             p.send(&ServerMsg::MatchStart(MatchStart { seats: seats_of(&running), your_seat, config: running.m.config.clone() }));
         }
         self.running = Some(running);
-        tracing::info!(room = %self.code, seed, arena = self.arena.id(), humans = self.players.len(), difficulty = self.difficulty.id(), "match started");
+        tracing::info!(room = %self.code, seed, arena = self.arena.id(), humans = self.players.len(), "match started");
         self.broadcast_room();
         self.send_snapshot();
     }
@@ -403,7 +395,7 @@ mod tests {
     /// A room on its own (no server, sockets or timers), stepped by hand.
     fn room() -> Room {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../brains");
-        Room::new("TEST".into(), Arc::new(Brains::load(&dir).unwrap()), 7)
+        Room::new("TEST".into(), Arc::new(Brain::load(&dir.join(crate::BOT_BRAIN)).unwrap()), 7)
     }
 
     /// Player `id` joins; returns what the room sends them.

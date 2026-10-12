@@ -14,7 +14,7 @@ cargo run --release -p go-box-server    # serve it on http://127.0.0.1:7878 (thi
 
 Open http://127.0.0.1:7878, pick a name and **Create a room**. Share the invite link (or the
 4-letter code); up to four people can join, and bots take the empty seats. The room leader picks
-the bot difficulty and starts matches; after each match an overlay shows the scoreboard (kills,
+the map and starts matches; after each match an overlay shows the scoreboard (kills,
 headshots, damage, when each fighter went down), everyone can switch character, the others can
 mark themselves ready, and the leader hits **Play again**. Someone who leaves mid-match is
 replaced by a bot; someone who joins mid-match watches until the next one.
@@ -28,7 +28,7 @@ cursor, `Shift` uses your special, `M` mutes. Settings are saved in the browser.
 The browser only reports a controller after you press a button on it. In menus (lobby, scoreboard,
 settings) the d-pad or left stick moves a highlight and Cross presses it.
 
-The leader also picks the **map** (Tiers or Bridges) and the bot difficulty. In the lobby the leader sets each seat without a player to **Bot** or **None**, so a match can have
+The leader also picks the **map** (Tiers or Bridges). In the lobby the leader sets each seat without a player to **Bot** or **None**, so a match can have
 anywhere from 1 to 4 fighters (alone, it runs until the clock or you run out).
 
 The server only listens on `127.0.0.1` unless told otherwise (`GO_BOX_BIND`); see
