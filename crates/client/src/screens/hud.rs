@@ -49,6 +49,7 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
         ui.text_centered(t("hud.joining"), screen_width() / 2.0, screen_height() / 2.0, 30.0, INK);
         return;
     };
+    names_over_heads(ui, app, m);
     let sw = screen_width();
     let colw = (sw - ui.px(32.0)) / N_FIGHTERS as f32;
     for i in 0..N_FIGHTERS {
@@ -103,6 +104,38 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
             } else {
                 ui.text_centered(&app.controls_help(), sw / 2.0, sh - ui.px(16.0), 18.0, DIM);
             }
+        }
+    }
+}
+
+/// Everyone's name over their head. Others' are small and faded so they don't pull the eye;
+/// yours is bigger, in your colour and outlined, sitting above your arrow, so you always know
+/// which one is you.
+fn names_over_heads(ui: &Ui, app: &App, m: &Match) {
+    let Some(g) = &app.game else { return };
+    let (origin, scale) = app.view;
+    let to_screen = |p: Vec2| origin + p * scale;
+    for i in 0..N_FIGHTERS {
+        let f = &m.f[i];
+        if !f.alive() {
+            continue;
+        }
+        let seat = &g.start.seats[i];
+        let name = seat_name(&seat.name, f.character, seat.player.is_none());
+        if g.seat() == Some(i) {
+            // Above the arrow (which sits above the health bar).
+            let p = to_screen(f.pos - vec2(0.0, 34.0));
+            // Your colour, lifted toward white so even a dark one (Sam's green) reads on the dark arena.
+            let a = render::look(f.character, i).accent;
+            let color = Color::new(a.r + (1.0 - a.r) * 0.45, a.g + (1.0 - a.g) * 0.45, a.b + (1.0 - a.b) * 0.45, 1.0);
+            let o = ui.px(2.0);
+            for (dx, dy) in [(-o, 0.0), (o, 0.0), (0.0, -o), (0.0, o), (-o, -o), (o, o), (-o, o), (o, -o)] {
+                ui.text_centered(&name, p.x + dx, p.y + dy, 26.0, Color::new(0.0, 0.0, 0.0, 0.9));
+            }
+            ui.text_centered(&name, p.x, p.y, 26.0, color);
+        } else {
+            let p = to_screen(f.pos - vec2(0.0, 25.0));
+            ui.text_centered(&name, p.x, p.y, 14.0, Color::new(0.85, 0.86, 0.88, 0.5));
         }
     }
 }
