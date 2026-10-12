@@ -63,7 +63,7 @@ impl Game {
             self.pending.retain(|&(seq, _)| seq > s.ack);
             let mut f = s.view.f[seat].clone();
             for &(_, a) in &self.pending {
-                predict(&mut f, seat, a, &mut Vec::new());
+                predict(self.start.config.arena.def(), &mut f, seat, a, &mut Vec::new());
             }
             if let Some(old) = &self.me {
                 self.offset += old.pos - f.pos;
@@ -90,7 +90,7 @@ impl Game {
         if self.snaps.back().is_some_and(|s| s.view.over) {
             return;
         }
-        predict(me, seat, a, events);
+        predict(self.start.config.arena.def(), me, seat, a, events);
         self.pending.push_back((seq, a));
         while self.pending.len() > 120 {
             self.pending.pop_front();
@@ -159,13 +159,14 @@ impl Game {
             }
             view.f[seat] = me;
         }
-        Some(Match::from_view(view, events))
+        Some(Match::from_view(view, &self.start.config, events))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use go_box_sim::sim::MatchConfig;
     use go_box_protocol::Seat;
     use go_box_sim::brain::Brain;
     use go_box_sim::character::Character;
@@ -173,12 +174,17 @@ mod tests {
     /// You're in seat 0; the others are bots that stand still (all-zero brains).
     fn game() -> Game {
         let seats = std::array::from_fn(|i| Seat { name: String::new(), character: Character::Classic, player: (i == 0).then_some(1) });
-        Game::new(MatchStart { seats, your_seat: Some(0) })
+        Game::new(MatchStart { seats, your_seat: Some(0), config: MatchConfig::default() })
+    }
+
+    /// No health pickups.
+    fn quiet() -> MatchConfig {
+        MatchConfig { heals: 0..=0, ..MatchConfig::default() }
     }
 
     /// The server's match: nothing lying around, nobody else moving.
     fn server() -> (Match, Brain) {
-        let mut m = Match::new(3, 0..=0);
+        let mut m = Match::new(3, &quiet());
         m.items.clear();
         (m, Brain { w: vec![0.0; Brain::N_WEIGHTS] })
     }
@@ -206,7 +212,7 @@ mod tests {
         // Where you'll be once the server applies the other 4 too.
         let mut ahead = m.f[0].clone();
         for _ in 0..4 {
-            predict(&mut ahead, 0, RIGHT, &mut Vec::new());
+            predict(m.arena(), &mut ahead, 0, RIGHT, &mut Vec::new());
         }
         assert!((g.me().unwrap().pos - ahead.pos).length() < 1e-4, "predicted {} vs {}", g.me().unwrap().pos, ahead.pos);
         assert!(ahead.pos.x > m.f[0].pos.x, "and that's ahead of the snapshot");
@@ -249,7 +255,7 @@ mod tests {
     #[test]
     fn interpolation_copes_with_an_item_appearing() {
         // A match with items lying around; the second snapshot has one more than the first.
-        let mut m = Match::new(3, 0..=0);
+        let mut m = Match::new(3, &quiet());
         let z = Brain { w: vec![0.0; Brain::N_WEIGHTS] };
         let all = m.items.clone();
         let mut g = game();

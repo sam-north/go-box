@@ -1,6 +1,7 @@
 //! The game itself, shared by the server and the browser client.
 
 pub mod brain;
+pub mod arena;
 pub mod character;
 pub mod item;
 pub mod sim;

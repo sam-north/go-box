@@ -10,7 +10,7 @@ use go_box_protocol::{
 };
 use go_box_sim::brain::Brain;
 use go_box_sim::character::Character;
-use go_box_sim::sim::{Action, DT, Event, HEALS_PER_ROUND, Match, N_FIGHTERS};
+use go_box_sim::sim::{Action, ArenaId, DT, Event, Match, MatchConfig, N_FIGHTERS};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use std::collections::VecDeque;
@@ -93,6 +93,7 @@ struct Room {
     players: Vec<Player>,
     leader: PlayerId,
     difficulty: Difficulty,
+    arena: ArenaId,
     fills: [SeatFill; MAX_PLAYERS],
     last_results: Option<Results>,
     running: Option<Running>,
@@ -108,6 +109,7 @@ impl Room {
             players: Vec::new(),
             leader: 0,
             difficulty: Difficulty::default(),
+            arena: ArenaId::default(),
             fills: [SeatFill::Bot; MAX_PLAYERS],
             last_results: None,
             running: None,
@@ -171,6 +173,7 @@ impl Room {
             leader: self.leader,
             players: self.players.iter().map(|p| PlayerInfo { id: p.id, name: p.name.clone(), character: p.character, ready: p.ready }).collect(),
             difficulty: self.difficulty,
+            arena: self.arena,
             fills: self.fills,
             phase: self.phase(),
             last_results: self.last_results.clone(),
@@ -212,7 +215,7 @@ impl Room {
                 self.broadcast_room();
                 // Joined mid-match: watch it until the next one.
                 if let Some(r) = &self.running {
-                    let start = MatchStart { seats: seats_of(r), your_seat: None };
+                    let start = MatchStart { seats: seats_of(r), your_seat: None, config: r.m.config.clone() };
                     self.players.last().unwrap().send(&ServerMsg::MatchStart(start));
                 }
             }
@@ -253,6 +256,10 @@ impl Room {
                 }
                 self.broadcast_room();
             }
+            ClientMsg::SetArena(a) if is_leader && lobby => {
+                self.arena = a;
+                self.broadcast_room();
+            }
             ClientMsg::SetDifficulty(d) if is_leader && lobby => {
                 self.difficulty = d;
                 self.broadcast_room();
@@ -284,7 +291,7 @@ impl Room {
     fn start(&mut self) {
         // Logged with the match: the seed plus the players' inputs replay it exactly.
         let seed: u64 = self.rng.r#gen();
-        let mut m = Match::new(seed, HEALS_PER_ROUND);
+        let mut m = Match::new(seed, &MatchConfig { arena: self.arena, ..MatchConfig::default() });
         let mut seats = [None; N_FIGHTERS];
         let mut names: [String; N_FIGHTERS] = Default::default();
         for i in 0..N_FIGHTERS {
@@ -311,10 +318,10 @@ impl Room {
         let running = Running { m, seats, names, events: Vec::new(), brain };
         for p in &self.players {
             let your_seat = running.seats.iter().position(|s| *s == Some(p.id));
-            p.send(&ServerMsg::MatchStart(MatchStart { seats: seats_of(&running), your_seat }));
+            p.send(&ServerMsg::MatchStart(MatchStart { seats: seats_of(&running), your_seat, config: running.m.config.clone() }));
         }
         self.running = Some(running);
-        tracing::info!(room = %self.code, seed, humans = self.players.len(), difficulty = self.difficulty.id(), "match started");
+        tracing::info!(room = %self.code, seed, arena = self.arena.id(), humans = self.players.len(), difficulty = self.difficulty.id(), "match started");
         self.broadcast_room();
         self.send_snapshot();
     }

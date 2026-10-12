@@ -23,6 +23,7 @@ pub const DT: f32 = 1.0 / TICK_RATE as f32;
 pub const fn secs(s: u32) -> u32 {
     s * TICK_RATE
 }
+/// The default match length.
 pub const MAX_TICKS: u32 = secs(45);
 pub const N_FIGHTERS: usize = 4;
 
@@ -118,7 +119,8 @@ impl Aabb {
     }
 }
 
-/// Fully solid terrain: ceiling, floor, walls.
+/// Fully solid terrain, the same in every arena: ceiling, floor, walls. (Each arena's platforms
+/// are in `arena.rs`.)
 pub const SOLIDS: [Aabb; 4] = [
     Aabb::new(0.0, 0.0, W, WALL),
     Aabb::new(0.0, FLOOR_Y, W, H - FLOOR_Y),
@@ -126,22 +128,8 @@ pub const SOLIDS: [Aabb; 4] = [
     Aabb::new(W - WALL, 0.0, WALL, H),
 ];
 
-/// One-way platforms: you can jump up through them and land on top. Four tiers, each 36-40px
-/// above the last (a full jump clears ~48), mirrored left/right.
-pub const PLATFORMS: [Aabb; 8] = [
-    // Low ledges off the floor.
-    Aabb::new(40.0, 214.0, 72.0, 5.0),
-    Aabb::new(368.0, 214.0, 72.0, 5.0),
-    // Second tier.
-    Aabb::new(124.0, 178.0, 72.0, 5.0),
-    Aabb::new(284.0, 178.0, 72.0, 5.0),
-    // Side perches and the centre.
-    Aabb::new(44.0, 142.0, 64.0, 5.0),
-    Aabb::new(372.0, 142.0, 64.0, 5.0),
-    Aabb::new(204.0, 142.0, 72.0, 5.0),
-    // The top bridge.
-    Aabb::new(168.0, 106.0, 144.0, 5.0),
-];
+pub use crate::arena::{Arena, ArenaId};
+use crate::arena::SPAWN_SPREAD;
 
 #[derive(Clone, Copy, Default, Debug, Serialize, Deserialize)]
 pub struct Action {
@@ -333,11 +321,11 @@ pub enum Event {
 }
 
 /// Distance along a normalised ray to the nearest terrain, capped at `max`.
-pub fn terrain_ray(o: Vec2, d: Vec2, max: f32) -> f32 {
+pub fn terrain_ray(arena: &Arena, o: Vec2, d: Vec2, max: f32) -> f32 {
     let inv = |v: f32| if v.abs() < 1e-8 { 1e8_f32.copysign(v) } else { 1.0 / v };
     let (ix, iy) = (inv(d.x), inv(d.y));
     let mut best = max;
-    for r in SOLIDS.iter().chain(PLATFORMS.iter()) {
+    for r in SOLIDS.iter().chain(arena.platforms) {
         let (tx1, tx2) = ((r.x - o.x) * ix, (r.x + r.w - o.x) * ix);
         let (ty1, ty2) = ((r.y - o.y) * iy, (r.y + r.h - o.y) * iy);
         let tmin = tx1.min(tx2).max(ty1.min(ty2)).max(0.0);
@@ -381,10 +369,10 @@ fn fast_atan2(y: f32, x: f32) -> f32 {
 }
 
 /// If `target` is in line of sight from `eye`, returns (proximity 0.05..1, retina sector).
-fn glimpse(eye: Vec2, target: Vec2) -> Option<(f32, usize)> {
+fn glimpse(arena: &Arena, eye: Vec2, target: Vec2) -> Option<(f32, usize)> {
     let to = target - eye;
     let dist = to.length().max(0.001);
-    if dist >= VIS_MAX || terrain_ray(eye, to / dist, dist) < dist - 0.5 {
+    if dist >= VIS_MAX || terrain_ray(arena, eye, to / dist, dist) < dist - 0.5 {
         return None;
     }
     let ang = fast_atan2(to.y, to.x) + std::f32::consts::PI;
@@ -414,16 +402,16 @@ fn one_hot(kind: Option<ItemKind>) -> [f32; N_SENSED] {
 
 /// A random spot on top of the floor or a platform — everywhere a fighter can stand. Wider
 /// surfaces are proportionally more likely.
-fn random_surface_spot(rng: &mut impl Rng) -> Vec2 {
-    random_surface_spot_between(rng, 0.0, W).unwrap_or(vec2(W / 2.0, FLOOR_Y))
+fn random_surface_spot(rng: &mut impl Rng, arena: &Arena) -> Vec2 {
+    random_surface_spot_between(rng, arena, 0.0, W).unwrap_or(vec2(W / 2.0, FLOOR_Y))
 }
 
 /// Like `random_surface_spot`, but only spots with `lo <= x <= hi`. None if no surface reaches
 /// into that range.
-fn random_surface_spot_between(rng: &mut impl Rng, lo: f32, hi: f32) -> Option<Vec2> {
+fn random_surface_spot_between(rng: &mut impl Rng, arena: &Arena, lo: f32, hi: f32) -> Option<Vec2> {
     let floor = (WALL + 6.0, W - WALL - 6.0, FLOOR_Y);
     let surfaces = std::iter::once(floor)
-        .chain(PLATFORMS.iter().map(|p| (p.x + 3.0, p.x + p.w - 3.0, p.y)))
+        .chain(arena.platforms.iter().map(|p| (p.x + 3.0, p.x + p.w - 3.0, p.y)))
         .map(|(x0, x1, y)| (x0.max(lo), x1.min(hi), y))
         .filter(|(x0, x1, _)| x1 > x0);
     let total: f32 = surfaces.clone().map(|(x0, x1, _)| x1 - x0).sum();
@@ -438,6 +426,68 @@ fn random_surface_spot_between(rng: &mut impl Rng, lo: f32, hi: f32) -> Option<V
         pick -= x1 - x0;
     }
     None
+}
+
+/// The rules of one match: the map, how long it lasts, how many health pickups, and how it's
+/// won. Everything else (physics, weapons, characters) is the same in every match.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MatchConfig {
+    pub arena: ArenaId,
+    pub max_ticks: u32,
+    /// How many health pickups appear (picked at random from the range).
+    pub heals: RangeInclusive<u32>,
+    pub mode: Mode,
+}
+
+impl Default for MatchConfig {
+    fn default() -> Self {
+        Self { arena: ArenaId::default(), max_ticks: MAX_TICKS, heals: HEALS_PER_ROUND, mode: Mode::default() }
+    }
+}
+
+crate::enum_all! {
+    /// How a match is won. (A new mode is a variant here, its rule in `outcome`, and its name
+    /// `mode.<id>` in the client's text files.)
+    #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+    pub enum Mode {
+        /// Last one standing; at the time limit, whoever has the most health. A match with only
+        /// one fighter in it (practice) runs until they die or time runs out.
+        #[default]
+        LastStanding,
+    }
+}
+
+impl Mode {
+    pub fn id(self) -> &'static str {
+        match self {
+            Mode::LastStanding => "last_standing",
+        }
+    }
+
+    /// Checked after every tick: None while the match goes on, else Some(winner) (Some(None)
+    /// is a draw).
+    pub fn outcome(self, m: &Match) -> Option<Option<usize>> {
+        match self {
+            Mode::LastStanding => {
+                let alive: Vec<usize> = (0..N_FIGHTERS).filter(|&i| m.f[i].alive()).collect();
+                let present = m.f.iter().filter(|f| !f.absent).count();
+                let last_standing = if present > 1 { alive.len() <= 1 } else { alive.is_empty() };
+                if !last_standing && m.tick < m.config.max_ticks {
+                    return None;
+                }
+                // Last one standing, or the most health at the timeout. An exact tie is a draw.
+                Some(match alive.len() {
+                    0 => None,
+                    1 => Some(alive[0]),
+                    _ => {
+                        let best = alive.iter().copied().max_by(|&a, &b| m.f[a].hp.total_cmp(&m.f[b].hp)).unwrap();
+                        let tied = alive.iter().filter(|&&j| m.f[j].hp == m.f[best].hp).count() > 1;
+                        (!tied).then_some(best)
+                    }
+                })
+            }
+        }
+    }
 }
 
 pub struct Match {
@@ -455,27 +505,28 @@ pub struct Match {
     pub events: Vec<Event>,
     /// What specials have left in the arena (Sam's bombs, Tyler's dogs...).
     pub effects: Vec<Effect>,
+    pub config: MatchConfig,
 }
 
 impl Match {
     /// Four humans spread across the floor, empty-handed, in seat order from left to right
-    /// (each somewhere in its own quarter). `heals` is how many health pickups this round gets
-    /// (picked at random from the range). The same `seed` plays out the same match everywhere.
-    pub fn new(seed: u64, heals: RangeInclusive<u32>) -> Self {
+    /// (each somewhere in its own spot), playing by `config`. The same `seed` plays out the same
+    /// match everywhere.
+    pub fn new(seed: u64, config: &MatchConfig) -> Self {
         let mut rng = SimRng::seed_from_u64(seed);
         let rng = &mut rng;
-        let zones = [20.0, 135.0, 250.0, 365.0];
+        let arena = config.arena.def();
         let f = std::array::from_fn(|i| {
-            let x = zones[i] + rng.gen_range(0.0..90.0);
+            let x = arena.spawn_x[i] + rng.gen_range(0.0..SPAWN_SPREAD);
             Fighter::new(x, if x < W / 2.0 { 1.0 } else { -1.0 })
         });
         let mut items = Vec::new();
         for (kind, n) in [(ItemKind::Spear, START_SPEARS), (ItemKind::Rock, START_ROCKS)] {
             for _ in 0..n {
-                items.push(Item::new(kind, random_surface_spot(rng) - vec2(0.0, ITEM_R)));
+                items.push(Item::new(kind, random_surface_spot(rng, arena) - vec2(0.0, ITEM_R)));
             }
         }
-        let mut heal_schedule: Vec<u32> = (0..rng.gen_range(heals)).map(|_| rng.gen_range(HEAL_WINDOW)).collect();
+        let mut heal_schedule: Vec<u32> = (0..rng.gen_range(config.heals.clone())).map(|_| rng.gen_range(HEAL_WINDOW)).collect();
         heal_schedule.sort_unstable_by(|a, b| b.cmp(a));
         let next_item = rng.gen_range(ITEM_SPAWN_EVERY);
         Self {
@@ -490,11 +541,17 @@ impl Match {
             winner: None,
             events: Vec::new(),
             effects: Vec::new(),
+            config: config.clone(),
         }
     }
 
+    /// The map this match is on.
+    pub fn arena(&self) -> &'static Arena {
+        self.config.arena.def()
+    }
+
     pub(crate) fn random_surface_spot_between(&mut self, lo: f32, hi: f32) -> Option<Vec2> {
-        random_surface_spot_between(&mut self.rng, lo, hi)
+        random_surface_spot_between(&mut self.rng, self.config.arena.def(), lo, hi)
     }
 
     /// Empties seat `i` (before the match starts): nobody plays there.
@@ -510,15 +567,16 @@ impl Match {
     /// Everything fighter `i` perceives. Other fighters, items and pickups are only seen
     /// when in line of sight.
     pub fn senses(&self, i: usize) -> [f32; N_IN] {
+        let arena = self.arena();
         let me = &self.f[i];
         let mut s = [0.0; N_IN];
         let eye = me.eye();
         for r in 0..N_RAYS {
-            s[r] = 1.0 - terrain_ray(eye, ray_dir(r), RAY_MAX) / RAY_MAX;
+            s[r] = 1.0 - terrain_ray(arena, eye, ray_dir(r), RAY_MAX) / RAY_MAX;
         }
         let mut nearest: Option<(f32, usize)> = None;
         for j in (0..N_FIGHTERS).filter(|&j| j != i && self.f[j].alive()) {
-            let seen = glimpse(eye, self.f[j].center());
+            let seen = glimpse(arena, eye, self.f[j].center());
             mark(&mut s, IN_OPP, seen);
             if let Some((p, _)) = seen {
                 if nearest.is_none_or(|(np, _)| p > np) {
@@ -533,7 +591,7 @@ impl Match {
             s[IN_NEAREST + 2..IN_NEAREST + 5].copy_from_slice(&one_hot(o.holding));
         }
         for it in self.items.iter().filter(|it| it.held_by.is_none()) {
-            let seen = glimpse(eye, it.pos);
+            let seen = glimpse(arena, eye, it.pos);
             if it.lethal || it.fuse.is_some() {
                 mark(&mut s, IN_THREAT, seen);
             } else {
@@ -541,11 +599,11 @@ impl Match {
             }
         }
         for &h in &self.heals {
-            mark(&mut s, IN_HEAL, glimpse(eye, h));
+            mark(&mut s, IN_HEAL, glimpse(arena, eye, h));
         }
         // Brains never saw specials in training; someone else's dog or bomb reads as a threat.
         for e in self.effects.iter().filter(|e| e.owner() != i) {
-            mark(&mut s, IN_THREAT, glimpse(eye, e.threat_pos()));
+            mark(&mut s, IN_THREAT, glimpse(arena, eye, e.threat_pos()));
         }
         let k = IN_SELF;
         s[k] = me.vel.x / RUN;
@@ -596,7 +654,7 @@ impl Match {
             .filter_map(|it| Some((it, it.kind.def().blast?, fuse_burnt(it)?)))
             .map(|(it, b, burnt)| (1.0 - it.pos.distance(c) / b.radius).max(0.0) * burnt)
             .fold(0.0, f32::max);
-        s[e + 11] = 1.0 - self.tick as f32 / MAX_TICKS as f32;
+        s[e + 11] = 1.0 - self.tick as f32 / self.config.max_ticks as f32;
         let best_other = (0..N_FIGHTERS).filter(|&j| j != i && self.f[j].alive()).map(|j| self.f[j].hp).fold(0.0, f32::max);
         s[e + 12] = (me.hp - best_other) / MAX_HP;
         s
@@ -655,7 +713,7 @@ impl Match {
             let was_grounded = self.f[i].grounded;
             let f = &mut self.f[i];
             control(f, i, actions[i], &mut self.events);
-            collide(f);
+            collide(f, self.config.arena.def());
             if f.grounded && !was_grounded {
                 self.events.push(Event::Land { pos: f.pos });
             }
@@ -710,24 +768,11 @@ impl Match {
         self.step_heals();
         self.spawn_items();
 
-        // 6. Bookkeeping.
+        // 6. Is it over?
         self.tick += 1;
-        let alive: Vec<usize> = (0..N_FIGHTERS).filter(|&i| self.f[i].alive()).collect();
-        // A match with only one fighter in it (practice) runs until they die or time runs out.
-        let present = self.f.iter().filter(|f| !f.absent).count();
-        let last_standing = if present > 1 { alive.len() <= 1 } else { alive.is_empty() };
-        if last_standing || self.tick >= MAX_TICKS {
+        if let Some(winner) = self.config.mode.outcome(self) {
             self.over = true;
-            // Last one standing, or the most health at the timeout. An exact tie is a draw.
-            self.winner = match alive.len() {
-                0 => None,
-                1 => Some(alive[0]),
-                _ => {
-                    let best = alive.iter().copied().max_by(|&a, &b| self.f[a].hp.total_cmp(&self.f[b].hp)).unwrap();
-                    let tied = alive.iter().filter(|&&j| self.f[j].hp == self.f[best].hp).count() > 1;
-                    (!tied).then_some(best)
-                }
-            };
+            self.winner = winner;
         }
     }
 
@@ -789,7 +834,7 @@ impl Match {
         for k in 0..self.items.len() {
             if let Some(h) = self.items[k].held_by {
                 self.items[k].pos = self.f[h].hand();
-            } else if step_item(&mut self.items[k]) {
+            } else if step_item(&mut self.items[k], self.config.arena.def()) {
                 let it = &self.items[k];
                 self.events.push(Event::Clatter { pos: it.pos, kind: it.kind });
             }
@@ -858,7 +903,7 @@ impl Match {
     fn step_heals(&mut self) {
         while self.heal_schedule.last().is_some_and(|&t| self.tick >= t) {
             self.heal_schedule.pop();
-            let pos = random_surface_spot(&mut self.rng) - vec2(0.0, HEAL_R + 1.0);
+            let pos = random_surface_spot(&mut self.rng, self.config.arena.def()) - vec2(0.0, HEAL_R + 1.0);
             self.heals.push(pos);
             self.events.push(Event::Spawn { pos });
         }
@@ -903,7 +948,7 @@ impl Match {
                 break;
             }
         }
-        let pos = random_surface_spot(&mut self.rng) - vec2(0.0, ITEM_R);
+        let pos = random_surface_spot(&mut self.rng, self.config.arena.def()) - vec2(0.0, ITEM_R);
         self.items.push(Item::new(kind, pos));
         self.events.push(Event::Spawn { pos });
     }
@@ -975,8 +1020,9 @@ impl Match {
         }
     }
 
-    /// A drawable match rebuilt from a view (it can't be stepped faithfully: no spawns).
-    pub fn from_view(v: MatchView, events: Vec<Event>) -> Self {
+    /// A drawable match rebuilt from a view and the match's rules (it can't be stepped
+    /// faithfully: no spawns).
+    pub fn from_view(v: MatchView, config: &MatchConfig, events: Vec<Event>) -> Self {
         Self {
             f: v.f,
             items: v.items,
@@ -989,6 +1035,7 @@ impl Match {
             winner: v.winner,
             events,
             effects: v.effects,
+            config: config.clone(),
         }
     }
 }
@@ -996,12 +1043,12 @@ impl Match {
 /// One tick of a fighter's own movement and swing timing, exactly as `Match::step` does it, but
 /// without anyone else: a client runs this on its own fighter (seat `who`) to show its input
 /// immediately, and the server's snapshots correct it. Its jumps and swings go in `events`.
-pub fn predict(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
+pub fn predict(arena: &Arena, f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
     if f.absent {
         return;
     }
     control(f, who, a, events);
-    collide(f);
+    collide(f, arena);
     if f.atk_timer > 0 {
         f.atk_timer += 1;
         if f.atk_timer > ATK_TOTAL {
@@ -1018,7 +1065,7 @@ pub fn predict(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) 
 }
 
 /// Moves a loose or flying item. True if it struck terrain hard this tick (for the sound).
-fn step_item(it: &mut Item) -> bool {
+fn step_item(it: &mut Item, arena: &Arena) -> bool {
     it.age += 1;
     let mut struck = false;
     // Flying fast enough to hurt, an item falls at its own rate (spears fly flat); else it arcs.
@@ -1047,7 +1094,7 @@ fn step_item(it: &mut Item) -> bool {
         }
     }
     if it.vel.y > 0.0 {
-        for p in PLATFORMS.iter() {
+        for p in arena.platforms {
             let over_x = it.pos.x + ITEM_R > p.x && it.pos.x - ITEM_R < p.x + p.w;
             if over_x && prev_bottom <= p.y + 0.01 && it.pos.y + ITEM_R >= p.y {
                 landed = Some(p.y);
@@ -1114,7 +1161,7 @@ fn control(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
     f.vel.y = (f.vel.y + g * DT).min(MAX_FALL);
 }
 
-fn collide(f: &mut Fighter) {
+fn collide(f: &mut Fighter, arena: &Arena) {
     f.pos.x += f.vel.x * DT;
     for s in SOLIDS.iter() {
         if f.body().overlaps(s) {
@@ -1142,7 +1189,7 @@ fn collide(f: &mut Fighter) {
         }
     }
     if f.vel.y >= 0.0 {
-        for p in PLATFORMS.iter() {
+        for p in arena.platforms {
             let over_x = f.pos.x + HALF_W > p.x && f.pos.x - HALF_W < p.x + p.w;
             if over_x && prev_bottom <= p.y + 0.01 && f.pos.y >= p.y {
                 f.pos.y = p.y;
@@ -1167,7 +1214,7 @@ mod tests {
         let mut h: u64 = 0xcbf2_9ce4_8422_2325;
         let mut mix = |x: u64| h = (h ^ x).wrapping_mul(0x100_0000_01b3);
         for seed in 0..8u64 {
-            let mut m = Match::new(seed, HEALS_PER_ROUND);
+            let mut m = Match::new(seed, &MatchConfig::default());
             let lineup: [&Brain; N_FIGHTERS] = std::array::from_fn(|i| &brains[(seed as usize + i) % brains.len()]);
             while !m.over {
                 m.step(lineup);
@@ -1189,7 +1236,7 @@ mod tests {
 
     /// Everyone on the floor, nothing lying around, nobody thinking (all-zero brains stand still).
     fn quiet_match() -> (Match, Brain) {
-        let mut m = Match::new(3, 0..=0);
+        let mut m = Match::new(3, &MatchConfig { heals: 0..=0, ..MatchConfig::default() });
         m.items.clear();
         m.next_item = u32::MAX;
         for (i, x) in [60.0, 200.0, 300.0, 420.0].into_iter().enumerate() {

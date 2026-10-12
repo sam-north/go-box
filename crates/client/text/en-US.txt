@@ -30,6 +30,7 @@ lobby.col_down = Went down
 lobby.survived = survived, {hp} HP
 lobby.players = Players
 lobby.difficulty = Bot difficulty
+lobby.arena = Map
 lobby.leader_tag = (leader)
 lobby.you_tag = - you
 lobby.ready_tag = ready
@@ -70,6 +71,10 @@ special.hounds = Release the Hounds
 difficulty.easy = Easy
 difficulty.normal = Normal
 difficulty.hard = Hard
+
+# Maps (by id)
+arena.tiers = Tiers
+arena.bridges = Bridges
 
 # Messages
 notice.connection_lost = Lost connection to the server.

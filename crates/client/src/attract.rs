@@ -2,7 +2,7 @@
 
 use go_box_sim::brain::Brain;
 use go_box_sim::character::Character;
-use go_box_sim::sim::{DT, HEALS_PER_ROUND, Match};
+use go_box_sim::sim::{ArenaId, DT, Match, MatchConfig};
 use macroquad::prelude::*;
 use ::rand::rngs::SmallRng;
 use ::rand::{Rng, SeedableRng};
@@ -27,7 +27,9 @@ impl Attract {
     }
 
     pub fn fresh(rng: &mut SmallRng) -> Match {
-        let mut m = Match::new(rng.r#gen(), HEALS_PER_ROUND);
+        // A different map now and then.
+        let arena = ArenaId::ALL[rng.gen_range(0..ArenaId::ALL.len())];
+        let mut m = Match::new(rng.r#gen(), &MatchConfig { arena, ..MatchConfig::default() });
         for f in m.f.iter_mut() {
             f.character = Character::ALL[rng.gen_range(0..Character::ALL.len())];
         }

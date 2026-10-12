@@ -24,11 +24,11 @@
 //! 4. Client: handle the `ServerMsg` in `App::update_net`.
 
 use go_box_sim::character::Character;
-use go_box_sim::sim::{Action, Event, MatchView, N_FIGHTERS};
+use go_box_sim::sim::{Action, ArenaId, Event, MatchConfig, MatchView, N_FIGHTERS};
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 9;
+pub const PROTOCOL_VERSION: u16 = 10;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -88,6 +88,8 @@ pub enum ClientMsg {
     SetReady(bool),
     /// Leader only.
     SetDifficulty(Difficulty),
+    /// Leader only: the map for the next match.
+    SetArena(ArenaId),
     /// Leader only: what fills seat `seat` when no player is in it.
     SetSeatFill { seat: u8, fill: SeatFill },
     /// Leader only: start the next match with everyone in the room.
@@ -159,6 +161,7 @@ pub struct RoomInfo {
     /// In join order.
     pub players: Vec<PlayerInfo>,
     pub difficulty: Difficulty,
+    pub arena: ArenaId,
     /// Per seat: what fills it when no player is in it. Players take seats in join order.
     pub fills: [SeatFill; MAX_PLAYERS],
     pub phase: Phase,
@@ -177,6 +180,8 @@ pub struct Seat {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MatchStart {
     pub seats: [Seat; N_FIGHTERS],
+    /// The rules: the map, how long it lasts, how it's won.
+    pub config: MatchConfig,
     /// Your seat, or None if you're watching (joined mid-match).
     pub your_seat: Option<usize>,
 }
@@ -227,11 +232,11 @@ pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Option<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use go_box_sim::sim::{HEALS_PER_ROUND, Match};
+    use go_box_sim::sim::Match;
 
     #[test]
     fn snapshot_round_trips_and_is_small() {
-        let m = Match::new(1, HEALS_PER_ROUND);
+        let m = Match::new(1, &MatchConfig::default());
         let msg = ServerMsg::Snapshot(Snapshot { ack: 7, view: m.view(), events: Vec::new() });
         let bytes = encode(&msg);
         assert!(bytes.len() < 1500, "snapshot is {} bytes", bytes.len());
@@ -245,7 +250,7 @@ mod tests {
     fn sample_snapshots() -> Vec<Snapshot> {
         use go_box_sim::brain::Brain;
         let brain = Brain::from_json(include_str!("../../../brains/gen_219000.json")).unwrap();
-        let mut m = Match::new(5, HEALS_PER_ROUND);
+        let mut m = Match::new(5, &MatchConfig::default());
         for (f, c) in m.f.iter_mut().zip(Character::ALL) {
             f.character = c;
         }
@@ -261,7 +266,7 @@ mod tests {
                 dogs = Some(snap());
             }
         }
-        vec![Snapshot { ack: 0, view: Match::new(1, HEALS_PER_ROUND).view(), events: Vec::new() }, bomb.expect("a bomb was thrown"), dogs.expect("dogs ran")]
+        vec![Snapshot { ack: 0, view: Match::new(1, &MatchConfig::default()).view(), events: Vec::new() }, bomb.expect("a bomb was thrown"), dogs.expect("dogs ran")]
     }
 
     /// One of every message, with fixed contents. The `match`es have no wildcard arm, so a new
@@ -277,6 +282,7 @@ mod tests {
             ClientMsg::SetCharacter(Character::Tyler),
             ClientMsg::SetReady(true),
             ClientMsg::SetDifficulty(Difficulty::Hard),
+            ClientMsg::SetArena(ArenaId::Bridges),
             ClientMsg::SetSeatFill { seat: 2, fill: SeatFill::Empty },
             ClientMsg::Start,
             ClientMsg::Input { seq: 77, action },
@@ -290,6 +296,7 @@ mod tests {
                 | ClientMsg::SetCharacter(_)
                 | ClientMsg::SetReady(_)
                 | ClientMsg::SetDifficulty(_)
+                | ClientMsg::SetArena(_)
                 | ClientMsg::SetSeatFill { .. }
                 | ClientMsg::Start
                 | ClientMsg::Input { .. } => {}
@@ -302,6 +309,7 @@ mod tests {
             leader: 1,
             players: vec![PlayerInfo { id: 1, name: "Sam".into(), character: Character::Austin, ready: true }],
             difficulty: Difficulty::Easy,
+            arena: ArenaId::Bridges,
             fills: [SeatFill::Bot, SeatFill::Bot, SeatFill::Empty, SeatFill::Bot],
             phase: Phase::Lobby,
             last_results: Some(Results { seats: vec![result], winner: Some(0), duration: 44.5 }),
@@ -309,6 +317,7 @@ mod tests {
         let start = MatchStart {
             seats: [seat("Sam", Character::Sam, Some(1)), seat("A", Character::Austin, None), seat("T", Character::Tyler, None), seat("C", Character::Classic, None)],
             your_seat: Some(0),
+            config: MatchConfig { arena: ArenaId::Bridges, max_ticks: 1234, ..MatchConfig::default() },
         };
         let mut server = vec![ServerMsg::Welcome { you: 9 }, ServerMsg::Error(Refusal::NoSuchRoom), ServerMsg::Room(room), ServerMsg::LeftRoom, ServerMsg::MatchStart(start)];
         server.extend(sample_snapshots().into_iter().map(ServerMsg::Snapshot));
@@ -337,15 +346,15 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (9, 0x5e65_1e2d_d8ce_5eea);
+    const WIRE: (u16, u64) = (10, 0x096a_0abf_30e3_fe27);
 
     #[test]
     fn every_sample_round_trips() {
         let samples = samples();
-        for bytes in &samples[..10] {
+        for bytes in &samples[..11] {
             assert_eq!(encode(&decode::<ClientMsg>(bytes).unwrap()), *bytes);
         }
-        for bytes in &samples[10..] {
+        for bytes in &samples[11..] {
             assert_eq!(encode(&decode::<ServerMsg>(bytes).unwrap()), *bytes);
         }
     }

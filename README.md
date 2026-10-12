@@ -28,7 +28,7 @@ cursor, `Shift` uses your special, `M` mutes. Settings are saved in the browser.
 The browser only reports a controller after you press a button on it. In menus (lobby, scoreboard,
 settings) the d-pad or left stick moves a highlight and Cross presses it.
 
-In the lobby the leader sets each seat without a player to **Bot** or **None**, so a match can have
+The leader also picks the **map** (Tiers or Bridges) and the bot difficulty. In the lobby the leader sets each seat without a player to **Bot** or **None**, so a match can have
 anywhere from 1 to 4 fighters (alone, it runs until the clock or you run out).
 
 The server only listens on `127.0.0.1` unless told otherwise (`GO_BOX_BIND`); see
@@ -49,6 +49,11 @@ Bots playing a character use its special by a simple rule (the brains never trai
 specials): Sam works out where his bomb would land and throws only if it would catch two people,
 finish one off, or turn a fight he's losing; Austin pops away from incoming projectiles, grenades
 about to blow, or a crowd when hurt; Tyler releases the hounds at someone on his level ahead. Tuning lives at the top of `crates/sim/src/character.rs`.
+
+**Adding a map** is a variant in `ArenaId` with its platforms (`crates/sim/src/arena.rs`) and its
+name in the text file; check the bots cope with it using `--example tournament 400 <map id>`.
+A match's rules (map, length, heals, how it's won) are a `MatchConfig`; a new way to win is a
+variant of `Mode`.
 
 **Adding a character** (the goal is 20+): a variant in `Character` and its row in
 `Character::def` (`crates/sim/src/character.rs`, with a new `Special` if it has one), its row in
@@ -123,5 +128,5 @@ opponents, threats, items and health, plus their own state and a few memory valu
 
 Their senses and physics are what they were trained on, so changes to movement, senses or the
 brain's inputs and outputs make them play worse. `cargo run --release -p go-box-sim --example
-tournament` plays the committed brains against each other: run it before and after a gameplay
+tournament [n] [map]` plays the committed brains against each other: run it before and after a gameplay
 change to check the bots still play as before.

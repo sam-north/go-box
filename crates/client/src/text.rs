@@ -82,6 +82,9 @@ mod tests {
         for d in Difficulty::ALL {
             keys.insert(format!("difficulty.{}", d.id()));
         }
+        for a in go_box_sim::sim::ArenaId::ALL {
+            keys.insert(format!("arena.{}", a.id()));
+        }
         for r in [Refusal::ServerFull, Refusal::OutOfDate, Refusal::TooManyRooms, Refusal::NoSuchRoom, Refusal::RoomFull, Refusal::RoomClosed] {
             keys.insert(format!("refusal.{}", r.id()));
         }

@@ -4,7 +4,7 @@
 //!
 //! All tuning lives in the constants at the top of this file.
 
-use crate::sim::{Aabb, Event, Fighter, Match, Source, DT, N_FIGHTERS, PLATFORMS, SOLIDS, W};
+use crate::sim::{Aabb, Arena, Event, Fighter, Match, Source, DT, N_FIGHTERS, SOLIDS, W};
 use glam::{vec2, Vec2};
 use serde::{Deserialize, Serialize};
 
@@ -297,7 +297,7 @@ impl Match {
     }
 
     fn step_dog(&mut self, dog: &mut Dog) {
-        run_dog(dog);
+        run_dog(dog, self.arena());
         let (body, owner, dir) = (dog.body(), dog.owner, dog.dir);
         for j in 0..N_FIGHTERS {
             if j == owner || !self.f[j].alive() || dog.bite_cd[j] > 0 || !body.overlaps(&self.f[j].body()) {
@@ -375,7 +375,7 @@ impl Match {
     /// A bomb in flight: arcs under gravity and goes off on terrain, on a foe, or when its
     /// fuse runs out.
     fn fly_bomb(&mut self, bomb: &mut Bomb) {
-        if !fly(bomb, &self.f) {
+        if !fly(bomb, &self.f, self.arena()) {
             return;
         }
         let (pos, owner) = (bomb.pos, bomb.owner);
@@ -424,7 +424,7 @@ impl Match {
 
 /// One tick of a bomb in flight. True when it goes off: it hit terrain or a foe (it stops
 /// there), or its fuse ran out.
-fn fly(bomb: &mut Bomb, fighters: &[Fighter; N_FIGHTERS]) -> bool {
+fn fly(bomb: &mut Bomb, fighters: &[Fighter; N_FIGHTERS], arena: &Arena) -> bool {
     bomb.vel.y += BOMB_GRAVITY * DT;
     let prev = bomb.pos;
     bomb.pos += bomb.vel * DT;
@@ -443,7 +443,7 @@ fn fly(bomb: &mut Bomb, fighters: &[Fighter; N_FIGHTERS]) -> bool {
         hit = true;
     }
     if bomb.vel.y > 0.0
-        && let Some(p) = PLATFORMS.iter().find(|p| bomb.pos.x > p.x && bomb.pos.x < p.x + p.w && prev.y <= p.y && bomb.pos.y >= p.y)
+        && let Some(p) = arena.platforms.iter().find(|p| bomb.pos.x > p.x && bomb.pos.x < p.x + p.w && prev.y <= p.y && bomb.pos.y >= p.y)
     {
         bomb.pos.y = p.y - 0.5;
         hit = true;
@@ -456,7 +456,7 @@ fn fly(bomb: &mut Bomb, fighters: &[Fighter; N_FIGHTERS]) -> bool {
 /// else standing still.
 fn bomb_landing(m: &Match, who: usize) -> Vec2 {
     let mut b = new_bomb(&m.f[who], who);
-    while !fly(&mut b, &m.f) {}
+    while !fly(&mut b, &m.f, m.arena()) {}
     b.pos
 }
 
@@ -471,7 +471,7 @@ fn pull_strength(d: f32) -> f32 {
     if d <= BOMB_PULL_RADIUS { 1.0 } else { libm::powf(BOMB_PULL_RADIUS / d, BOMB_PULL_FALLOFF) }
 }
 
-fn run_dog(dog: &mut Dog) {
+fn run_dog(dog: &mut Dog, arena: &Arena) {
     dog.pos.x += dog.dir * dog.speed * DT;
     if let Some(s) = SOLIDS.iter().find(|s| dog.body().overlaps(s)) {
         dog.pos.x = if dog.dir > 0.0 { s.x - DOG_HALF_W } else { s.x + s.w + DOG_HALF_W };
@@ -485,7 +485,7 @@ fn run_dog(dog: &mut Dog) {
         dog.vy = 0.0;
     }
     if dog.vy >= 0.0 {
-        for p in PLATFORMS.iter() {
+        for p in arena.platforms {
             let over = dog.pos.x + DOG_HALF_W > p.x && dog.pos.x - DOG_HALF_W < p.x + p.w;
             if over && prev <= p.y + 0.01 && dog.pos.y >= p.y {
                 dog.pos.y = p.y;
@@ -499,11 +499,11 @@ fn run_dog(dog: &mut Dog) {
 mod tests {
     use super::*;
     use crate::brain::Brain;
-    use crate::sim::{Action, HEALS_PER_ROUND, MAX_HP};
+    use crate::sim::{Action, MAX_HP, MatchConfig};
 
     /// A match with the given cast, everyone standing still on the floor at chosen x positions.
     fn staged(cast: [Character; N_FIGHTERS], xs: [f32; N_FIGHTERS]) -> Match {
-        let mut m = Match::new(7, 0..=0);
+        let mut m = Match::new(7, &MatchConfig { heals: 0..=0, ..MatchConfig::default() });
         m.items.clear();
         for i in 0..N_FIGHTERS {
             m.f[i].character = cast[i];
@@ -539,7 +539,7 @@ mod tests {
         // Enough matches that every character gets a dozen seats.
         let matches = (Character::ALL.len() * 3).max(12) as u64;
         for seed in 0..matches {
-            let mut m = Match::new(seed, HEALS_PER_ROUND);
+            let mut m = Match::new(seed, &MatchConfig::default());
             for i in 0..N_FIGHTERS {
                 m.f[i].character = Character::ALL[(seed as usize + i) % Character::ALL.len()];
             }

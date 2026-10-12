@@ -6,7 +6,7 @@ use crate::settings::Act;
 use crate::text::{t, tf};
 use crate::ui::{ACCENT, DIM, INK, Ui};
 use go_box_render::{self as render};
-use go_box_sim::sim::{DT, MAX_TICKS, Match, N_FIGHTERS};
+use go_box_sim::sim::{DT, Match, N_FIGHTERS};
 use macroquad::prelude::*;
 
 /// Dots showing where a throw would go.
@@ -67,7 +67,7 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
         draw_rectangle(x, ui.px(36.0), bw, ui.px(6.0), Color::new(0.0, 0.0, 0.0, 0.6));
         draw_rectangle(x, ui.px(36.0), bw * (f.hp.max(0.0) / go_box_sim::sim::MAX_HP), ui.px(6.0), color);
     }
-    let left = (MAX_TICKS.saturating_sub(m.tick)) as f32 * DT;
+    let left = (m.config.max_ticks.saturating_sub(m.tick)) as f32 * DT;
     ui.text_centered(&mmss(left.ceil()), sw / 2.0, ui.px(70.0), 28.0, INK);
 
     let sh = screen_height();

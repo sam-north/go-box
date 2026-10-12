@@ -137,7 +137,7 @@ async fn main() {
                 app.seq += 1;
                 let action = if opts.autopilot {
                     let g = app.game.as_mut().unwrap();
-                    let view = g.latest().cloned().map(|v| Match::from_view(v, Vec::new()));
+                    let view = g.latest().cloned().map(|v| Match::from_view(v, &g.start.config, Vec::new()));
                     view.map_or_else(Action::default, |m| autopilot(&m, seat, &mut app.rng))
                 } else if app.settings_open {
                     // Stand still while the menu is up.
@@ -160,6 +160,7 @@ async fn main() {
         };
         let m = match &shown {
             Some(m) => {
+                art.set_arena(m.config.arena);
                 art.handle_events(m);
                 // The bots behind the menus stay silent; only a match you're in makes sound.
                 sfx.events(m, &m.events, seat);
@@ -177,6 +178,7 @@ async fn main() {
                 if std::mem::take(&mut attract.restarted) {
                     art.reset();
                 }
+                art.set_arena(attract.m.config.arena);
                 art.handle_events(&attract.m);
                 &attract.m
             }

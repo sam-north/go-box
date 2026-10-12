@@ -166,13 +166,13 @@ fn is_stone(x: i32, y: i32) -> bool {
     SOLIDS.iter().any(|r| r.contains(p))
 }
 
-fn is_metal(x: i32, y: i32) -> bool {
+fn is_metal(a: &Arena, x: i32, y: i32) -> bool {
     let p = vec2(x as f32 + 0.5, y as f32 + 0.5);
-    PLATFORMS.iter().any(|r| r.contains(p))
+    a.platforms.iter().any(|r| r.contains(p))
 }
 
-fn solid_px(x: i32, y: i32) -> bool {
-    is_stone(x, y) || is_metal(x, y)
+fn solid_px(a: &Arena, x: i32, y: i32) -> bool {
+    is_stone(x, y) || is_metal(a, x, y)
 }
 
 fn make_background() -> Image {
@@ -228,7 +228,7 @@ fn make_background() -> Image {
     img
 }
 
-fn make_terrain() -> Image {
+fn make_terrain(a: &Arena) -> Image {
     let mut img = Image::gen_image_color(W as u16, H as u16, Color::new(0.0, 0.0, 0.0, 0.0));
     for y in 0..H as i32 {
         for x in 0..W as i32 {
@@ -263,16 +263,16 @@ fn make_terrain() -> Image {
                     g = 82.0 + n + hash(x, y, 5) * 16.0;
                     b = 42.0 + n;
                 }
-                let air_side = !solid_px(x - 1, y) && x > 0 || !solid_px(x + 1, y) && x < W as i32 - 1 || !solid_px(x, y + 1) && y < H as i32 - 1;
+                let air_side = !solid_px(a, x - 1, y) && x > 0 || !solid_px(a, x + 1, y) && x < W as i32 - 1 || !solid_px(a, x, y + 1) && y < H as i32 - 1;
                 if air_side && !exposed_top {
                     r *= 0.55;
                     g *= 0.55;
                     b *= 0.55;
                 }
                 img.set_pixel(ux, uy, dither(ux, uy, r, g, b));
-            } else if is_metal(x, y) {
-                let top = !is_metal(x, y - 1);
-                let bottom = !is_metal(x, y + 1);
+            } else if is_metal(a, x, y) {
+                let top = !is_metal(a, x, y - 1);
+                let bottom = !is_metal(a, x, y + 1);
                 let rust = fbm(x as f32 * 0.12, y as f32 * 0.3, 17) > 0.58;
                 let (mut r, mut g, mut b) = (44.0, 50.0, 58.0);
                 if rust {
@@ -284,7 +284,7 @@ fn make_terrain() -> Image {
                 if bottom {
                     (r, g, b) = (r * 0.5, g * 0.5, b * 0.5);
                 }
-                let mid = is_metal(x, y - 2) && is_metal(x, y + 2) && !is_metal(x, y - 3);
+                let mid = is_metal(a, x, y - 2) && is_metal(a, x, y + 2) && !is_metal(a, x, y - 3);
                 if mid && x % 8 == 3 {
                     (r, g, b) = (100.0, 104.0, 108.0);
                 }
@@ -336,6 +336,8 @@ struct FighterVis {
 pub struct Art {
     bg: Texture2D,
     terrain: Texture2D,
+    /// The map the terrain texture shows.
+    arena: ArenaId,
     vignette: Texture2D,
     stain_img: Image,
     stain_tex: Texture2D,
@@ -364,7 +366,8 @@ impl Art {
             .collect();
         Self {
             bg: tex(&make_background()),
-            terrain: tex(&make_terrain()),
+            terrain: tex(&make_terrain(ArenaId::default().def())),
+            arena: ArenaId::default(),
             vignette: tex(&make_vignette()),
             stain_tex: tex(&stain_img),
             stain_img,
@@ -375,6 +378,15 @@ impl Art {
             blasts: Vec::new(),
             flags: Vec::new(),
             time: 0.0,
+        }
+    }
+
+    /// Draws `arena`'s platforms from now on (rebuilding the terrain if it changed).
+    pub fn set_arena(&mut self, arena: ArenaId) {
+        if arena != self.arena {
+            self.arena = arena;
+            self.terrain = tex(&make_terrain(arena.def()));
+            self.reset();
         }
     }
 
@@ -412,7 +424,7 @@ impl Art {
                 }
                 Event::Death { who, pos } => {
                     // Planted on whatever is below the spot they died.
-                    let ground = pos + vec2(0.0, terrain_ray(pos, vec2(0.0, 1.0), H));
+                    let ground = pos + vec2(0.0, terrain_ray(m.arena(), pos, vec2(0.0, 1.0), H));
                     self.flags.push((ground, look(m.f[who].character, who).accent));
                     self.burst(pos, vec2(0.0, -1.0), 6.0, 70, BLOOD, true, 160.0, 2.5, 420.0);
                 }
@@ -499,12 +511,13 @@ impl Art {
                 self.particles.push(Particle { pos: it.pos + vec2(0.0, -2.0), vel: vec2(0.0, -20.0), color: c, life: 0.2, stick: false, gravity: 0.0 });
             }
         }
+        let arena = self.arena.def();
         let mut stains = Vec::new();
         self.particles.retain_mut(|p| {
             p.vel.y += p.gravity * dt;
             let next = p.pos + p.vel * dt;
             p.life -= dt;
-            if solid_px(next.x as i32, next.y as i32) {
+            if solid_px(arena, next.x as i32, next.y as i32) {
                 if p.stick {
                     stains.push((p.pos, p.color));
                 }
@@ -515,7 +528,7 @@ impl Art {
         });
         for (pos, c) in stains {
             let (x, y) = (pos.x as i32, pos.y as i32);
-            if x >= 0 && y >= 0 && x < W as i32 && y < H as i32 && !solid_px(x, y) {
+            if x >= 0 && y >= 0 && x < W as i32 && y < H as i32 && !solid_px(arena, x, y) {
                 self.stain_img.set_pixel(x as u32, y as u32, c);
                 self.stain_dirty = true;
             }

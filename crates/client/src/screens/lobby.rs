@@ -8,7 +8,7 @@ use crate::ui::{self, ACCENT, BAD, DIM, INK, Ui};
 use go_box_protocol::*;
 use go_box_render::{self as render};
 use go_box_sim::character::Character;
-use go_box_sim::sim::TICK_RATE;
+use go_box_sim::sim::{ArenaId, TICK_RATE};
 use macroquad::prelude::*;
 
 /// The special's name and its cooldown, as two short lines for a character card.
@@ -23,7 +23,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     let (sw, sh) = (screen_width(), screen_height());
     let w = ui.px(860.0).min(sw - 32.0);
     let results_h = if room.last_results.is_some() { ui.px(240.0) } else { 0.0 };
-    let h = (ui.px(470.0) + results_h).min(sh - 24.0);
+    let h = (ui.px(510.0) + results_h).min(sh - 24.0);
     let r = Rect::new((sw - w) / 2.0, (sh - h) / 2.0, w, h);
     ui.panel(r);
     let pad = ui.px(24.0);
@@ -139,7 +139,25 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
         }
         dx += bw + ui.px(8.0);
     }
-    y = py + ui.px(20.0);
+    // The map: the same, below.
+    let my = y + ui.px(76.0);
+    ui.text(t("lobby.arena"), diff_x, my, 20.0, DIM);
+    let mut dx = diff_x;
+    for a in ArenaId::ALL {
+        let bw = ui.px(120.0);
+        let rr = Rect::new(dx, my + ui.px(12.0), bw, ui.px(34.0));
+        let selected = room.arena == a;
+        let name = t(&format!("arena.{}", a.id()));
+        if leader {
+            if ui.button(rr, name, true, if selected { ACCENT } else { ui::EDGE }) && !selected {
+                app.send(ClientMsg::SetArena(a));
+            }
+        } else if selected {
+            ui.text(name, dx, my + ui.px(36.0), 22.0, INK);
+        }
+        dx += bw + ui.px(8.0);
+    }
+    y = py.max(my + ui.px(46.0)) + ui.px(20.0);
 
     // Character picker.
     let mine = room.players.iter().find(|p| Some(p.id) == app.me).map(|p| p.character);

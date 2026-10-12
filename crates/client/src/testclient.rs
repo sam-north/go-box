@@ -19,6 +19,8 @@ pub struct Options {
     pub join: Option<String>,
     pub create: bool,
     pub character: Option<Character>,
+    /// As leader, pick this map (by id).
+    pub arena: Option<go_box_sim::sim::ArenaId>,
     /// As leader, start once this many players are in the room.
     pub start_when: Option<usize>,
     /// Play with simple scripted inputs (for automated tests).
@@ -53,6 +55,7 @@ impl Options {
             join: val("--join"),
             create: has("--create"),
             character: val("--character").and_then(|c| Character::ALL.into_iter().find(|x| x.id().eq_ignore_ascii_case(&c))),
+            arena: val("--arena").and_then(|a| go_box_sim::sim::ArenaId::ALL.into_iter().find(|x| x.id() == a)),
             start_when: val("--start-when").and_then(|v| v.parse().ok()),
             autopilot: has("--autopilot"),
             code_file: val("--code-file"),

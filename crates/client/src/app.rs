@@ -115,6 +115,11 @@ impl App {
                     {
                         net.send(&ClientMsg::SetCharacter(c));
                     }
+                    if let Some(a) = Options::get().arena
+                        && self.room.is_none()
+                    {
+                        net.send(&ClientMsg::SetArena(a));
+                    }
                     self.room = Some(r);
                 }
                 ServerMsg::LeftRoom => {
