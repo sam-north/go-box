@@ -6,8 +6,8 @@ Done: see `docs/DEPLOY.md` (Fly.io: Dockerfile, fly.toml, GitHub deploy workflow
 `/healthz`, pings and idle timeout, origin allowlist, rate limits, per-address cap, room-creation
 passphrase, pre-compressed files, built-in bot brain).
 
-- [ ] Run the GitHub workflow once and confirm the tests pass on Linux too (the match fingerprint
-      is meant to be identical across platforms).
+- [x] The GitHub workflow passes on Linux (tests incl. the match fingerprint, wasm build,
+      Docker image build + health check).
 
 ## Later
 
