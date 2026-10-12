@@ -1,7 +1,7 @@
 //! A room: its players, the lobby choices, and (while playing) the one real match, stepped at
 //! 60 ticks/s. Each room is its own task; connections talk to it through `RoomCmd`s.
 
-use crate::Hub;
+use crate::{Brains, Hub};
 use crate::conn::Outbox;
 use go_box_protocol::{
     ClientMsg, Difficulty, MAX_PLAYERS, MatchStart, Phase, PlayerId, PlayerInfo, Refusal, Results, RoomInfo, SNAPSHOT_EVERY, Seat, SeatFill, SeatResult, ServerMsg,
@@ -97,21 +97,28 @@ struct Room {
     last_results: Option<Results>,
     running: Option<Running>,
     rng: SmallRng,
-    hub: Arc<Hub>,
+    /// The bot brains (all a room needs from the server), passed in so rooms can be tested alone.
+    brains: Arc<Brains>,
+}
+
+impl Room {
+    fn new(code: String, brains: Arc<Brains>, seed: u64) -> Self {
+        Room {
+            code,
+            players: Vec::new(),
+            leader: 0,
+            difficulty: Difficulty::default(),
+            fills: [SeatFill::Bot; MAX_PLAYERS],
+            last_results: None,
+            running: None,
+            rng: SmallRng::seed_from_u64(seed),
+            brains,
+        }
+    }
 }
 
 pub async fn run(code: String, mut rx: mpsc::Receiver<RoomCmd>, hub: Arc<Hub>) {
-    let mut room = Room {
-        code: code.clone(),
-        players: Vec::new(),
-        leader: 0,
-        difficulty: Difficulty::default(),
-        fills: [SeatFill::Bot; MAX_PLAYERS],
-        last_results: None,
-        running: None,
-        rng: SmallRng::from_entropy(),
-        hub: hub.clone(),
-    };
+    let mut room = Room::new(code.clone(), hub.brains.clone(), rand::random());
     let tick = Duration::from_secs_f32(DT);
     // Wake often and run however many ticks are due: OS timers (Windows especially) are too
     // coarse to wake exactly every 16.7ms, but the average rate stays exact.
@@ -300,7 +307,7 @@ impl Room {
             p.inputs.clear();
             p.last_action = Action::default();
         }
-        let brain = self.hub.brains.get(self.difficulty).clone();
+        let brain = self.brains.get(self.difficulty).clone();
         let running = Running { m, seats, names, events: Vec::new(), brain };
         for p in &self.players {
             let your_seat = running.seats.iter().position(|s| *s == Some(p.id));
@@ -384,6 +391,98 @@ fn sanitize(a: Action) -> Action {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use go_box_protocol::decode;
+
+    /// A room on its own (no server, sockets or timers), stepped by hand.
+    fn room() -> Room {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../brains");
+        Room::new("TEST".into(), Arc::new(Brains::load(&dir).unwrap()), 7)
+    }
+
+    /// Player `id` joins; returns what the room sends them.
+    fn join(room: &mut Room, id: PlayerId) -> mpsc::Receiver<Vec<u8>> {
+        let (out, rx) = mpsc::channel(4096);
+        let (reply, _) = oneshot::channel();
+        room.handle(RoomCmd::Join(Joined { id, name: format!("P{id}"), out, reply }));
+        rx
+    }
+
+    /// The last room update in `rx`.
+    fn last_room(rx: &mut mpsc::Receiver<Vec<u8>>) -> RoomInfo {
+        let mut last = None;
+        while let Ok(bytes) = rx.try_recv() {
+            if let Some(ServerMsg::Room(r)) = decode(&bytes) {
+                last = Some(r);
+            }
+        }
+        last.expect("a room update")
+    }
+
+    #[test]
+    fn only_the_leader_sets_seats_and_the_match_follows_them() {
+        let mut r = room();
+        let mut a = join(&mut r, 1);
+        let _b = join(&mut r, 2);
+        r.on_msg(2, ClientMsg::SetSeatFill { seat: 3, fill: SeatFill::Empty });
+        assert_eq!(last_room(&mut a).fills[3], SeatFill::Bot, "not the leader: ignored");
+        r.on_msg(1, ClientMsg::SetSeatFill { seat: 3, fill: SeatFill::Empty });
+        r.on_msg(1, ClientMsg::SetSeatFill { seat: 9, fill: SeatFill::Empty });
+        assert_eq!(last_room(&mut a).fills, [SeatFill::Bot, SeatFill::Bot, SeatFill::Bot, SeatFill::Empty]);
+        r.on_msg(1, ClientMsg::Start);
+        let run = r.running.as_ref().unwrap();
+        assert_eq!(run.seats, [Some(1), Some(2), None, None]);
+        assert!(!run.m.f[2].absent && run.m.f[3].absent, "seat 3 is a bot, seat 4 is empty");
+        // Settings can't change mid-match.
+        r.on_msg(1, ClientMsg::SetSeatFill { seat: 2, fill: SeatFill::Empty });
+        assert_eq!(r.fills[2], SeatFill::Bot);
+    }
+
+    #[test]
+    fn a_leaver_hands_over_the_lead_and_their_fighter_plays_on_as_a_bot() {
+        let mut r = room();
+        let _a = join(&mut r, 1);
+        let mut b = join(&mut r, 2);
+        r.on_msg(1, ClientMsg::Start);
+        r.handle(RoomCmd::Leave { id: 1 });
+        assert_eq!(r.leader, 2);
+        assert_eq!(r.running.as_ref().unwrap().seats[0], None, "seat 1 is a bot now");
+        assert_eq!(last_room(&mut b).players.len(), 1);
+    }
+
+    #[test]
+    fn a_match_plays_out_to_results_for_the_seats_in_it() {
+        let mut r = room();
+        let mut a = join(&mut r, 1);
+        r.on_msg(1, ClientMsg::SetSeatFill { seat: 1, fill: SeatFill::Empty });
+        r.on_msg(1, ClientMsg::Start);
+        let mut ticks = 0;
+        while r.running.is_some() {
+            r.step();
+            ticks += 1;
+            assert!(ticks <= go_box_sim::sim::MAX_TICKS + 1, "the match never ended");
+        }
+        let res = last_room(&mut a).last_results.expect("results");
+        assert_eq!(res.seats.len(), 3, "the empty seat isn't on the scoreboard");
+        assert!(res.seats[1].bot && !res.seats[0].bot);
+        assert!(res.winner.is_none_or(|w| w < 3));
+    }
+
+    #[test]
+    fn inputs_are_ordered_and_a_backlog_is_trimmed() {
+        let mut r = room();
+        let _a = join(&mut r, 1);
+        let input = |seq| ClientMsg::Input { seq, action: Action::default() };
+        r.on_msg(1, input(1));
+        assert!(r.players[0].inputs.is_empty(), "no inputs before the match");
+        r.on_msg(1, ClientMsg::Start);
+        for seq in 1..=20 {
+            r.on_msg(1, input(seq));
+        }
+        r.on_msg(1, input(5));
+        let p = &r.players[0];
+        assert!(p.inputs.len() <= INPUT_BACKLOG_MAX, "backlog of {}", p.inputs.len());
+        assert_eq!(p.inputs.back().unwrap().0, 20, "a stale input was dropped, the newest kept");
+    }
 
     #[test]
     fn hostile_inputs_are_tamed() {

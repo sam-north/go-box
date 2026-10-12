@@ -162,3 +162,111 @@ impl Game {
         Some(Match::from_view(view, events))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use go_box_protocol::Seat;
+    use go_box_sim::brain::Brain;
+    use go_box_sim::character::Character;
+
+    /// You're in seat 0; the others are bots that stand still (all-zero brains).
+    fn game() -> Game {
+        let seats = std::array::from_fn(|i| Seat { name: String::new(), character: Character::Classic, player: (i == 0).then_some(1) });
+        Game::new(MatchStart { seats, your_seat: Some(0) })
+    }
+
+    /// The server's match: nothing lying around, nobody else moving.
+    fn server() -> (Match, Brain) {
+        let mut m = Match::new(3, 0..=0);
+        m.items.clear();
+        (m, Brain { w: vec![0.0; Brain::N_WEIGHTS] })
+    }
+
+    fn snapshot(m: &Match, ack: u32, events: Vec<Event>) -> Snapshot {
+        Snapshot { ack, view: m.view(), events }
+    }
+
+    const RIGHT: Action = Action { mv: 1.0, run: true, jump: false, attack: false, throw: false, aim: 0.3, grab: false, special: false, target: None };
+
+    #[test]
+    fn a_snapshot_behind_your_inputs_is_caught_up_by_replaying_them() {
+        let (mut m, z) = server();
+        let mut g = game();
+        g.on_snapshot(snapshot(&m, 0, Vec::new()));
+        let mut e = Vec::new();
+        for seq in 1..=10 {
+            g.local_tick(seq, RIGHT, &mut e);
+        }
+        // The server has only applied the first 6 when it sends its next snapshot.
+        for _ in 0..6 {
+            m.step_with([&z; N_FIGHTERS], Some((0, RIGHT)));
+        }
+        g.on_snapshot(snapshot(&m, 6, Vec::new()));
+        // Where you'll be once the server applies the other 4 too.
+        let mut ahead = m.f[0].clone();
+        for _ in 0..4 {
+            predict(&mut ahead, 0, RIGHT, &mut Vec::new());
+        }
+        assert!((g.me().unwrap().pos - ahead.pos).length() < 1e-4, "predicted {} vs {}", g.me().unwrap().pos, ahead.pos);
+        assert!(ahead.pos.x > m.f[0].pos.x, "and that's ahead of the snapshot");
+    }
+
+    #[test]
+    fn small_corrections_are_smoothed_but_big_ones_snap() {
+        let (mut m, _) = server();
+        let mut g = game();
+        g.on_snapshot(snapshot(&m, 0, Vec::new()));
+        // A nudge: drawn where you were, easing toward the corrected spot.
+        m.tick += 1;
+        m.f[0].pos.x += 3.0;
+        g.on_snapshot(snapshot(&m, 0, Vec::new()));
+        let drawn = g.frame(0.0).unwrap().f[0].pos;
+        assert!((drawn.x - (m.f[0].pos.x - 3.0)).abs() < 1e-4, "drawn at {}", drawn.x);
+        // A teleport: shown at once.
+        m.tick += 1;
+        m.f[0].pos.x += 100.0;
+        g.on_snapshot(snapshot(&m, 0, Vec::new()));
+        assert_eq!(g.frame(0.0).unwrap().f[0].pos, m.f[0].pos);
+    }
+
+    #[test]
+    fn each_event_is_played_once() {
+        let (mut m, z) = server();
+        let mut g = game();
+        for k in 0..5 {
+            m.step([&z; N_FIGHTERS]);
+            g.on_snapshot(snapshot(&m, 0, vec![Event::Spawn { pos: Vec2::new(k as f32, 0.0) }]));
+        }
+        let mut seen = Vec::new();
+        for _ in 0..60 {
+            seen.extend(g.frame(1.0 / 60.0).unwrap().events);
+        }
+        let xs: Vec<f32> = seen.iter().map(|e| if let Event::Spawn { pos } = e { pos.x } else { -1.0 }).collect();
+        assert_eq!(xs, [0.0, 1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn interpolation_copes_with_an_item_appearing() {
+        // A match with items lying around; the second snapshot has one more than the first.
+        let mut m = Match::new(3, 0..=0);
+        let z = Brain { w: vec![0.0; Brain::N_WEIGHTS] };
+        let all = m.items.clone();
+        let mut g = game();
+        m.items = all[..2].to_vec();
+        m.step([&z; N_FIGHTERS]);
+        g.on_snapshot(snapshot(&m, 0, Vec::new()));
+        m.items = all[..3].to_vec();
+        m.step([&z; N_FIGHTERS]);
+        g.on_snapshot(snapshot(&m, 0, Vec::new()));
+        // In between, items are drawn as in the earlier snapshot rather than paired up wrongly.
+        let mut drawn = None;
+        for _ in 0..12 {
+            let f = g.frame(1.0 / 60.0).unwrap();
+            if f.tick == m.tick - 1 {
+                drawn = Some(f.items.len());
+            }
+        }
+        assert_eq!(drawn, Some(2));
+    }
+}
