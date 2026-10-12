@@ -407,11 +407,11 @@ impl Art {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 10, character_color(Character::Austin), false, 70.0, 0.3, 0.0);
                 }
                 Event::BombCrunch { pos } => {
-                    // Debris sucked in from the edge of its reach.
-                    for i in 0..36 {
+                    // Debris sucked in from all over the map, thickest near the bomb.
+                    for i in 0..70 {
                         let seed = (self.time * 1000.0) as i32 + i * 17;
                         let a = hash(seed, 0, 61) * std::f32::consts::TAU;
-                        let r = BOMB_PULL_RADIUS * (0.6 + hash(seed, 1, 61) * 0.4);
+                        let r = BOMB_PULL_RADIUS * (0.4 + hash(seed, 1, 61).powi(2) * 5.0);
                         let from = pos + vec2(a.cos(), a.sin()) * r;
                         let life = BOMB_CRUNCH as f32 / 60.0;
                         self.particles.push(Particle { pos: from, vel: (pos - from) / life, color: GRAV, life, stick: false, gravity: 0.0 });
@@ -751,6 +751,10 @@ fn draw_bomb(b: &Bomb, time: f32) {
         }
         Some(left) => {
             let k = left as f32 / BOMB_CRUNCH as f32;
+            // The pull reaches the whole map: faint rings sweep in from beyond the walls.
+            for (r0, a) in [(W, 0.18), (W * 0.6, 0.28)] {
+                draw_circle_lines(c.x, c.y, r0 * k, 1.0, Color::new(GRAV.r, GRAV.g, GRAV.b, a * (1.0 - k * 0.5)));
+            }
             draw_circle(c.x, c.y, BOMB_PULL_RADIUS * k, Color::new(GRAV.r * 0.3, GRAV.g * 0.3, GRAV.b * 0.3, 0.18 * (1.0 - k)));
             draw_circle_lines(c.x, c.y, BOMB_PULL_RADIUS * k, 1.0, Color::new(GRAV.r, GRAV.g, GRAV.b, 0.9));
             draw_circle(c.x, c.y, 3.0 + 3.0 * (1.0 - k), Color::new(0.02, 0.05, 0.03, 0.95));

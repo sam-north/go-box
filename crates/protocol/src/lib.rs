@@ -9,7 +9,7 @@ use go_box_sim::sim::{Action, Event, MatchView, N_FIGHTERS};
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 3;
+pub const PROTOCOL_VERSION: u16 = 4;
 
 /// Players per room (one per seat). Empty seats are bots.
 pub const MAX_PLAYERS: usize = N_FIGHTERS;

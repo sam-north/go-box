@@ -4,15 +4,17 @@
 //!
 //! All tuning lives in the constants at the top of this file.
 
-use crate::sim::{Aabb, Event, Fighter, Match, Source, DT, N_FIGHTERS, PLATFORMS, SOLIDS};
+use crate::sim::{Aabb, Event, Fighter, Match, Source, DT, N_FIGHTERS, PLATFORMS, SOLIDS, W};
 use glam::{vec2, Vec2};
 use serde::{Deserialize, Serialize};
 
 const SECOND: u32 = 60;
 
 // Sam — Gravity Bomb. Lobbed ahead of him; it goes off when it lands, touches someone, or its
-// fuse runs out. Going off, it yanks everyone within BOMB_PULL_RADIUS into the middle over
-// BOMB_CRUNCH ticks (no outrunning it), then explodes.
+// fuse runs out. Going off, it yanks everyone on the map toward it for BOMB_CRUNCH ticks (no
+// fighting it), then explodes. Within BOMB_PULL_RADIUS you're hauled right into the middle;
+// farther out the yank weakens with distance (BOMB_PULL_FALLOFF): roughly 65px of drag from
+// 150px away, 40px from 300px, 30px from across the arena.
 const BOMB_COOLDOWN: u32 = 30 * SECOND;
 /// Throw velocity (px/s, x is along Sam's facing): lands ~90px ahead on flat ground.
 const BOMB_THROW: Vec2 = Vec2::new(170.0, -150.0);
@@ -22,6 +24,9 @@ pub const BOMB_PULL_RADIUS: f32 = 76.0;
 /// The yank: a quarter second from the edge to the middle.
 pub const BOMB_CRUNCH: u32 = 15;
 const BOMB_PULL_MAX_SPEED: f32 = 420.0;
+/// Beyond BOMB_PULL_RADIUS the yank's top speed scales by (BOMB_PULL_RADIUS / distance) to
+/// this power.
+const BOMB_PULL_FALLOFF: f32 = 0.7;
 pub const BOMB_BLAST_RADIUS: f32 = 30.0;
 const BOMB_DAMAGE: f32 = 34.0;
 /// Damage at the blast's edge, as a fraction of the full hit.
@@ -31,12 +36,14 @@ const BOMB_EDGE: f32 = 0.4;
 const POPUP_COOLDOWN: u32 = 15 * SECOND;
 /// Austin never lands closer than this to a living opponent (if anywhere allows it).
 const POPUP_MIN_GAP: f32 = 40.0;
+/// Pop-Up only goes the way Austin is facing, at least this far.
+const POPUP_MIN_AHEAD: f32 = 24.0;
 
 // Tyler — Release the Hounds.
 const HOUNDS_COOLDOWN: u32 = 30 * SECOND;
 const HOUNDS: [f32; 3] = [110.0, 125.0, 140.0];
 const HOUND_TICKS: u32 = 5 * SECOND;
-const BITE_DAMAGE: f32 = 6.0;
+const BITE_DAMAGE: f32 = 15.0;
 const BITE_EVERY: u32 = SECOND / 2;
 pub const DOG_HALF_W: f32 = 3.0;
 pub const DOG_H: f32 = 5.0;
@@ -100,7 +107,7 @@ impl Special for GravityBomb {
     fn activate(&self, m: &mut Match, who: usize) {
         let f = &m.f[who];
         let vel = vec2(BOMB_THROW.x * f.facing, BOMB_THROW.y) + f.vel * 0.5;
-        m.bombs.push(Bomb { pos: f.hand(), vel, owner: who, fuse: BOMB_FUSE, crunch: None, caught: [false; N_FIGHTERS] });
+        m.bombs.push(Bomb { pos: f.hand(), vel, owner: who, fuse: BOMB_FUSE, crunch: None, pull: [0.0; N_FIGHTERS] });
     }
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
         let me = &m.f[who];
@@ -123,11 +130,15 @@ impl Special for PopUp {
     }
     fn activate(&self, m: &mut Match, who: usize) {
         let from = m.f[who].center();
-        // The best of a handful of random standing spots: the first far enough from everyone,
-        // else whichever is farthest from its nearest opponent.
+        // Only somewhere ahead of him (at least POPUP_MIN_AHEAD), on any level. If he's up
+        // against the wall with nowhere ahead, he pops up where he stands.
+        let (x, facing) = (m.f[who].pos.x, m.f[who].facing);
+        let (lo, hi) = if facing > 0.0 { (x + POPUP_MIN_AHEAD, W) } else { (0.0, x - POPUP_MIN_AHEAD) };
+        // The best of a handful of random standing spots there: the first far enough from
+        // everyone, else whichever is farthest from its nearest opponent.
         let mut best = (f32::MIN, m.f[who].pos);
         for _ in 0..24 {
-            let spot = m.random_surface_spot();
+            let Some(spot) = m.random_surface_spot_between(lo, hi) else { break };
             let gap = foes(m, who).map(|f| f.pos.distance(spot)).fold(f32::MAX, f32::min);
             if gap > best.0 {
                 best = (gap, spot);
@@ -195,8 +206,8 @@ pub struct Bomb {
     pub fuse: u32,
     /// None while flying; once it's gone off, the ticks left before it explodes.
     pub crunch: Option<u32>,
-    /// Who was in range when it went off (they're the ones being pulled).
-    pub caught: [bool; N_FIGHTERS],
+    /// How hard each fighter is being yanked (0..1), fixed by their distance when it went off.
+    pub pull: [f32; N_FIGHTERS],
 }
 
 /// One of Tyler's dogs: runs along floors, turns at walls, bites anyone but Tyler.
@@ -301,29 +312,30 @@ impl Match {
         if !hit {
             return;
         }
-        let caught = std::array::from_fn(|j| j != owner && self.f[j].alive() && self.f[j].center().distance(pos) < BOMB_PULL_RADIUS);
+        let pull = std::array::from_fn(|j| if j == owner || !self.f[j].alive() { 0.0 } else { pull_strength(self.f[j].center().distance(pos)) });
         let bomb = &mut self.bombs[b];
         bomb.vel = Vec2::ZERO;
         bomb.crunch = Some(BOMB_CRUNCH);
-        bomb.caught = caught;
+        bomb.pull = pull;
         self.events.push(Event::BombCrunch { pos });
     }
 
-    /// A bomb that's gone off: hauls everyone it caught into the middle (they can't fight it),
+    /// A bomb that's gone off: yanks everyone toward the middle (they can't fight it, and the
+    /// far side of the map feels it too, just less),
     /// then explodes.
     fn crunch_bomb(&mut self, b: usize, left: u32) {
-        let Bomb { pos, owner, caught, .. } = self.bombs[b];
+        let Bomb { pos, owner, pull, .. } = self.bombs[b];
         let left = left - 1;
         self.bombs[b].crunch = Some(left);
         for j in 0..N_FIGHTERS {
             let f = &mut self.f[j];
-            if !caught[j] || !f.alive() {
+            if pull[j] <= 0.0 || !f.alive() {
                 continue;
             }
             // Aim to arrive just as it blows; speed is capped so it's a yank, not a teleport.
             let to = pos - f.center();
             let secs = (left.max(1)) as f32 * DT;
-            f.vel = (to / secs).clamp_length_max(BOMB_PULL_MAX_SPEED);
+            f.vel = (to / secs).clamp_length_max(BOMB_PULL_MAX_SPEED * pull[j]);
             f.grounded = false;
             f.hitstun = f.hitstun.max(2);
             f.atk_timer = 0;
@@ -342,6 +354,12 @@ impl Match {
             self.damage(owner, j, dmg, away * 240.0 + vec2(0.0, -110.0), 14, if away.x == 0.0 { 1.0 } else { away.x.signum() }, Source::Special, false);
         }
     }
+}
+
+/// How hard a gravity bomb yanks someone `d` px away: fully within BOMB_PULL_RADIUS, then
+/// weaker with distance (but never nothing).
+fn pull_strength(d: f32) -> f32 {
+    if d <= BOMB_PULL_RADIUS { 1.0 } else { (BOMB_PULL_RADIUS / d).powf(BOMB_PULL_FALLOFF) }
 }
 
 fn run_dog(dog: &mut Dog) {
@@ -447,18 +465,30 @@ mod tests {
     }
 
     #[test]
-    fn austin_pops_up_away_from_everyone() {
+    fn austin_pops_up_ahead_and_away_from_everyone() {
         let z = zero_brain();
-        for seed in 0..20 {
-            let mut m = staged([Character::Austin, Character::Classic, Character::Classic, Character::Classic], [150.0, 140.0, 160.0, 170.0]);
+        for seed in 0..40 {
+            let facing = if seed % 2 == 0 { 1.0 } else { -1.0 };
+            let mut m = staged([Character::Austin, Character::Classic, Character::Classic, Character::Classic], [240.0, 230.0, 250.0, 260.0]);
+            m.f[0].facing = facing;
             m.rng_reseed(seed);
             step_idle(&mut m, &z, true);
             let a = &m.f[0];
+            assert!((a.pos.x - 240.0) * facing >= POPUP_MIN_AHEAD, "facing {facing}, landed at x {}", a.pos.x);
             let gap = m.f[1..].iter().map(|f| f.pos.distance(a.pos)).fold(f32::MAX, f32::min);
             assert!(gap >= POPUP_MIN_GAP, "landed {gap} from a foe");
             assert!(a.grounded && a.vel == Vec2::ZERO);
             assert_eq!(m.events.iter().filter(|e| matches!(e, Event::Poof { .. })).count(), 2);
         }
+    }
+
+    #[test]
+    fn austin_against_the_wall_stays_put() {
+        let z = zero_brain();
+        let mut m = staged([Character::Austin, Character::Classic, Character::Classic, Character::Classic], [14.0, 200.0, 300.0, 400.0]);
+        m.f[0].facing = -1.0;
+        step_idle(&mut m, &z, true);
+        assert_eq!(m.f[0].pos.x, 14.0);
     }
 
     #[test]
@@ -486,8 +516,10 @@ mod tests {
         // The second fighter was dragged right in and caught the blast too.
         assert!(m.f[2].center().distance(pos) < BOMB_BLAST_RADIUS, "second fighter ended {} away", m.f[2].center().distance(pos));
         assert!(m.f[1].hp < MAX_HP && m.f[2].hp < MAX_HP, "both near fighters hurt: {} {}", m.f[1].hp, m.f[2].hp);
-        assert_eq!(m.f[3].hp, MAX_HP, "out of range: untouched");
-        assert_eq!(m.f[3].pos.x, 440.0);
+        // The far one (~245px away) is out of the blast but still dragged a fair way in.
+        assert_eq!(m.f[3].hp, MAX_HP, "out of the blast: unhurt");
+        let dragged = 440.0 - m.f[3].pos.x;
+        assert!(dragged > 25.0 && dragged < 70.0, "far fighter dragged {dragged}px");
         assert_eq!(m.f[0].hp, MAX_HP, "Sam is unaffected");
         assert!(m.f[0].dmg_special > 0.0);
     }

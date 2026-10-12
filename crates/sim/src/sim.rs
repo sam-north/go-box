@@ -445,17 +445,29 @@ fn one_hot(kind: Option<ItemKind>) -> [f32; 3] {
 /// A random spot on top of the floor or a platform — everywhere a fighter can stand. Wider
 /// surfaces are proportionally more likely.
 fn random_surface_spot(rng: &mut impl Rng) -> Vec2 {
+    random_surface_spot_between(rng, 0.0, W).unwrap_or(vec2(W / 2.0, FLOOR_Y))
+}
+
+/// Like `random_surface_spot`, but only spots with `lo <= x <= hi`. None if no surface reaches
+/// into that range.
+fn random_surface_spot_between(rng: &mut impl Rng, lo: f32, hi: f32) -> Option<Vec2> {
     let floor = (WALL + 6.0, W - WALL - 6.0, FLOOR_Y);
-    let surfaces = std::iter::once(floor).chain(PLATFORMS.iter().map(|p| (p.x + 3.0, p.x + p.w - 3.0, p.y)));
+    let surfaces = std::iter::once(floor)
+        .chain(PLATFORMS.iter().map(|p| (p.x + 3.0, p.x + p.w - 3.0, p.y)))
+        .map(|(x0, x1, y)| (x0.max(lo), x1.min(hi), y))
+        .filter(|(x0, x1, _)| x1 > x0);
     let total: f32 = surfaces.clone().map(|(x0, x1, _)| x1 - x0).sum();
+    if total <= 0.0 {
+        return None;
+    }
     let mut pick = rng.gen_range(0.0..total);
     for (x0, x1, y) in surfaces {
         if pick < x1 - x0 {
-            return vec2(x0 + pick, y);
+            return Some(vec2(x0 + pick, y));
         }
         pick -= x1 - x0;
     }
-    vec2(W / 2.0, FLOOR_Y)
+    None
 }
 
 pub struct Match {
@@ -512,8 +524,8 @@ impl Match {
         }
     }
 
-    pub(crate) fn random_surface_spot(&mut self) -> Vec2 {
-        random_surface_spot(&mut self.rng)
+    pub(crate) fn random_surface_spot_between(&mut self, lo: f32, hi: f32) -> Option<Vec2> {
+        random_surface_spot_between(&mut self.rng, lo, hi)
     }
 
     /// A 1v1 in seats 0 and 2; the other two seats are empty.

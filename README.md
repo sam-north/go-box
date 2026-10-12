@@ -32,9 +32,9 @@ Everyone has the same body; each character adds one special on a cooldown.
 | Character | Special | Cooldown |
 |---|---|---|
 | Classic | none — the hooded fighter the brains were trained as | — |
-| Sam | **Gravity Bomb**: lobs a bomb ~90px ahead; it goes off when it lands or touches someone, yanks everyone within 76px into the middle in a quarter second, then explodes for up to 34 | 30s |
-| Austin | **Pop-Up**: teleports to a random spot at least 40px from everyone | 15s |
-| Tyler | **Release the Hounds**: three dogs run the floors for 5s, biting anyone but Tyler | 30s |
+| Sam | **Gravity Bomb**: lobs a bomb ~90px ahead; it goes off when it lands or touches someone and yanks everyone on the map toward it for a quarter second (anyone within 76px right into the middle, the rest less the farther away they are), then explodes for up to 34 | 30s |
+| Austin | **Pop-Up**: teleports to a random spot in the direction he's facing (any level), at least 40px from everyone if possible | 15s |
+| Tyler | **Release the Hounds**: three dogs run the floors for 5s, biting anyone but Tyler for 15 (each dog at most twice a second per victim) | 30s |
 
 Bots playing a character use its special by a simple rule (the brains never trained with
 specials). Tuning lives at the top of `crates/sim/src/character.rs`; looks in
