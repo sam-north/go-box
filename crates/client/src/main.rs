@@ -86,6 +86,7 @@ async fn main() {
         preview_at: 0.0,
         rng: SmallRng::seed_from_u64((get_time() * 1e6) as u64),
         was_over: false,
+        create_open: false,
     };
     if opts.create {
         app.create_room();

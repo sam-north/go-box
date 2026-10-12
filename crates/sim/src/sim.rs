@@ -208,7 +208,7 @@ pub struct Fighter {
     pub headshots: u32,
     #[serde(skip)]
     pub kills: u32,
-    /// Size: 1 for everyone but Seth's minis (0.5).
+    /// Size: 1 for everyone but Seth's minis (smaller; see `MINI_SCALE`).
     pub scale: f32,
     /// For a mini: the seat that summoned it (its team; credited with what it does).
     pub owner: Option<usize>,

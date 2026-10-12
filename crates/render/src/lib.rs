@@ -50,11 +50,9 @@ const GRAV: Color = Color::new(0.45, 0.85, 0.55, 1.0);
 const SMOKE: Color = Color::new(0.75, 0.74, 0.70, 0.8);
 /// The protected-start shield.
 const SHIELD: Color = Color::new(0.55, 0.85, 1.0, 1.0);
-/// The full-size picture a mini is drawn into (pixels), how far down it its feet sit (0..1), and
-/// how solid the shrunk copy looks on the arena.
+/// The full-size picture a mini is drawn into (pixels), and how far down it its feet sit (0..1).
 const MINI_SPRITE: (u32, u32) = (40, 48);
 const MINI_FEET: f32 = 38.0 / 48.0;
-const MINI_ALPHA: f32 = 0.72;
 
 /// How a character looks as drawn: Classic is the hooded figure the brains were trained as;
 /// the named characters show their hair and wear their colour.
@@ -465,7 +463,7 @@ pub struct Art {
     rain: Vec<Drop>,
     vis: [FighterVis; N_BODIES],
     /// Seth's minis are drawn full size into these, then shrunk onto the arena (drawing them
-    /// straight at half size would lose their 1px limbs).
+    /// straight at a smaller size would lose their 1px limbs).
     minis: Vec<RenderTarget>,
     /// Recent explosions (position, seconds since) for the flash.
     blasts: Vec<(Vec2, f32, f32)>,
@@ -755,10 +753,10 @@ impl Art {
         for i in order {
             let f = &m.f[i];
             if i >= N_FIGHTERS {
-                // A mini: its full-size picture (from `update`), shrunk and a little see-through.
+                // A mini: its full-size picture (from `update`), shrunk to its size.
                 let (w, h) = (MINI_SPRITE.0 as f32 * f.scale, MINI_SPRITE.1 as f32 * f.scale);
                 let params = DrawTextureParams { dest_size: Some(vec2(w, h)), ..Default::default() };
-                draw_texture_ex(&self.minis[i - N_FIGHTERS].texture, f.pos.x - w / 2.0, f.pos.y - h * MINI_FEET, Color::new(1.0, 1.0, 1.0, MINI_ALPHA), params);
+                draw_texture_ex(&self.minis[i - N_FIGHTERS].texture, f.pos.x - w / 2.0, f.pos.y - h * MINI_FEET, WHITE, params);
                 continue;
             }
             let flash = f.hitstun > 0 && (f.hitstun / 2) % 2 == 0;

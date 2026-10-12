@@ -43,13 +43,13 @@ const POPUP_MIN_GAP: f32 = 40.0;
 const POPUP_DISTANCE: f32 = 160.0;
 const POPUP_MIN_AHEAD: f32 = 24.0;
 
-// Seth — Mini Me: summons half-size clones of himself that fight on his side with the bot brain,
+// Seth — Mini Me: summons smaller (70%) clones of himself that fight on his side with the bot brain,
 // pick things up and throw them like anyone, and go down to a single hit.
 const MINI_COOLDOWN: u32 = 30 * SECOND;
 const MINIS_PER_USE: usize = 2;
 /// How long a mini lasts (if nothing hits it first; and it goes when Seth does).
 const MINI_LIFE: u32 = 15 * SECOND;
-pub const MINI_SCALE: f32 = 0.5;
+pub const MINI_SCALE: f32 = 0.7;
 
 // Tyler — Release the Hounds.
 const HOUNDS_COOLDOWN: u32 = 30 * SECOND;
@@ -1063,7 +1063,7 @@ mod tests {
         assert_eq!(minis.len(), MINIS_PER_USE);
         let a = minis[0];
         assert_eq!((m.f[a].scale, m.f[a].owner, m.f[a].hp), (MINI_SCALE, Some(0), 1.0));
-        assert!(m.f[a].body().h < m.f[0].body().h * 0.6, "half size");
+        assert!(m.f[a].body().h < m.f[0].body().h * 0.8, "smaller than a full fighter");
         // On Seth's side: not each other's foes, everyone else's.
         assert!(!m.foes(a, 0) && !m.foes(0, a) && !m.foes(a, minis[1]));
         assert!(m.foes(a, 1) && m.foes(1, a));

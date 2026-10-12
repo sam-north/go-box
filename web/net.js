@@ -15,6 +15,15 @@
     return bytes.length;
   };
 
+  // Text pasted into the page (Ctrl+V), waiting for the game to take it (see `go_text` kind 3).
+  // miniquad hears the key before the browser hands over the text, so the game can't just read
+  // the clipboard when Ctrl+V goes down.
+  const pastes = [];
+  window.addEventListener("paste", (e) => {
+    const t = (e.clipboardData || window.clipboardData).getData("text");
+    if (t) pastes.push(t);
+  });
+
   // Right click is melee: don't open the browser's menu over the game.
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
@@ -55,13 +64,15 @@
         return 0;
       };
 
-      // kind 0: URL query parameter `key`; 1: localStorage `key`; 2: share link for room `key`.
+      // kind 0: URL query parameter `key`; 1: localStorage `key`; 2: share link for room `key`;
+      // 3: the next thing pasted ("" if nothing).
       env.go_text = (kind, kp, kl, out, cap) => {
         const key = str(kp, kl);
         let v = "";
         try {
           if (kind === 0) v = new URLSearchParams(location.search).get(key) || "";
           else if (kind === 1) v = localStorage.getItem(key) || "";
+          else if (kind === 3) v = pastes.shift() || "";
           else if (kind === 2) { const u = new URL(location.href); u.search = ""; u.hash = ""; u.searchParams.set("room", key); v = u.toString(); }
         } catch (e) { /* storage blocked, etc. */ }
         return put(v, out, cap);

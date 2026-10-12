@@ -69,6 +69,11 @@ mod imp {
     pub fn copy(text: &str) {
         set(2, "", text);
     }
+
+    /// Whatever was pasted into the page since last asked (the browser's paste event).
+    pub fn take_paste() -> Option<String> {
+        Some(get(3, "")).filter(|s| !s.is_empty())
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -106,6 +111,13 @@ mod imp {
 
     pub fn copy(text: &str) {
         macroquad::miniquad::window::clipboard_set(text);
+    }
+
+    /// The clipboard, when Ctrl+V was just pressed.
+    pub fn take_paste() -> Option<String> {
+        use macroquad::input::{KeyCode, is_key_down, is_key_pressed};
+        let ctrl = is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl);
+        if ctrl && is_key_pressed(KeyCode::V) { macroquad::miniquad::window::clipboard_get() } else { None }
     }
 }
 

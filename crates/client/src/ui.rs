@@ -41,6 +41,10 @@ pub struct Ui {
     clicked: bool,
     pub focus: Option<Field>,
     typed: Vec<char>,
+    /// Text pasted this frame, and whether copy (Ctrl+C) or cut (Ctrl+X) was pressed.
+    pasted: Option<String>,
+    copy: bool,
+    cut: bool,
     backspace: bool,
     pub enter: bool,
     /// Something consumed this frame's click (so a click on a button doesn't also unfocus).
@@ -69,7 +73,7 @@ fn same_rect(a: Rect, b: Rect) -> bool {
 
 impl Ui {
     pub fn new() -> Self {
-        Self { s: 1.0, mouse: Vec2::ZERO, clicked: false, focus: None, typed: Vec::new(), backspace: false, enter: false, hot: false,
+        Self { s: 1.0, mouse: Vec2::ZERO, clicked: false, focus: None, typed: Vec::new(), pasted: None, copy: false, cut: false, backspace: false, enter: false, hot: false,
             blocked: false,
             dragging: None,
             pressed: false,
@@ -92,9 +96,16 @@ impl Ui {
         self.hot = false;
         self.pressed = false;
         self.typed.clear();
+        // (Ctrl or Cmd shortcuts aren't typing.)
+        let ctrl = [KeyCode::LeftControl, KeyCode::RightControl, KeyCode::LeftSuper, KeyCode::RightSuper].into_iter().any(is_key_down);
         while let Some(c) = get_char_pressed() {
-            self.typed.push(c);
+            if !ctrl {
+                self.typed.push(c);
+            }
         }
+        self.pasted = crate::platform::take_paste();
+        self.copy = ctrl && is_key_pressed(KeyCode::C);
+        self.cut = ctrl && is_key_pressed(KeyCode::X);
         self.backspace = is_key_pressed(KeyCode::Backspace);
         self.enter = is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::KpEnter);
     }
@@ -285,8 +296,9 @@ impl Ui {
         changed
     }
 
-    /// A single-line text box. `filter` maps typed characters (None = rejected). Returns true
-    /// when Enter is pressed in it.
+    /// A single-line text box. `filter` maps typed (or pasted) characters (None = rejected).
+    /// Ctrl+V pastes; Ctrl+C copies and Ctrl+X cuts the whole box (not the passphrase).
+    /// Returns true when Enter is pressed in it.
     pub fn field(&mut self, id: Field, r: Rect, text: &mut String, placeholder: &str, max: usize, filter: impl Fn(char) -> Option<char>) -> bool {
         if self.clicked && self.hovered(r) {
             self.focus = Some(id);
@@ -294,11 +306,25 @@ impl Ui {
         }
         let focused = self.focus == Some(id);
         if focused {
-            for &c in &self.typed {
+            let mut pasted = self.pasted.as_deref().unwrap_or("");
+            // A whole invite link pasted into the room code box: just its code.
+            if id == Field::Code
+                && let Some((_, code)) = pasted.split_once("room=")
+            {
+                pasted = code.split('&').next().unwrap_or("");
+            }
+            let pasted = pasted.chars();
+            for c in self.typed.iter().copied().chain(pasted) {
                 if let Some(c) = filter(c)
                     && text.chars().count() < max
                 {
                     text.push(c);
+                }
+            }
+            if (self.copy || self.cut) && id != Field::Passphrase && !text.is_empty() {
+                crate::platform::copy(text);
+                if self.cut {
+                    text.clear();
                 }
             }
             if self.backspace {

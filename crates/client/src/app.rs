@@ -46,6 +46,8 @@ pub struct App {
     pub rng: SmallRng,
     /// The shown match had ended last frame (to play the result sound once).
     pub was_over: bool,
+    /// The home screen's "Create a room" section is open.
+    pub create_open: bool,
 }
 
 impl App {
