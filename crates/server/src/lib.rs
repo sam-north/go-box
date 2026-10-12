@@ -1,0 +1,158 @@
+//! The server as a library, so integration tests can run it in-process.
+
+mod conn;
+mod room;
+
+use axum::Router;
+use axum::extract::ws::WebSocketUpgrade;
+use axum::extract::State;
+use axum::response::IntoResponse;
+use axum::routing::get;
+use go_box_protocol::{CODE_ALPHABET, CODE_LEN, Difficulty};
+use go_box_sim::brain::Brain;
+use rand::Rng;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
+use tower_http::services::ServeDir;
+
+pub use room::RoomCmd;
+
+#[derive(Clone, Debug)]
+pub struct Config {
+    pub bind: String,
+    pub web: PathBuf,
+    pub brains: PathBuf,
+    pub max_rooms: usize,
+    pub max_connections: usize,
+}
+
+impl Config {
+    pub fn from_env() -> Result<Self, String> {
+        let var = |k: &str, d: &str| std::env::var(k).unwrap_or_else(|_| d.to_string());
+        let num = |k: &str, d: usize| -> Result<usize, String> { var(k, &d.to_string()).parse().map_err(|_| format!("{k} must be a number")) };
+        Ok(Self {
+            bind: var("GO_BOX_BIND", "127.0.0.1:7878"),
+            web: var("GO_BOX_WEB", "web").into(),
+            brains: var("GO_BOX_BRAINS", "brains").into(),
+            max_rooms: num("GO_BOX_MAX_ROOMS", 16)?,
+            max_connections: num("GO_BOX_MAX_CONNECTIONS", 64)?,
+        })
+    }
+}
+
+/// The bot brain for each difficulty, from the committed champions.
+pub struct Brains {
+    by_difficulty: [Brain; 3],
+}
+
+impl Brains {
+    const FILES: [&str; 3] = ["gen_031000.json", "gen_150000.json", "gen_219000.json"];
+
+    pub fn load(dir: &std::path::Path) -> Result<Self, String> {
+        let load = |name: &str| -> Result<Brain, String> {
+            let path = dir.join(name);
+            let text = std::fs::read_to_string(&path).map_err(|e| format!("can't read brain {}: {e}", path.display()))?;
+            let brain: Brain = serde_json::from_str(&text).map_err(|e| format!("bad brain {}: {e}", path.display()))?;
+            if !brain.is_current() {
+                return Err(format!("brain {} has the wrong shape", path.display()));
+            }
+            Ok(brain)
+        };
+        Ok(Self { by_difficulty: [load(Self::FILES[0])?, load(Self::FILES[1])?, load(Self::FILES[2])?] })
+    }
+
+    pub fn get(&self, d: Difficulty) -> &Brain {
+        &self.by_difficulty[d as usize]
+    }
+}
+
+/// Shared by every connection: the rooms that exist and the bot brains.
+pub struct Hub {
+    rooms: Mutex<HashMap<String, mpsc::Sender<RoomCmd>>>,
+    brains: Arc<Brains>,
+    next_id: AtomicU32,
+    connections: AtomicUsize,
+    config: Config,
+}
+
+impl Hub {
+    fn new(config: Config, brains: Brains) -> Arc<Self> {
+        Arc::new(Self { rooms: Mutex::new(HashMap::new()), brains: Arc::new(brains), next_id: AtomicU32::new(1), connections: AtomicUsize::new(0), config })
+    }
+
+    /// Opens a new room with a fresh code, or None if the server is at its room cap.
+    fn create_room(self: &Arc<Self>) -> Option<(String, mpsc::Sender<RoomCmd>)> {
+        let mut rooms = self.rooms.lock().unwrap();
+        if rooms.len() >= self.config.max_rooms {
+            return None;
+        }
+        let mut rng = rand::thread_rng();
+        let code = loop {
+            let code: String = (0..CODE_LEN).map(|_| CODE_ALPHABET[rng.gen_range(0..CODE_ALPHABET.len())] as char).collect();
+            if !rooms.contains_key(&code) {
+                break code;
+            }
+        };
+        let (tx, rx) = mpsc::channel(256);
+        rooms.insert(code.clone(), tx.clone());
+        tokio::spawn(room::run(code.clone(), rx, self.clone()));
+        tracing::info!(room = %code, rooms = rooms.len(), "room opened");
+        Some((code, tx))
+    }
+
+    fn find_room(&self, code: &str) -> Option<mpsc::Sender<RoomCmd>> {
+        self.rooms.lock().unwrap().get(&code.trim().to_ascii_uppercase()).cloned()
+    }
+
+    fn close_room(&self, code: &str) {
+        let mut rooms = self.rooms.lock().unwrap();
+        rooms.remove(code);
+        tracing::info!(room = %code, rooms = rooms.len(), "room closed");
+    }
+}
+
+/// Serves until `shutdown` resolves.
+pub async fn serve(listener: tokio::net::TcpListener, config: Config, shutdown: impl Future<Output = ()> + Send + 'static) {
+    let brains = match Brains::load(&config.brains) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::error!("{e}");
+            return;
+        }
+    };
+    if !config.web.join("index.html").exists() {
+        tracing::warn!("no browser client in {} (build it with scripts/build-web.sh); only /ws works", config.web.display());
+    }
+    let web = config.web.clone();
+    let hub = Hub::new(config, brains);
+    let app = Router::new().route("/ws", get(ws_handler)).fallback_service(ServeDir::new(web)).with_state(hub);
+    axum::serve(listener, app).with_graceful_shutdown(shutdown).await.unwrap();
+}
+
+async fn ws_handler(ws: WebSocketUpgrade, State(hub): State<Arc<Hub>>) -> impl IntoResponse {
+    // Messages are small; anything big is garbage.
+    ws.max_message_size(4096).max_frame_size(4096).on_upgrade(move |socket| conn::run(socket, hub))
+}
+
+/// Ensures the connection count goes back down however a connection ends.
+struct ConnectionSlot(Arc<Hub>);
+
+impl ConnectionSlot {
+    fn take(hub: &Arc<Hub>) -> Option<Self> {
+        let n = hub.connections.fetch_add(1, Ordering::SeqCst);
+        if n >= hub.config.max_connections {
+            hub.connections.fetch_sub(1, Ordering::SeqCst);
+            return None;
+        }
+        Some(Self(hub.clone()))
+    }
+}
+
+impl Drop for ConnectionSlot {
+    fn drop(&mut self) {
+        self.0.connections.fetch_sub(1, Ordering::SeqCst);
+    }
+}
