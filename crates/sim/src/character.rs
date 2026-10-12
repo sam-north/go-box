@@ -45,7 +45,8 @@ const POPUP_MIN_AHEAD: f32 = 24.0;
 
 // Tyler — Release the Hounds.
 const HOUNDS_COOLDOWN: u32 = 30 * SECOND;
-const HOUNDS: [f32; 3] = [110.0, 125.0, 140.0];
+/// Each dog's speed (px/s): a little faster than a fighter's full run, so they catch runners.
+const HOUNDS: [f32; 3] = [165.0, 180.0, 195.0];
 const HOUND_TICKS: u32 = 5 * SECOND;
 const BITE_DAMAGE: f32 = 15.0;
 const BITE_EVERY: u32 = SECOND / 2;

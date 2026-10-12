@@ -35,10 +35,21 @@ pub const HEAD_H: f32 = 4.0;
 const GRAVITY: f32 = 640.0;
 const MAX_FALL: f32 = 320.0;
 const JUMP_V: f32 = 250.0;
+// Moving: a quick start up to walking pace, then speed builds gradually to a full run (slow to
+// fast, ~0.4s from standing); stopping and turning are snappy, so it stays controllable. In the
+// air you can steer and reverse, just not as sharply as on the ground.
 const WALK: f32 = 45.0;
-const RUN: f32 = 85.0;
-const GROUND_ACC: f32 = 900.0;
-const AIR_ACC: f32 = 420.0;
+const RUN: f32 = 150.0;
+/// px/s²: getting going (up to walking pace), then building to a run.
+const GROUND_START: f32 = 900.0;
+const GROUND_BUILD: f32 = 290.0;
+/// Slowing down, stopping or turning around on the ground.
+const GROUND_BRAKE: f32 = 1400.0;
+const AIR_ACC: f32 = 600.0;
+const AIR_BRAKE: f32 = 950.0;
+/// The speed the bots' senses measure movement against: the run speed their brains were trained
+/// with. (Kept when RUN changed, so what they feel as "running" means the same.)
+const SENSE_SPEED: f32 = 85.0;
 pub const MAX_HP: f32 = 100.0;
 
 // Melee: fists, or the held item's own melee (a spear stabs); see `item.rs`.
@@ -606,7 +617,7 @@ impl Match {
             mark(&mut s, IN_THREAT, glimpse(arena, eye, e.threat_pos()));
         }
         let k = IN_SELF;
-        s[k] = me.vel.x / RUN;
+        s[k] = me.vel.x / SENSE_SPEED;
         s[k + 1] = me.vel.y / MAX_FALL;
         s[k + 2] = me.grounded as u8 as f32;
         s[k + 3] = me.hp / MAX_HP;
@@ -627,7 +638,7 @@ impl Match {
             s[e] = o.hp / MAX_HP;
             s[e + 1] = ((o.pos.x - me.pos.x) / 160.0).clamp(-1.0, 1.0);
             s[e + 2] = ((o.pos.y - me.pos.y) / 90.0).clamp(-1.0, 1.0);
-            s[e + 3] = (o.vel.x - me.vel.x) / (2.0 * RUN);
+            s[e + 3] = (o.vel.x - me.vel.x) / (2.0 * SENSE_SPEED);
             s[e + 4] = ((o.vel.y - me.vel.y) / MAX_FALL).clamp(-1.0, 1.0);
         }
         s[e + 5] = (0..N_FIGHTERS).filter(|&j| j != i && self.f[j].alive()).count() as f32 / (N_FIGHTERS - 1) as f32;
@@ -1123,6 +1134,20 @@ fn approach(v: f32, target: f32, step: f32) -> f32 {
     if v < target { (v + step).min(target) } else { (v - step).max(target) }
 }
 
+/// How hard a fighter moving at `v` changes speed toward `target` (px/s²).
+fn accel(v: f32, target: f32, grounded: bool) -> f32 {
+    // Stopping, turning around, or slowing to a lower speed (e.g. while swinging).
+    let braking = target == 0.0 || v * target < 0.0 || v.abs() > target.abs();
+    match (grounded, braking) {
+        (true, true) => GROUND_BRAKE,
+        (true, false) if v.abs() < WALK => GROUND_START,
+        (true, false) => GROUND_BUILD,
+        (false, true) => AIR_BRAKE,
+        // Speeding up in the air is no quicker than on the ground once past walking pace.
+        (false, false) => if v.abs() < WALK { AIR_ACC } else { GROUND_BUILD },
+    }
+}
+
 fn control(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
     if !f.alive() {
         f.vel.x *= 0.9;
@@ -1134,8 +1159,7 @@ fn control(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
         if f.atk_timer > 0 && f.grounded {
             target *= 0.4;
         }
-        let acc = if f.grounded { GROUND_ACC } else { AIR_ACC };
-        f.vel.x = approach(f.vel.x, target, acc * DT);
+        f.vel.x = approach(f.vel.x, target, accel(f.vel.x, target, f.grounded) * DT);
         if f.atk_timer == 0 && a.mv.abs() >= 0.2 {
             f.facing = a.mv.signum();
         }
@@ -1230,9 +1254,9 @@ mod tests {
         }
         assert_eq!(h, CLASSIC_HASH, "classic match fingerprint changed: {h:#018x}");
     }
-    // Last deliberately changed by the portable RNG (SimRng) and libm maths. It must come out
-    // the same on 32-bit targets too: `cargo test -p go-box-sim --target i686-pc-windows-msvc`.
-    const CLASSIC_HASH: u64 = 0x369f_a7c2_28c0_b89c;
+    // Last deliberately changed by faster running (ramped acceleration, more air control). It must
+    // come out the same on 32-bit targets too: `cargo test -p go-box-sim --target i686-pc-windows-msvc`.
+    const CLASSIC_HASH: u64 = 0x8eee_1fa0_80f7_4207;
 
     /// Everyone on the floor, nothing lying around, nobody thinking (all-zero brains stand still).
     fn quiet_match() -> (Match, Brain) {
@@ -1275,6 +1299,26 @@ mod tests {
         m.damage(0, 0, MAX_HP, Vec2::ZERO, 0, 1.0, Source::Fist, false);
         m.step([&z; N_FIGHTERS]);
         assert!(m.over && m.winner.is_none());
+    }
+
+    #[test]
+    fn running_builds_from_slow_to_fast_and_turns_quickly() {
+        let arena = ArenaId::default().def();
+        let mut f = Fighter::new(100.0, 1.0);
+        let run = Action { mv: 1.0, run: true, ..Action::default() };
+        let speed_after = |f: &mut Fighter, a: Action, ticks: u32| {
+            for _ in 0..ticks {
+                predict(arena, f, 0, a, &mut Vec::new());
+            }
+            f.vel.x
+        };
+        let early = speed_after(&mut f, run, secs(1) / 10);
+        assert!(early >= WALK && early < RUN * 0.5, "a quick start, then building: {early} after 0.1s");
+        let later = speed_after(&mut f, run, secs(1) * 35 / 100);
+        assert_eq!(later, RUN, "full speed within ~0.45s");
+        // Turning around: from full speed one way to moving the other in well under 0.2s.
+        let back = speed_after(&mut f, Action { mv: -1.0, ..run }, secs(1) * 15 / 100);
+        assert!(back < 0.0, "turned around: {back}");
     }
 
     #[test]

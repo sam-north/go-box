@@ -28,7 +28,7 @@ use go_box_sim::sim::{Action, ArenaId, Event, MatchConfig, MatchView, N_FIGHTERS
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 11;
+pub const PROTOCOL_VERSION: u16 = 12;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -313,8 +313,9 @@ mod tests {
         go_box_sim::glam::vec2(x, y)
     }
 
-    /// The wire format, pinned: the bytes of every sample message, hashed. If this fails, the
-    /// format changed: bump PROTOCOL_VERSION (so old clients are turned away instead of
+    /// The wire format, pinned: the bytes of every sample message, hashed. The samples include a
+    /// simulated match, so a change to the game's physics trips it too, which is right: clients
+    /// predict their own movement with that physics. If this fails, the format or the game changed: bump PROTOCOL_VERSION (so old clients are turned away instead of
     /// silently failing to decode), then update WIRE below to the new version and hash.
     #[test]
     fn wire_format_is_pinned() {
@@ -326,7 +327,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (11, 0xed18_3c23_845d_5327);
+    const WIRE: (u16, u64) = (12, 0xba1c_a3bb_af77_f1e1);
 
     #[test]
     fn every_sample_round_trips() {
