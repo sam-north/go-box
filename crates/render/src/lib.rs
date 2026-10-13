@@ -1060,6 +1060,10 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
     let elbow = ik(shoulder, hand, 3.0, 3.5, s);
     line(shoulder, elbow, 1.0, tint(look.arms, flash));
     line(elbow, hand, 1.0, tint(look.arms, flash));
+    // A punch (fists, nothing in hand): a comically big boxing glove on the end of the arm.
+    if f.holding.is_none() && f.atk_timer > 0 && f.atk_timer <= ATK_WINDUP + ATK_ACTIVE {
+        draw_glove(hand, s, f.atk_timer > ATK_WINDUP, flash);
+    }
     match look.hair {
         None => {
             // Hooded head with a pale face peeking out.
@@ -1296,6 +1300,33 @@ fn draw_glue(g: &Glue, m: &Match, time: f32) {
     // A drip hanging off the blob.
     let drip = 1.0 + ((time * 2.0 + a.x).sin() * 0.5 + 0.5) * 2.0;
     draw_rectangle(a.x.floor(), a.y.floor() + 2.0, 1.0, drip.round(), c(0.8));
+}
+
+/// A big, beat-up boxing glove at `hand`, facing `s`: weathered oxblood leather in the game's muted
+/// palette, blocky (wider than tall) with a stubby thumb, a worn tan cuff and a darker underside.
+/// Smaller while wound up; thrown, full size with a faint smear behind it.
+fn draw_glove(hand: Vec2, s: f32, out: bool, flash: bool) {
+    let (len, h) = if out { (7.0, 5.0) } else { (5.0, 4.0) };
+    let leather = tint(Color::new(0.47, 0.19, 0.16, 1.0), flash);
+    let shade = tint(Color::new(0.29, 0.12, 0.11, 1.0), flash);
+    let worn = tint(Color::new(0.58, 0.30, 0.24, 1.0), flash);
+    let cuff = tint(Color::new(0.55, 0.50, 0.40, 1.0), flash);
+    let (hx, hy) = (hand.x.round(), (hand.y - h / 2.0).round());
+    // A rectangle in glove space (dx forward from the wrist), mirrored when facing left.
+    let px = |dx: f32, dy: f32, w: f32, hh: f32, c: Color| draw_rectangle(if s > 0.0 { hx + dx } else { hx + 1.0 - dx - w }, hy + dy, w, hh, c);
+    // Cuff, then the fist: square-ish, its front corners knocked off.
+    px(-2.0, 0.0, 2.0, h, cuff);
+    px(0.0, 0.0, len - 1.0, h, leather);
+    px(len - 1.0, 1.0, 1.0, h - 2.0, leather);
+    px(0.0, h - 1.0, len - 1.0, 1.0, shade);
+    // Stubby thumb on top, and a scuff along the knuckles.
+    px(1.0, -1.0, 2.0, 1.0, leather);
+    px(len - 3.0, 1.0, 2.0, 1.0, worn);
+    if out {
+        for dy in [1.0, h - 2.0] {
+            px(-6.0, dy, 3.0, 1.0, Color::new(0.75, 0.74, 0.70, 0.25));
+        }
+    }
 }
 
 /// Draws a held spear for the current swing phase and returns where the hand is.
