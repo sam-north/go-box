@@ -39,6 +39,7 @@ go_box_sim::enum_all! {
         BombBlast,
         Ready,
         Count,
+        Tick,
         Split,
         Meow,
         Scratch,
@@ -144,6 +145,11 @@ impl Sfx {
             Sfx::Ready => s.tone(0.0, 0.14, 880.0, 1320.0, Wave::Sine, 0.005, 14.0, 0.22),
             // The 3-2-1 beeps (the start horn, `Start`, is the GO).
             Sfx::Count => s.tone(0.0, 0.16, 660.0, 660.0, Wave::Square, 0.003, 12.0, 0.14),
+            // The last five seconds: a sharp, urgent two-note blip each second.
+            Sfx::Tick => {
+                s.tone(0.0, 0.07, 1175.0, 1175.0, Wave::Square, 0.001, 30.0, 0.14);
+                s.tone(0.08, 0.1, 1568.0, 1568.0, Wave::Square, 0.001, 24.0, 0.14);
+            }
             // Seth's minis popping out: two quick rising blips.
             Sfx::Split => {
                 s.tone(0.0, 0.08, 520.0, 1040.0, Wave::Tri, 0.003, 18.0, 0.25);
@@ -361,6 +367,8 @@ pub struct Sounds {
     special_cd: Option<u32>,
     /// The countdown number last shown (3, 2, 1), to beep on each.
     count: Option<u32>,
+    /// Whole seconds left in the match, once it's down to the last few (for the ticks).
+    ending: Option<u32>,
 }
 
 impl Sounds {
@@ -376,7 +384,7 @@ impl Sounds {
                 }
             }
         });
-        Self { sounds, muted: false, master: 0.8, effects: 1.0, last: vec![-1.0; Sfx::ALL.len()], now: 0.0, step_dist: [0.0; N_BODIES], fuse_acc: 0.0, special_cd: None, count: None }
+        Self { sounds, muted: false, master: 0.8, effects: 1.0, last: vec![-1.0; Sfx::ALL.len()], now: 0.0, step_dist: [0.0; N_BODIES], fuse_acc: 0.0, special_cd: None, count: None, ending: None }
     }
 
     /// Plays `s` at `vol` (0..1, before the master volume).
@@ -483,6 +491,15 @@ impl Sounds {
             }
             self.count = count;
         }
+        // The last five seconds tick down out loud.
+        let left = m.config.max_ticks.saturating_sub(m.play_ticks()).div_ceil(TICK_RATE);
+        let ending = (!m.counting_down() && (1..=ENDING_SECS).contains(&left)).then_some(left);
+        if ending != self.ending {
+            if ending.is_some() {
+                self.play(Sfx::Tick, 0.9);
+            }
+            self.ending = ending;
+        }
         let ear = own.map_or(vec2_mid(), |s| m.f[s].center());
         for i in 0..N_BODIES {
             let f = &m.f[i];
@@ -523,8 +540,12 @@ impl Sounds {
         self.fuse_acc = 0.0;
         self.special_cd = None;
         self.count = None;
+        self.ending = None;
     }
 }
+
+/// The match's last seconds tick down (a sound each second, and the clock pulses: see the HUD).
+pub const ENDING_SECS: u32 = 5;
 
 fn vec2_mid() -> Vec2 {
     Vec2::new(W / 2.0, H / 2.0)

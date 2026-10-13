@@ -80,7 +80,8 @@ const OWN_GRACE: u32 = 15;
 
 // Items lying around.
 const START_SPEARS: usize = 2;
-const START_ROCKS: usize = 4;
+const START_ROCKS: usize = 2;
+const START_GRENADES: usize = 3;
 const ITEM_SPAWN_EVERY: Range<u32> = secs(5)..secs(8);
 const MAX_LOOSE_ITEMS: usize = 10;
 
@@ -589,7 +590,7 @@ impl Match {
             Fighter::new(x, if x < W / 2.0 { 1.0 } else { -1.0 })
         });
         let mut items = Vec::new();
-        for (kind, n) in [(ItemKind::Spear, START_SPEARS), (ItemKind::Rock, START_ROCKS)] {
+        for (kind, n) in [(ItemKind::Spear, START_SPEARS), (ItemKind::Rock, START_ROCKS), (ItemKind::Grenade, START_GRENADES)] {
             for _ in 0..n {
                 items.push(Item::new(kind, random_surface_spot(rng, arena) - vec2(0.0, ITEM_R)));
             }
@@ -1382,9 +1383,9 @@ mod tests {
         }
         assert_eq!(h, CLASSIC_HASH, "classic match fingerprint changed: {h:#018x}");
     }
-    // Last deliberately changed by grenades spawning more often (50%, up to 4). It must
+    // Last deliberately changed by more grenades (3 to start, 55% of spawns, up to 6). It must
     // come out the same on 32-bit targets too: `cargo test -p go-box-sim --target i686-pc-windows-msvc`.
-    const CLASSIC_HASH: u64 = 0xe188_d844_a974_c410;
+    const CLASSIC_HASH: u64 = 0x95fd_8e3f_440e_8269;
 
     /// Everyone on the floor, nothing lying around, nobody thinking (all-zero brains stand still).
     fn quiet_match() -> (Match, Brain) {

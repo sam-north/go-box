@@ -74,9 +74,15 @@ pub async fn run(socket: WebSocket, hub: Arc<Hub>) {
     let mut room: Option<mpsc::Sender<RoomCmd>> = None;
     let mut limits = Limits::new();
     while let Some(msg) = next_msg(&mut stream).await {
-        if let Err(why) = limits.allow(&msg) {
-            tracing::info!(id, why, "dropping a connection over its limits");
-            break;
+        match limits.allow(&msg) {
+            Ok(true) => {}
+            // An input over the limit is just ignored: a burst is usually a network stall
+            // catching up, not abuse, and dropping the player for it would be worse.
+            Ok(false) => continue,
+            Err(why) => {
+                tracing::info!(id, why, "dropping a connection over its limits");
+                break;
+            }
         }
         match msg {
             ClientMsg::Hello { .. } => {}
@@ -193,8 +199,9 @@ mod tests {
     }
 }
 
-/// Each connection's allowance. Going over it closes the connection: no honest client comes close
-/// (inputs arrive 60 times a second; everything else is clicks).
+/// Each connection's allowance. Inputs over it are ignored (they arrive 60 times a second, but a
+/// network stall can deliver seconds of them at once); anything else over it closes the
+/// connection (it's all clicks, so no honest client comes close).
 struct Limits {
     inputs: Bucket,
     other: Bucket,
@@ -207,13 +214,16 @@ impl Limits {
         Self { inputs: Bucket::new(INPUTS_PER_SEC, INPUTS_PER_SEC), other: Bucket::new(OTHER_PER_SEC, OTHER_BURST), bad_codes: 0 }
     }
 
-    /// Ok if `msg` is within the limits, else why not.
-    fn allow(&mut self, msg: &ClientMsg) -> Result<(), &'static str> {
+    /// Ok(true) if `msg` is within the limits, Ok(false) for an input over them (ignore it), else
+    /// why the connection should close.
+    fn allow(&mut self, msg: &ClientMsg) -> Result<bool, &'static str> {
         if self.bad_codes >= MAX_BAD_CODES {
             return Err("too many wrong room codes or passphrases");
         }
-        let bucket = if matches!(msg, ClientMsg::Input { .. }) { &mut self.inputs } else { &mut self.other };
-        if bucket.take() { Ok(()) } else { Err("too many messages") }
+        if matches!(msg, ClientMsg::Input { .. }) {
+            return Ok(self.inputs.take());
+        }
+        if self.other.take() { Ok(true) } else { Err("too many messages") }
     }
 }
 

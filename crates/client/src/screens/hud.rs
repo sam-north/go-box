@@ -70,7 +70,17 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
     }
     // Whole seconds left, counted in ticks (float maths made 45s show as 0:46).
     let left = m.config.max_ticks.saturating_sub(m.play_ticks()).div_ceil(TICK_RATE);
-    ui.text_centered(&mmss(left as f32), sw / 2.0, ui.px(70.0), 28.0, INK);
+    if !m.counting_down() && (1..=render::sound::ENDING_SECS).contains(&left) {
+        // The last seconds: the clock swells and flashes red on each tick, then settles.
+        // How much of this second is still to run (1 just after the tick, 0 just before the next).
+        let ticks_left = m.config.max_ticks - m.play_ticks();
+        let rest = ((ticks_left + TICK_RATE - 1) % TICK_RATE) as f32 / TICK_RATE as f32;
+        let pulse = ((rest - 0.67) / 0.33).max(0.0);
+        let color = Color::new(1.0, 0.35 + 0.4 * (1.0 - pulse), 0.30 + 0.4 * (1.0 - pulse), 1.0);
+        ui.text_centered(&mmss(left as f32), sw / 2.0, ui.px(72.0 + 10.0 * pulse), 34.0 + 26.0 * pulse, color);
+    } else {
+        ui.text_centered(&mmss(left as f32), sw / 2.0, ui.px(70.0), 28.0, INK);
+    }
 
     // 3, 2, 1 in the middle of the screen, then GO! for a moment.
     let sh = screen_height();

@@ -247,6 +247,16 @@ async fn guessing_room_codes_or_flooding_gets_you_cut_off() {
         b.send(ClientMsg::SetReady(true)).await;
     }
     assert!(b.closed().await, "40 messages at once is past the allowance");
+
+    // A burst of inputs (a network stall catching up) is trimmed, never a reason to drop you.
+    let mut c = Client::connect(&url, "Laggy").await;
+    c.send(ClientMsg::CreateRoom { passphrase: String::new() }).await;
+    c.room().await;
+    for seq in 0..1000 {
+        c.send(ClientMsg::Input { seq, action: Action::default() }).await;
+    }
+    c.send(ClientMsg::SetReady(true)).await;
+    assert!(!c.room().await.code.is_empty(), "still connected after 1000 inputs at once");
 }
 
 #[tokio::test]

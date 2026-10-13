@@ -25,6 +25,8 @@ pub struct Options {
     pub arena: Option<go_box_sim::sim::ArenaId>,
     /// As leader, start once this many players are in the room.
     pub start_when: Option<usize>,
+    /// As leader, empty the other seats first (a solo match runs the full time).
+    pub solo: bool,
     /// Play with simple scripted inputs (for automated tests).
     pub autopilot: bool,
     /// Write the room code here once in a room (so another test client can join it).
@@ -64,6 +66,7 @@ impl Options {
             arena: val("--arena").and_then(|a| go_box_sim::sim::ArenaId::ALL.into_iter().find(|x| x.id() == a)),
             start_when: val("--start-when").and_then(|v| v.parse().ok()),
             autopilot: has("--autopilot"),
+            solo: has("--solo"),
             code_file: val("--code-file"),
             shots: val("--shots"),
             shot_every: val("--shot-every").and_then(|v| v.parse().ok()).unwrap_or(3.0),
@@ -121,6 +124,11 @@ impl Automation {
             }
             let leader = app.me == Some(r.leader);
             if leader && r.phase == Phase::Lobby && r.last_results.is_none() && opts.start_when.is_some_and(|n| r.players.len() >= n) {
+                if opts.solo {
+                    for seat in r.players.len()..go_box_sim::sim::N_FIGHTERS {
+                        app.send(ClientMsg::SetSeatFill { seat: seat as u8, fill: SeatFill::Empty });
+                    }
+                }
                 app.send(ClientMsg::Start);
             }
         }

@@ -83,7 +83,7 @@ const SPEAR: ItemDef = ItemDef {
     melee: Some((14.0, Hit { damage: 16.0, headshot_mult: HEADSHOT_MULT, source: Source::Stab })),
     fuse: None,
     blast: None,
-    spawn_chance: 0.30,
+    spawn_chance: 0.25,
     max_alive: None,
     splats: None,
 };
@@ -112,8 +112,8 @@ const GRENADE: ItemDef = ItemDef {
     melee: None,
     fuse: Some(secs(1)),
     blast: Some(Blast { radius: 34.0, damage: 85.0, edge: 0.35 }),
-    spawn_chance: 0.50,
-    max_alive: Some(4),
+    spawn_chance: 0.55,
+    max_alive: Some(6),
     splats: None,
 };
 
