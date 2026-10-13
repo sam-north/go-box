@@ -1120,6 +1120,7 @@ mod tests {
                 m.step(lineup);
                 for e in &m.events {
                     if let Event::Special { who } = *e {
+                        assert!(m.tick > m.config.countdown + m.config.spawn_grace, "a bot used its special during the protected start");
                         fired[m.f[who].character as usize] += 1;
                     }
                 }

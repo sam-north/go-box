@@ -814,7 +814,8 @@ impl Match {
                 throw: out[4] > 0.0,
                 aim: out[5],
                 grab: out[6] > 0.0,
-                special: self.f[i].special_cd == 0 && self.f[i].character.special().is_some_and(|s| s.bot_wants(self, i)),
+                // (Not during the protected start: it'd be wasted on people who can't be hurt.)
+                special: self.f[i].special_cd == 0 && !self.protected() && self.f[i].character.special().is_some_and(|s| s.bot_wants(self, i)),
                 target: None,
             };
             self.f[i].memory.copy_from_slice(&out[OUT_MEM..]);
