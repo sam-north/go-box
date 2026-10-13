@@ -254,7 +254,7 @@ impl Bindings {
         if binds.is_empty() { "-".into() } else { binds.iter().map(|b| b.label()).collect::<Vec<_>>().join("/") }
     }
 
-    /// The first thing `act` is bound to, for short hints like "[Shift] Gravity Bomb".
+    /// The first thing `act` is bound to, for short hints like "[Shift] Glue Gun".
     pub fn short_label(&self, act: Act, pad: bool) -> String {
         self.get(act, pad).first().map_or_else(|| "-".into(), |b| b.label())
     }

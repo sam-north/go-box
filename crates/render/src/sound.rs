@@ -34,9 +34,8 @@ go_box_sim::enum_all! {
         Poof,
         Hounds,
         Bite,
-        BombThrow,
-        BombCrunch,
-        BombBlast,
+        GlueShot,
+        Gloop,
         Ready,
         Count,
         Tick,
@@ -132,20 +131,17 @@ impl Sfx {
                 s.noise(0.0, 0.05, 3000.0, 1200.0, 0.001, 60.0, 0.45);
                 s.tone(0.0, 0.07, 210.0, 120.0, Wave::Square, 0.001, 30.0, 0.18);
             }
-            Sfx::BombThrow => {
-                s.wobble(0.0, 0.3, 150.0, 22.0, 0.35);
-                s.tone(0.0, 0.3, 70.0, 90.0, Wave::Square, 0.01, 9.0, 0.08);
+            // Sam's glue gun: a wet, springy "thwup".
+            Sfx::GlueShot => {
+                s.wobble(0.0, 0.14, 240.0, 30.0, 0.3);
+                s.tone(0.0, 0.12, 520.0, 160.0, Wave::Sine, 0.002, 16.0, 0.35);
+                s.noise(0.0, 0.08, 1400.0, 500.0, 0.003, 30.0, 0.2);
             }
-            Sfx::BombCrunch => {
-                // A rising suck that cuts off when it blows.
-                let len = BOMB_CRUNCH_SECS;
-                s.swell(0.0, len, 150.0, 4500.0, 0.6);
-                s.tone(0.0, len, 60.0, 420.0, Wave::Sine, len, 0.0, 0.5);
-            }
-            Sfx::BombBlast => {
-                s.tone(0.0, 0.8, 55.0, 28.0, Wave::Sine, 0.002, 4.0, 1.0);
-                s.noise(0.0, 0.7, 1800.0, 70.0, 0.002, 5.0, 0.7);
-                s.tone(0.0, 0.3, 110.0, 40.0, Wave::Square, 0.002, 10.0, 0.18);
+            // Glue landing on someone (or something): a sticky gloop.
+            Sfx::Gloop => {
+                s.tone(0.0, 0.16, 140.0, 260.0, Wave::Sine, 0.004, 14.0, 0.45);
+                s.wobble(0.02, 0.14, 90.0, 26.0, 0.25);
+                s.noise(0.0, 0.1, 700.0, 250.0, 0.004, 22.0, 0.25);
             }
             Sfx::Ready => s.tone(0.0, 0.14, 880.0, 1320.0, Wave::Sine, 0.005, 14.0, 0.22),
             // The 3-2-1 beeps (the start horn, `Start`, is the GO).
@@ -204,11 +200,25 @@ impl Sfx {
                 }
                 s.tone(0.24, 0.12, 180.0, 90.0, Wave::Sine, 0.002, 20.0, 0.4);
             }
-            // Robert's lightning: a cracking snap and a rolling boom...
+            // Robert's lightning: electricity, not an explosion. A burst of irregular high crackles over
+            // an angry mains buzz, with a fizzing arc whining down.
             Sfx::Thunder => {
-                s.noise(0.0, 0.08, 9000.0, 4000.0, 0.001, 30.0, 0.7);
-                s.noise(0.04, 0.9, 1200.0, 80.0, 0.01, 4.0, 0.6);
-                s.tone(0.04, 0.8, 60.0, 35.0, Wave::Sine, 0.01, 4.0, 0.6);
+                let mut seed = 0x2545_f491u32;
+                let mut rnd = || {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 17;
+                    seed ^= seed << 5;
+                    (seed % 10_000) as f32 / 10_000.0
+                };
+                let mut t = 0.0;
+                while t < 0.55 {
+                    let len = 0.006 + rnd() * 0.02;
+                    s.noise(t, len, 9000.0, 5000.0 + rnd() * 3000.0, 0.0005, 80.0, 0.25 + rnd() * 0.35);
+                    t += 0.008 + rnd() * 0.04 * (1.0 + t * 2.0);
+                }
+                s.tone(0.0, 0.5, 120.0, 100.0, Wave::Saw, 0.003, 5.0, 0.22);
+                s.tone(0.0, 0.5, 240.0, 200.0, Wave::Square, 0.003, 6.0, 0.08);
+                s.tone(0.0, 0.35, 3200.0, 900.0, Wave::Saw, 0.002, 7.0, 0.06);
             }
             // ...and its sizzle on each person it strikes.
             Sfx::Zap => {
@@ -241,7 +251,6 @@ impl Sfx {
     }
 }
 
-const BOMB_CRUNCH_SECS: f32 = go_box_sim::character::BOMB_CRUNCH as f32 * DT;
 
 #[derive(Clone, Copy)]
 enum Wave {
@@ -479,8 +488,7 @@ impl Sounds {
                     }
                 }
                 Event::Poof { pos } => self.at(Sfx::Poof, pos, ear, 0.9),
-                Event::BombCrunch { pos } => self.at(Sfx::BombCrunch, pos, ear, 1.0),
-                Event::BombBlast { pos } => self.play(Sfx::BombBlast, 1.0 - (pos.distance(ear) / W * 0.3)),
+                Event::Glued { pos } => self.at(Sfx::Gloop, pos, ear, 0.9),
                 Event::Bite { pos } => self.at(Sfx::Bite, pos, ear, 0.9),
                 Event::Scratch { pos } => self.at(Sfx::Scratch, pos, ear, 0.6),
                 Event::Splat { pos } => self.at(Sfx::Splat, pos, ear, 1.0),

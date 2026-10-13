@@ -10,29 +10,24 @@ use serde::{Deserialize, Serialize};
 
 const SECOND: u32 = crate::sim::TICK_RATE;
 
-// Sam — Gravity Bomb. Lobbed ahead of him; it goes off when it lands, touches someone, or its
-// fuse runs out. Going off, it yanks everyone on the map toward it for BOMB_CRUNCH ticks (no
-// fighting it), then explodes. Within BOMB_PULL_RADIUS you're hauled right into the middle;
-// farther out the yank weakens with distance (BOMB_PULL_FALLOFF): roughly 65px of drag from
-// 150px away, 40px from 300px, 30px from across the arena.
-const BOMB_COOLDOWN: u32 = 30 * SECOND;
-/// Throw velocity (px/s, x is along Sam's facing): lands ~90px ahead on flat ground.
-const BOMB_THROW: Vec2 = Vec2::new(170.0, -150.0);
-const BOMB_GRAVITY: f32 = 520.0;
-const BOMB_FUSE: u32 = SECOND;
-pub const BOMB_PULL_RADIUS: f32 = 76.0;
-/// The yank: a quarter second from the edge to the middle.
-pub const BOMB_CRUNCH: u32 = 15;
-const BOMB_PULL_MAX_SPEED: f32 = 420.0;
-/// Beyond BOMB_PULL_RADIUS the yank's top speed scales by (BOMB_PULL_RADIUS / distance) to
-/// this power.
-const BOMB_PULL_FALLOFF: f32 = 0.7;
-pub const BOMB_BLAST_RADIUS: f32 = 30.0;
-const BOMB_DAMAGE: f32 = 34.0;
-/// Damage at the blast's edge, as a fraction of the full hit.
-const BOMB_EDGE: f32 = 0.4;
-/// Bots hold the bomb for the first seconds of a match.
-const BOT_BOMB_HOLD: u32 = 3 * SECOND;
+// Sam — Glue Gun: fires a glob of glue (like Noita's glue gunners). Whoever it hits is stuck: slowed
+// right down and tethered to the nearest surface by an elastic strand for a few seconds. Strain far
+// enough and the strand snaps. A glob that hits terrain leaves a blob there, and anyone who runs
+// into a blob or a strand is stuck to it too.
+const GLUE_COOLDOWN: u32 = 8 * SECOND;
+const GLUE_SPEED: f32 = 260.0;
+const GLUE_GRAVITY: f32 = 260.0;
+/// A glob that hits nothing for this long just dries up.
+const GLUE_FLIGHT: u32 = SECOND * 6 / 5;
+pub const GLUE_HOLD: u32 = 5 * SECOND;
+const GLUE_DAMAGE: f32 = 4.0;
+/// The strand's slack, how far it stretches before it snaps, and how hard it pulls back (px/s² per
+/// px of stretch).
+pub const TETHER_REST: f32 = 6.0;
+pub const TETHER_BREAK: f32 = 48.0;
+const TETHER_SPRING: f32 = 20.0;
+/// How close to a blob (or a strand) you have to come to get stuck in it.
+const GLUE_CATCH: f32 = 4.0;
 
 // Austin — Pop-Up.
 const POPUP_COOLDOWN: u32 = 15 * SECOND;
@@ -150,7 +145,7 @@ impl Character {
     pub fn def(self) -> &'static CharacterDef {
         match self {
             Character::Classic => &CharacterDef { id: "classic", special: None },
-            Character::Sam => &CharacterDef { id: "sam", special: Some(&GravityBomb) },
+            Character::Sam => &CharacterDef { id: "sam", special: Some(&GlueGun) },
             Character::Austin => &CharacterDef { id: "austin", special: Some(&PopUp) },
             Character::Tyler => &CharacterDef { id: "tyler", special: Some(&Hounds) },
             Character::Seth => &CharacterDef { id: "seth", special: Some(&MiniMe) },
@@ -188,33 +183,68 @@ fn foes(m: &Match, who: usize) -> impl Iterator<Item = &Fighter> {
     (0..N_BODIES).filter(move |&j| m.foes(who, j)).map(|j| &m.f[j])
 }
 
-struct GravityBomb;
+struct GlueGun;
 
-impl Special for GravityBomb {
+impl Special for GlueGun {
     fn id(&self) -> &'static str {
-        "gravity_bomb"
+        "glue_gun"
     }
     fn cooldown(&self) -> u32 {
-        BOMB_COOLDOWN
+        GLUE_COOLDOWN
     }
     fn activate(&self, m: &mut Match, who: usize) {
-        m.effects.push(Effect::Bomb(new_bomb(&m.f[who], who)));
+        let f = &mut m.f[who];
+        // A player fires where they aim; a bot straight ahead (a touch upward, for the drop).
+        let dir = match f.action.target {
+            Some(t) if t.length_squared() > 1e-6 => t.normalize(),
+            _ => vec2(f.facing, -0.08).normalize(),
+        };
+        if dir.x.abs() > 1e-3 {
+            f.facing = dir.x.signum();
+        }
+        let glob = Glue { pos: f.hand(), vel: dir * GLUE_SPEED + f.vel * 0.3, owner: who, stuck: false, held: Vec::new(), ticks: GLUE_FLIGHT };
+        m.effects.push(Effect::Glue(glob));
     }
-    /// Works out where the bomb would go off and who'd be hauled into the blast (everyone
-    /// within BOMB_PULL_RADIUS of it), then throws only when it pays: two or more caught, or
-    /// one caught who it would finish off, or one caught while Sam is losing the fight.
+    /// Someone ahead of him, near his level, in range.
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
-        if m.tick < BOT_BOMB_HOLD {
-            return false;
-        }
-        let at = bomb_landing(m, who);
-        let caught: Vec<&Fighter> = foes(m, who).filter(|f| f.center().distance(at) < BOMB_PULL_RADIUS).collect();
-        match caught.as_slice() {
-            [] => false,
-            [one] => one.hp <= BOMB_DAMAGE || m.f[who].hp < one.hp.min(50.0),
-            _ => true,
-        }
+        let me = &m.f[who];
+        foes(m, who).any(|f| {
+            let dx = (f.pos.x - me.pos.x) * me.facing;
+            (f.pos.y - me.pos.y).abs() < 24.0 && dx > 20.0 && dx < 180.0
+        })
     }
+}
+
+/// Sam's glue: a glob in flight, then (stuck to something) a blob holding whoever it caught.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Glue {
+    /// The glob; once stuck, the blob the strands are anchored to.
+    pub pos: Vec2,
+    pub vel: Vec2,
+    pub owner: usize,
+    pub stuck: bool,
+    /// Who it's holding (seats and mini slots).
+    pub held: Vec<u8>,
+    /// Flight time left, then (stuck) how long it holds.
+    pub ticks: u32,
+}
+
+/// The point on any terrain (or table) nearest to `p`: where glue anchors someone it hits.
+fn nearest_surface(arena: &Arena, props: &[Aabb], p: Vec2) -> Vec2 {
+    SOLIDS
+        .iter()
+        .chain(arena.platforms)
+        .chain(props)
+        .map(|r| vec2(p.x.clamp(r.x, r.x + r.w), p.y.clamp(r.y, r.y + r.h)))
+        .min_by(|a, b| a.distance(p).total_cmp(&b.distance(p)))
+        .unwrap_or(p)
+}
+
+/// How far `p` is from the segment `a`-`b`.
+fn segment_distance(p: Vec2, a: Vec2, b: Vec2) -> f32 {
+    let ab = b - a;
+    let t = ((p - a).dot(ab) / ab.length_squared().max(1e-6)).clamp(0.0, 1.0);
+    p.distance(a + ab * t)
 }
 
 struct PopUp;
@@ -584,21 +614,6 @@ pub fn props(effects: &[Effect]) -> Vec<Aabb> {
     effects.iter().filter_map(|e| if let Effect::Table(t) = e { Some(t.body()) } else { None }).collect()
 }
 
-/// Sam's gravity bomb: flying, then (once it goes off) crunching everyone nearby together.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct Bomb {
-    pub pos: Vec2,
-    pub vel: Vec2,
-    pub owner: usize,
-    /// Ticks of flight left before it goes off on its own.
-    pub fuse: u32,
-    /// None while flying; once it's gone off, the ticks left before it explodes.
-    pub crunch: Option<u32>,
-    /// How hard each fighter is being yanked (0..1), fixed by their distance when it went off.
-    #[serde(skip)]
-    pub pull: [f32; N_BODIES],
-}
-
 /// What kind of animal a `Pet` is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Breed {
@@ -721,7 +736,7 @@ impl Match {
             // Stepped on a copy: an effect's step may hurt fighters (which needs the whole match).
             let mut effect = self.effects[e].clone();
             match &mut effect {
-                Effect::Bomb(b) => self.step_bomb(b),
+                Effect::Glue(g) => self.step_glue(g),
                 Effect::Pet(p) => self.step_pet(p),
                 Effect::Table(t) => self.step_table(t),
                 Effect::Chain(c) => self.step_chain(c),
@@ -853,11 +868,73 @@ impl Match {
         self.events.push(Event::Poof { pos: vec2(t.pos.x, t.pos.y - TABLE_H / 2.0) });
     }
 
-    fn step_bomb(&mut self, bomb: &mut Bomb) {
-        match bomb.crunch {
-            None => self.fly_bomb(bomb),
-            Some(t) => self.crunch_bomb(bomb, t),
+    fn step_glue(&mut self, g: &mut Glue) {
+        g.ticks = g.ticks.saturating_sub(1);
+        if !g.stuck {
+            self.fly_glue(g);
+        } else {
+            self.hold_glue(g);
         }
+    }
+
+    /// A glob in flight: sticks to the first foe it touches (anchoring them to the nearest surface)
+    /// or to terrain.
+    fn fly_glue(&mut self, g: &mut Glue) {
+        let prev = g.pos;
+        g.vel.y += GLUE_GRAVITY * DT;
+        g.pos += g.vel * DT;
+        let props = props(&self.effects);
+        let hit = Aabb::around(g.pos, 2.0);
+        let victim = (0..N_BODIES).find(|&j| self.foes(g.owner, j) && hit.overlaps(&self.f[j].body()));
+        if let Some(j) = victim.filter(|_| !self.protected()) {
+            let c = self.f[j].center();
+            g.pos = nearest_surface(self.arena(), &props, c);
+            g.stuck = true;
+            g.held = vec![j as u8];
+            g.ticks = GLUE_HOLD;
+            self.events.push(Event::Glued { pos: c });
+            self.damage(g.owner, j, GLUE_DAMAGE, Vec2::ZERO, 0, g.vel.x.signum(), Source::Special, false);
+            return;
+        }
+        let in_solid = SOLIDS.iter().chain(props.iter()).any(|s| s.contains(g.pos));
+        let on_ledge = g.vel.y > 0.0 && self.arena().platforms.iter().any(|p| g.pos.x > p.x && g.pos.x < p.x + p.w && prev.y <= p.y && g.pos.y >= p.y);
+        if in_solid || on_ledge {
+            g.pos = nearest_surface(self.arena(), &props, prev);
+            g.stuck = true;
+            g.ticks = GLUE_HOLD;
+            self.events.push(Event::Glued { pos: g.pos });
+        }
+    }
+
+    /// Stuck glue: holds its catches on elastic strands (slowed right down; strain too far and the
+    /// strand snaps), and catches anyone who blunders into the blob or a strand.
+    fn hold_glue(&mut self, g: &mut Glue) {
+        let anchor = g.pos;
+        for j in 0..N_BODIES {
+            if g.held.contains(&(j as u8)) || !self.foes(g.owner, j) {
+                continue;
+            }
+            let f = &self.f[j];
+            let blob = f.body().overlaps(&Aabb::around(anchor, GLUE_CATCH));
+            let strand = g.held.iter().any(|&h| segment_distance(f.center(), anchor, self.f[h as usize].center()) < f.half_w() + 1.0);
+            if blob || strand {
+                g.held.push(j as u8);
+                self.events.push(Event::Glued { pos: f.center() });
+            }
+        }
+        g.held.retain(|&h| {
+            let f = &mut self.f[h as usize];
+            let d = f.center() - anchor;
+            let dist = d.length();
+            if !f.present() || dist > TETHER_BREAK {
+                return false;
+            }
+            f.slowed = f.slowed.max(2);
+            if dist > TETHER_REST {
+                f.vel -= d / dist * TETHER_SPRING * (dist - TETHER_REST) * DT;
+            }
+            true
+        });
     }
 }
 
@@ -866,8 +943,8 @@ impl Match {
 /// crate) are all exhaustive matches, so the compiler lists what a new one needs.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Effect {
-    /// Sam's gravity bomb.
-    Bomb(Bomb),
+    /// Sam's glue: a glob in flight, or stuck somewhere holding people.
+    Glue(Glue),
     /// One of Tyler's dogs or Corwin's cats.
     Pet(Pet),
     /// Justin's sushi table.
@@ -884,7 +961,7 @@ impl Effect {
     /// Who made it (it never harms them, and they don't see it as a threat).
     pub fn owner(&self) -> usize {
         match self {
-            Effect::Bomb(b) => b.owner,
+            Effect::Glue(g) => g.owner,
             Effect::Pet(p) => p.owner,
             Effect::Table(t) => t.owner,
             Effect::Chain(c) => c.owner,
@@ -896,7 +973,7 @@ impl Effect {
     /// Where the bots see it as a threat (None: harmless, like a table).
     pub fn threat_pos(&self) -> Option<Vec2> {
         match self {
-            Effect::Bomb(b) => Some(b.pos),
+            Effect::Glue(g) => Some(g.pos),
             Effect::Pet(p) => Some(p.center()),
             Effect::Table(_) => None,
             Effect::Chain(c) => Some(c.tip),
@@ -908,7 +985,7 @@ impl Effect {
     /// Its position (a pet's feet, a table's bottom centre).
     pub fn pos(&self) -> Vec2 {
         match self {
-            Effect::Bomb(b) => b.pos,
+            Effect::Glue(g) => g.pos,
             Effect::Pet(p) => p.pos,
             Effect::Table(t) => t.pos,
             Effect::Chain(c) => c.tip,
@@ -920,7 +997,7 @@ impl Effect {
     /// Its position, for smoothing it between snapshots on the client.
     pub fn pos_mut(&mut self) -> &mut Vec2 {
         match self {
-            Effect::Bomb(b) => &mut b.pos,
+            Effect::Glue(g) => &mut g.pos,
             Effect::Pet(p) => &mut p.pos,
             Effect::Table(t) => &mut t.pos,
             Effect::Chain(c) => &mut c.tip,
@@ -931,7 +1008,7 @@ impl Effect {
 
     fn done(&self) -> bool {
         match self {
-            Effect::Bomb(b) => b.crunch == Some(0),
+            Effect::Glue(g) => g.ticks == 0,
             Effect::Pet(p) => p.ticks == 0,
             Effect::Table(t) => t.ticks == 0,
             Effect::Chain(c) => c.ticks == 0,
@@ -939,107 +1016,6 @@ impl Effect {
             Effect::Order(o) => o.ticks == 0,
         }
     }
-}
-
-impl Match {
-    /// A bomb in flight: arcs under gravity and goes off on terrain, on a foe, or when its
-    /// fuse runs out.
-    fn fly_bomb(&mut self, bomb: &mut Bomb) {
-        if !fly(bomb, &self.f, self.arena()) {
-            return;
-        }
-        let (pos, owner) = (bomb.pos, bomb.owner);
-        let pull = std::array::from_fn(|j| if !self.foes(owner, j) { 0.0 } else { pull_strength(self.f[j].center().distance(pos)) });
-        bomb.vel = Vec2::ZERO;
-        bomb.crunch = Some(BOMB_CRUNCH);
-        bomb.pull = pull;
-        self.events.push(Event::BombCrunch { pos });
-    }
-
-    /// A bomb that's gone off: yanks everyone toward the middle (they can't fight it, and the
-    /// far side of the map feels it too, just less),
-    /// then explodes.
-    fn crunch_bomb(&mut self, bomb: &mut Bomb, left: u32) {
-        let Bomb { pos, owner, pull, .. } = *bomb;
-        let left = left - 1;
-        bomb.crunch = Some(left);
-        for j in 0..N_BODIES {
-            let f = &mut self.f[j];
-            if pull[j] <= 0.0 || !f.alive() {
-                continue;
-            }
-            // Aim to arrive just as it blows; speed is capped so it's a yank, not a teleport.
-            let to = pos - f.center();
-            let secs = (left.max(1)) as f32 * DT;
-            f.vel = (to / secs).clamp_length_max(BOMB_PULL_MAX_SPEED * pull[j]);
-            f.grounded = false;
-            f.hitstun = f.hitstun.max(2);
-            f.atk_timer = 0;
-        }
-        if left > 0 {
-            return;
-        }
-        self.events.push(Event::BombBlast { pos });
-        for j in 0..N_BODIES {
-            let d = self.f[j].center().distance(pos);
-            if !self.foes(owner, j) || d >= BOMB_BLAST_RADIUS {
-                continue;
-            }
-            let away = (self.f[j].center() - pos).normalize_or(vec2(0.0, -1.0));
-            let dmg = BOMB_DAMAGE * (1.0 - d / BOMB_BLAST_RADIUS).max(BOMB_EDGE);
-            self.damage(owner, j, dmg, away * 240.0 + vec2(0.0, -110.0), 14, if away.x == 0.0 { 1.0 } else { away.x.signum() }, Source::Special, false);
-        }
-    }
-}
-
-/// One tick of a bomb in flight. True when it goes off: it hit terrain or a foe (it stops
-/// there), or its fuse ran out.
-fn fly(bomb: &mut Bomb, fighters: &[Fighter; N_BODIES], arena: &Arena) -> bool {
-    bomb.vel.y += BOMB_GRAVITY * DT;
-    let prev = bomb.pos;
-    bomb.pos += bomb.vel * DT;
-    bomb.fuse = bomb.fuse.saturating_sub(1);
-    let mut hit = bomb.fuse == 0;
-    if let Some(s) = SOLIDS.iter().find(|s| s.contains(bomb.pos)) {
-        // Stop on the surface it hit.
-        bomb.pos = vec2(bomb.pos.x.clamp(s.x - 0.5, s.x + s.w + 0.5), bomb.pos.y);
-        if prev.y <= s.y {
-            bomb.pos.y = s.y - 0.5;
-        } else if prev.x < s.x || prev.x > s.x + s.w {
-            bomb.pos.x = prev.x;
-        } else {
-            bomb.pos.y = prev.y;
-        }
-        hit = true;
-    }
-    if bomb.vel.y > 0.0
-        && let Some(p) = arena.platforms.iter().find(|p| bomb.pos.x > p.x && bomb.pos.x < p.x + p.w && prev.y <= p.y && bomb.pos.y >= p.y)
-    {
-        bomb.pos.y = p.y - 0.5;
-        hit = true;
-    }
-    let pos = bomb.pos;
-    let team = fighters[bomb.owner].team(bomb.owner);
-    hit || (0..N_BODIES).any(|j| fighters[j].team(j) != team && fighters[j].alive() && fighters[j].body().overlaps(&Aabb::around(pos, 2.0)))
-}
-
-/// Where a bomb Sam threw right now would go off: flown through the same physics, everyone
-/// else standing still.
-fn bomb_landing(m: &Match, who: usize) -> Vec2 {
-    let mut b = new_bomb(&m.f[who], who);
-    while !fly(&mut b, &m.f, m.arena()) {}
-    b.pos
-}
-
-fn new_bomb(f: &Fighter, who: usize) -> Bomb {
-    let vel = vec2(BOMB_THROW.x * f.facing, BOMB_THROW.y) + f.vel * 0.5;
-    Bomb { pos: f.hand(), vel, owner: who, fuse: BOMB_FUSE, crunch: None, pull: [0.0; N_BODIES] }
-}
-
-/// How hard a gravity bomb yanks someone `d` px away: fully within BOMB_PULL_RADIUS, then
-/// weaker with distance (but never nothing).
-fn pull_strength(d: f32) -> f32 {
-    if d <= BOMB_PULL_RADIUS { 1.0 } else { libm::powf(BOMB_PULL_RADIUS / d, BOMB_PULL_FALLOFF) }
 }
 
 fn run_pet(dog: &mut Pet, arena: &Arena) {
@@ -1189,57 +1165,6 @@ mod tests {
         m.f[0].facing = -1.0;
         step_idle(&mut m, &z, true);
         assert_eq!(m.f[0].pos.x, 14.0);
-    }
-
-    #[test]
-    fn sams_bomb_yanks_everyone_nearby_together_then_blows() {
-        let z = zero_brain();
-        // Sam faces right; the bomb lands on (or hits) the fighter ~100px ahead, the next one
-        // is 45px past that, the last is far away.
-        let mut m = staged([Character::Sam, Character::Classic, Character::Classic, Character::Classic], [100.0, 200.0, 245.0, 440.0]);
-        m.f[0].facing = 1.0;
-        step_idle(&mut m, &z, true);
-        assert!(matches!(m.effects.as_slice(), [Effect::Bomb(_)]));
-        let mut went_off = None;
-        for t in 0..BOMB_FUSE + BOMB_CRUNCH + 2 {
-            step_idle(&mut m, &z, false);
-            if let Some(Event::BombCrunch { pos }) = m.events.iter().find(|e| matches!(e, Event::BombCrunch { .. })) {
-                went_off = Some((t, *pos));
-            }
-            if m.events.iter().any(|e| matches!(e, Event::BombBlast { .. })) {
-                break;
-            }
-        }
-        let (t, pos) = went_off.expect("the bomb went off");
-        assert!(t < BOMB_FUSE, "it went off on contact, not on the fuse");
-        assert!(m.effects.is_empty(), "it exploded");
-        // The second fighter was dragged right in and caught the blast too.
-        assert!(m.f[2].center().distance(pos) < BOMB_BLAST_RADIUS, "second fighter ended {} away", m.f[2].center().distance(pos));
-        assert!(m.f[1].hp < MAX_HP && m.f[2].hp < MAX_HP, "both near fighters hurt: {} {}", m.f[1].hp, m.f[2].hp);
-        // The far one (~245px away) is out of the blast but still dragged a fair way in.
-        assert_eq!(m.f[3].hp, MAX_HP, "out of the blast: unhurt");
-        let dragged = 440.0 - m.f[3].pos.x;
-        assert!(dragged > 25.0 && dragged < 70.0, "far fighter dragged {dragged}px");
-        assert_eq!(m.f[0].hp, MAX_HP, "Sam is unaffected");
-        assert!(m.f[0].dmg_dealt > 0.0);
-    }
-
-    #[test]
-    fn sam_bots_only_bomb_when_it_pays() {
-        let wants = |xs: [f32; N_FIGHTERS], hp1: f32| {
-            let mut m = staged([Character::Sam, Character::Classic, Character::Classic, Character::Classic], xs);
-            m.tick = BOT_BOMB_HOLD;
-            m.f[0].facing = 1.0;
-            m.f[1].hp = hp1;
-            GravityBomb.bot_wants(&m, 0)
-        };
-        // The bomb hits the fighter ~100px ahead: alone and healthy, not worth it...
-        assert!(!wants([100.0, 200.0, 440.0, 460.0], MAX_HP));
-        // ...but worth it with a second fighter close by, or to finish a weak one.
-        assert!(wants([100.0, 200.0, 240.0, 460.0], MAX_HP));
-        assert!(wants([100.0, 200.0, 440.0, 460.0], 20.0));
-        // Nobody near where it would land.
-        assert!(!wants([100.0, 330.0, 400.0, 460.0], MAX_HP));
     }
 
     #[test]
@@ -1571,5 +1496,81 @@ mod tests {
         };
         let (normal, hasted) = (top_speed(false), top_speed(true));
         assert!(hasted > normal * 1.3, "{normal} -> {hasted}");
+    }
+
+    fn glue_of(m: &Match) -> Option<Glue> {
+        m.effects.iter().find_map(|e| if let Effect::Glue(g) = e { Some(g.clone()) } else { None })
+    }
+
+    #[test]
+    fn sams_glue_tethers_whoever_it_hits_and_wears_off() {
+        let z = zero_brain();
+        let mut m = staged([Character::Sam, Character::Classic, Character::Classic, Character::Classic], [100.0, 180.0, 380.0, 440.0]);
+        m.f[0].facing = 1.0;
+        step_idle(&mut m, &z, true);
+        let mut glued = false;
+        for _ in 0..60 {
+            step_idle(&mut m, &z, false);
+            glued |= m.events.iter().any(|e| matches!(e, Event::Glued { .. }));
+            if glue_of(&m).is_some_and(|g| g.stuck) {
+                break;
+            }
+        }
+        let g = glue_of(&m).expect("glue");
+        assert!(glued && g.stuck && g.held == vec![1], "stuck to the fighter it hit: {g:?}");
+        assert!(m.f[1].hp < MAX_HP);
+        // Trying to run away: slowed right down, held near the anchor.
+        let x0 = m.f[1].pos.x;
+        let run = Action { mv: 1.0, run: true, ..Action::default() };
+        for _ in 0..SECOND / 2 {
+            m.step_with([&z; N_FIGHTERS], Some((1, run)));
+        }
+        let moved = m.f[1].pos.x - x0;
+        assert!(moved < 25.0, "barely got anywhere: {moved}px in half a second");
+        assert!(m.f[1].slowed > 0, "still stuck");
+        // It wears off.
+        for _ in 0..GLUE_HOLD {
+            step_idle(&mut m, &z, false);
+        }
+        assert!(glue_of(&m).is_none());
+        for _ in 0..30 {
+            m.step_with([&z; N_FIGHTERS], Some((1, run)));
+        }
+        assert!(m.f[1].vel.x > 100.0, "running freely again: {}", m.f[1].vel.x);
+    }
+
+    #[test]
+    fn glue_on_the_floor_catches_whoever_runs_into_it_and_a_hard_pull_snaps_it() {
+        let z = zero_brain();
+        let mut m = staged([Character::Sam, Character::Classic, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
+        m.effects.push(Effect::Glue(Glue { pos: vec2(200.0, crate::sim::FLOOR_Y), vel: Vec2::ZERO, owner: 0, stuck: true, held: Vec::new(), ticks: GLUE_HOLD }));
+        let left = Action { mv: -1.0, run: true, ..Action::default() };
+        for _ in 0..90 {
+            m.step_with([&z; N_FIGHTERS], Some((1, left)));
+        }
+        assert_eq!(glue_of(&m).unwrap().held, vec![1], "ran into it and got stuck");
+        assert!(m.f[1].pos.x > 150.0, "and held there: x {}", m.f[1].pos.x);
+        // A big knock (say, a grenade) yanks them past the strand's limit: it snaps.
+        m.f[1].vel = vec2(-600.0, -200.0);
+        for _ in 0..10 {
+            step_idle(&mut m, &z, false);
+        }
+        assert!(glue_of(&m).unwrap().held.is_empty(), "the strand snapped");
+    }
+
+    #[test]
+    fn a_glob_that_misses_sticks_where_it_lands() {
+        let z = zero_brain();
+        let mut m = staged([Character::Sam, Character::Classic, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
+        m.f[0].facing = -1.0;
+        step_idle(&mut m, &z, true);
+        for _ in 0..GLUE_FLIGHT {
+            step_idle(&mut m, &z, false);
+            if glue_of(&m).is_some_and(|g| g.stuck) {
+                break;
+            }
+        }
+        let g = glue_of(&m).expect("still there");
+        assert!(g.stuck && g.held.is_empty(), "stuck to the terrain: {g:?}");
     }
 }

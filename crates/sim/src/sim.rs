@@ -50,6 +50,9 @@ const WALK: f32 = 45.0;
 const RUN: f32 = 150.0;
 /// How much faster a hasted fighter runs (Tyler with his dogs out).
 const HASTE: f32 = 1.35;
+/// How fast you can move (and how high you can jump) stuck in glue.
+const GLUED_SPEED: f32 = 0.3;
+const GLUED_JUMP: f32 = 0.55;
 /// px/s²: getting going (up to walking pace), then building to a run.
 const GROUND_START: f32 = 900.0;
 const GROUND_BUILD: f32 = 290.0;
@@ -225,6 +228,8 @@ pub struct Fighter {
     pub pinned: u32,
     /// Running faster (Tyler, while his dogs are out): ticks left.
     pub haste: u32,
+    /// Stuck in Sam's glue: slowed right down (ticks left; the glue keeps topping it up).
+    pub slowed: u32,
 }
 
 impl Fighter {
@@ -257,6 +262,7 @@ impl Fighter {
             digital: 0,
             pinned: 0,
             haste: 0,
+            slowed: 0,
         }
     }
 
@@ -384,10 +390,8 @@ pub enum Event {
     Special { who: usize },
     /// Austin vanishing or appearing.
     Poof { pos: Vec2 },
-    /// Sam's gravity bomb going off: everyone nearby is yanked in...
-    BombCrunch { pos: Vec2 },
-    /// ...then it explodes.
-    BombBlast { pos: Vec2 },
+    /// Sam's glue sticking to someone (or something).
+    Glued { pos: Vec2 },
     /// One of Tyler's dogs biting.
     Bite { pos: Vec2 },
     /// One of Corwin's cats scratching.
@@ -592,7 +596,7 @@ pub struct Match {
     pub over: bool,
     pub winner: Option<usize>,
     pub events: Vec<Event>,
-    /// What specials have left in the arena (Sam's bombs, Tyler's dogs...).
+    /// What specials have left in the arena (Sam's glue, Tyler's dogs...).
     pub effects: Vec<Effect>,
     pub config: MatchConfig,
 }
@@ -640,6 +644,16 @@ impl Match {
     /// Are `j` and `i` enemies: `j` is alive and on another team (a mini is on its summoner's)?
     pub fn foes(&self, i: usize, j: usize) -> bool {
         j != i && self.f[j].present() && self.f[j].team(j) != self.f[i].team(i)
+    }
+
+    /// Ends the match now, decided as if time had run out (most health wins).
+    pub fn end_now(&mut self) {
+        if self.over {
+            return;
+        }
+        self.config.max_ticks = self.play_ticks();
+        self.over = true;
+        self.winner = self.config.mode.outcome(self).flatten();
     }
 
     /// Still in the 3-2-1 before the start.
@@ -713,7 +727,7 @@ impl Match {
         for &h in &self.heals {
             mark(&mut s, IN_HEAL, glimpse(arena, eye, h));
         }
-        // Brains never saw specials in training; someone else's dog or bomb reads as a threat.
+        // Brains never saw specials in training; someone else's dog or glue reads as a threat.
         for e in self.effects.iter().filter(|e| e.owner() != i) {
             if let Some(p) = e.threat_pos() {
                 mark(&mut s, IN_THREAT, glimpse(arena, eye, p));
@@ -1153,7 +1167,7 @@ pub struct MatchView {
     pub f: [Fighter; N_BODIES],
     pub items: Vec<Item>,
     pub heals: Vec<Vec2>,
-    /// What specials have left in the arena (Sam's bombs, Tyler's dogs...).
+    /// What specials have left in the arena (Sam's glue, Tyler's dogs...).
     pub effects: Vec<Effect>,
     pub over: bool,
     pub winner: Option<usize>,
@@ -1297,6 +1311,8 @@ fn control(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
     f.pinned = f.pinned.saturating_sub(1);
     let run = if f.haste > 0 { RUN * HASTE } else { RUN };
     f.haste = f.haste.saturating_sub(1);
+    let glued = f.slowed > 0;
+    f.slowed = f.slowed.saturating_sub(1);
     if !f.alive() {
         f.vel.x *= 0.9;
     } else if f.hitstun > 0 {
@@ -1307,12 +1323,15 @@ fn control(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
         if f.atk_timer > 0 && f.grounded {
             target *= 0.4;
         }
+        if glued {
+            target *= GLUED_SPEED;
+        }
         f.vel.x = approach(f.vel.x, target, accel(f.vel.x, target, f.grounded) * DT);
         if f.atk_timer == 0 && a.mv.abs() >= 0.2 {
             f.facing = a.mv.signum();
         }
         if a.jump && f.grounded && !pinned {
-            f.vel.y = -JUMP_V;
+            f.vel.y = if glued { -JUMP_V * GLUED_JUMP } else { -JUMP_V };
             f.grounded = false;
             events.push(Event::Jump { who, pos: f.pos });
         }

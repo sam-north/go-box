@@ -72,7 +72,7 @@ character.ryan = Ryan
 character.jake = Jake
 character.robert = Robert
 character.kyle = Kyle
-special.gravity_bomb = Gravity Bomb
+special.glue_gun = Glue Gun
 special.pop_up = Pop-Up
 special.hounds = Release the Hounds
 special.mini_me = Mini Me
@@ -106,6 +106,8 @@ settings.title = SETTINGS
 settings.tab_sound = Sound
 settings.tab_controls = Controls
 settings.close = Close
+settings.end_match = End match
+settings.leave_match = Leave match
 settings.volume_master = Overall volume
 settings.volume_effects = Sound effects
 settings.volume_music = Music
@@ -183,7 +185,7 @@ pad.home = Home
 
 # What each character's special does, shown in the lobby preview.
 about.classic = No special. The hooded fighter the bots learned to fight as: just fists, rocks, spears and grenades.
-about.sam = Lobs a bomb ahead. When it lands or touches someone it yanks everyone on the map toward it, then explodes.
+about.sam = Fires a glob of glue. Whoever it hits is stuck: slowed right down and tethered to the nearest surface for 5 seconds (strain hard enough and it snaps). A miss leaves a blob that catches anyone who runs into it.
 about.austin = Teleports a third of the arena ahead in the direction he's facing, away from the crowd.
 about.tyler = Three dogs run the floors for 5 seconds, biting anyone but Tyler.
 about.seth = Two smaller clones hop out and fight beside him for 15 seconds. One hit kills them; their kills count as his.

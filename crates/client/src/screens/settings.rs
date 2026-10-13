@@ -5,6 +5,7 @@ use crate::app::*;
 use crate::settings::{Act, Bindings};
 use crate::text::{t, tf};
 use crate::ui::{ACCENT, BAD, DIM, EDGE, INK, Slider, Ui};
+use go_box_protocol::ClientMsg;
 use go_box_render::sound::{Sfx, Sounds};
 use macroquad::prelude::*;
 
@@ -44,6 +45,19 @@ pub fn settings_screen(ui: &mut Ui, app: &mut App, sfx: &mut Sounds) {
     let bw = ui.px(140.0);
     if ui.button(Rect::new(r.x + w - pad - bw, r.y + h - pad - ui.px(42.0), bw, ui.px(42.0)), t("settings.close"), true, ACCENT) {
         app.settings_open = false;
+    }
+    // In a match: the leader can end it for everyone (scored as if time ran out); anyone else
+    // can leave.
+    let in_match = app.game.as_ref().is_some_and(|g| !g.over());
+    if in_match {
+        let leader = app.room.as_ref().is_some_and(|room| Some(room.leader) == app.me);
+        let ew = ui.px(180.0);
+        let er = Rect::new(r.x + w - pad - bw - ui.px(12.0) - ew, r.y + h - pad - ui.px(42.0), ew, ui.px(42.0));
+        let label = if leader { t("settings.end_match") } else { t("settings.leave_match") };
+        if ui.button(er, label, true, BAD) {
+            app.send(if leader { ClientMsg::EndMatch } else { ClientMsg::LeaveRoom });
+            app.settings_open = false;
+        }
     }
 }
 

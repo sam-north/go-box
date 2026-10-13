@@ -33,7 +33,7 @@ pub struct Options {
     pub code_file: Option<String>,
     pub shots: Option<String>,
     pub shot_every: f32,
-    /// Only take a shot while the match has this kind of effect in it (bomb, pet, table, chain,
+    /// Only take a shot while the match has this kind of effect in it (glue, pet, table, chain,
     /// lightning; or phone: Jake inside his; or pinned: Kyle's pin),
     /// e.g. to catch a special in action.
     pub shot_when: Option<String>,
@@ -152,7 +152,7 @@ impl Automation {
 fn effect_kind(e: &go_box_sim::character::Effect) -> &'static str {
     use go_box_sim::character::Effect;
     match e {
-        Effect::Bomb(_) => "bomb",
+        Effect::Glue(_) => "glue",
         Effect::Pet(_) => "pet",
         Effect::Table(_) => "table",
         Effect::Chain(_) => "chain",

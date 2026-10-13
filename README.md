@@ -42,7 +42,7 @@ Everyone has the same body; each character adds one special on a cooldown.
 | Character | Special | Cooldown |
 |---|---|---|
 | Classic | none — the hooded fighter the brains were trained as | — |
-| Sam | **Gravity Bomb**: lobs a bomb ~90px ahead; it goes off when it lands or touches someone and yanks everyone on the map toward it for a quarter second (anyone within 76px right into the middle, the rest less the farther away they are), then explodes for up to 34 | 30s |
+| Sam | **Glue Gun**: fires a glob of glue (like Noita's glue gunners) the way he aims. Whoever it hits takes 4 and is stuck for 5s: moving at a third of normal speed, tethered to the nearest surface by an elastic strand that snaps if stretched past 48px. A glob that hits terrain leaves a blob, and anyone who runs into a blob or a strand is stuck too | 8s |
 | Austin | **Pop-Up**: teleports in the direction he's facing, at least 160px ahead (a third of the arena) when there's room, else anywhere ahead; prefers spots 40px from everyone | 15s |
 | Tyler | **Release the Hounds**: three dogs run the floors for 5s, biting anyone but Tyler for 15 (each dog at most twice a second per victim), and Tyler runs 35% faster while they're out | 30s |
 | Seth | **Mini Me**: two smaller (70%) clones hop out in front of him for 15s. They fight like bots (grabbing and throwing too), die to one hit, and their kills count as his; they vanish if he goes down | 30s |
@@ -54,8 +54,7 @@ Everyone has the same body; each character adds one special on a cooldown.
 | Kyle | **Organize**: pins every opponent exactly where they are (even in mid-air) for 3s, with a glow at their feet; they can still swing and throw, just not move or jump | 20s |
 
 Bots playing a character use its special by a simple rule (the brains never trained with
-specials): Sam works out where his bomb would land and throws only if it would catch two people,
-finish one off, or turn a fight he's losing; Austin pops away from incoming projectiles, grenades
+specials), and never during the protected start: Sam fires the glue at someone ahead of him, near his level; Austin pops away from incoming projectiles, grenades
 about to blow, or a crowd when hurt; Tyler releases the hounds at someone on his level ahead; Seth splits when a foe is close; Corwin lets the cats go at someone on his level ahead; Justin
 serves a table when he has nothing to throw; Ryan throws the chain at someone level with him, in reach; Jake hides in his phone when Austin would
 pop away; Robert casts when the bolts would do 30 all told or finish someone; Kyle organizes when someone's

@@ -28,7 +28,7 @@ use go_box_sim::sim::{Action, ArenaId, Event, MatchConfig, MatchView, N_FIGHTERS
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 18;
+pub const PROTOCOL_VERSION: u16 = 19;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -80,6 +80,8 @@ pub enum ClientMsg {
     Start,
     /// One per client tick while playing, numbered so snapshots can say which was last applied.
     Input { seq: u32, action: Action },
+    /// Leader only: end the match now (scored as if time ran out).
+    EndMatch,
 }
 
 go_box_sim::enum_all! {
@@ -235,7 +237,7 @@ mod tests {
     }
 
     /// Matches of bots playing every character, with a snapshot taken the first time each
-    /// special's leftovers are about (a gravity bomb, dogs, minis, cats, a table and its sushi,
+    /// special's leftovers are about (stuck glue, dogs, minis, cats, a table and its sushi,
     /// a chain, Jake in his phone, lightning, a pin), so their layouts are on the wire too.
     fn sample_snapshots() -> Vec<Snapshot> {
         use go_box_sim::brain::Brain;
@@ -244,7 +246,7 @@ mod tests {
         let brain = Brain::from_json(include_str!("../../../brains/gen_219000.json")).unwrap();
         type Seen = fn(&Match) -> bool;
         let wanted: [(&str, Seen); 10] = [
-            ("bomb", |m| m.effects.iter().any(|e| matches!(e, Effect::Bomb(_)))),
+            ("glue", |m| m.effects.iter().any(|e| matches!(e, Effect::Glue(g) if g.stuck))),
             ("dogs", |m| m.effects.iter().any(|e| matches!(e, Effect::Pet(p) if p.breed == Breed::Hound))),
             ("minis", |m| m.f[N_FIGHTERS..].iter().any(|f| !f.absent)),
             ("cats", |m| m.effects.iter().any(|e| matches!(e, Effect::Pet(p) if matches!(p.breed, Breed::Cat(_))))),
@@ -259,7 +261,7 @@ mod tests {
         let casts = [
             [Character::Seth, Character::Sam, Character::Austin, Character::Tyler],
             [Character::Corwin, Character::Justin, Character::Ryan, Character::Jake],
-            [Character::Robert, Character::Kyle, Character::Tyler, Character::Classic],
+            [Character::Robert, Character::Kyle, Character::Tyler, Character::Sam],
         ];
         for (seed, cast) in casts.into_iter().enumerate() {
             let mut m = Match::new(5 + seed as u64, &MatchConfig::default());
@@ -295,6 +297,7 @@ mod tests {
             ClientMsg::SetSeatFill { seat: 2, fill: SeatFill::Empty },
             ClientMsg::Start,
             ClientMsg::Input { seq: 77, action },
+            ClientMsg::EndMatch,
         ];
         for m in &client {
             match m {
@@ -307,7 +310,8 @@ mod tests {
                 | ClientMsg::SetArena(_)
                 | ClientMsg::SetSeatFill { .. }
                 | ClientMsg::Start
-                | ClientMsg::Input { .. } => {}
+                | ClientMsg::Input { .. }
+                | ClientMsg::EndMatch => {}
             }
         }
         let seat = |name: &str, c, player| Seat { name: name.into(), character: c, player };
@@ -354,15 +358,15 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (18, 0x1d1a_1755_6927_3cef);
+    const WIRE: (u16, u64) = (19, 0xaf61_88f0_c76f_dd35);
 
     #[test]
     fn every_sample_round_trips() {
         let samples = samples();
-        for bytes in &samples[..10] {
+        for bytes in &samples[..11] {
             assert_eq!(encode(&decode::<ClientMsg>(bytes).unwrap()), *bytes);
         }
-        for bytes in &samples[10..] {
+        for bytes in &samples[11..] {
             assert_eq!(encode(&decode::<ServerMsg>(bytes).unwrap()), *bytes);
         }
     }

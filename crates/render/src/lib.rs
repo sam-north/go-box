@@ -53,7 +53,8 @@ const COATS: [(Color, Color); 5] = [
     (Color::new(0.92, 0.88, 0.78, 1.0), Color::new(0.75, 0.68, 0.56, 1.0)),
     (Color::new(0.55, 0.42, 0.30, 1.0), Color::new(0.32, 0.24, 0.17, 1.0)),
 ];
-const GRAV: Color = Color::new(0.45, 0.85, 0.55, 1.0);
+/// Sam's glue: off-white, a little yellow.
+const GLUE: Color = Color::new(0.96, 0.93, 0.78, 1.0);
 const SMOKE: Color = Color::new(0.75, 0.74, 0.70, 0.8);
 /// The protected-start shield.
 const SHIELD: Color = Color::new(0.55, 0.85, 1.0, 1.0);
@@ -129,7 +130,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 hair_style: HairStyle::Short,
                 beard: false,
                 glasses: false,
-                special_sound: Some(Sfx::BombThrow),
+                special_sound: Some(Sfx::GlueShot),
             };
             &ART
         }
@@ -659,22 +660,8 @@ impl Art {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 26, SMOKE, false, 45.0, 0.6, -30.0);
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 10, character_color(Character::Austin), false, 70.0, 0.3, 0.0);
                 }
-                Event::BombCrunch { pos } => {
-                    // Debris sucked in from all over the map, thickest near the bomb.
-                    for i in 0..70 {
-                        let seed = (self.time * 1000.0) as i32 + i * 17;
-                        let a = hash(seed, 0, 61) * std::f32::consts::TAU;
-                        let r = BOMB_PULL_RADIUS * (0.4 + hash(seed, 1, 61).powi(2) * 5.0);
-                        let from = pos + vec2(a.cos(), a.sin()) * r;
-                        let life = BOMB_CRUNCH as f32 * DT;
-                        self.particles.push(Particle { pos: from, vel: (pos - from) / life, color: GRAV, life, stick: false, gravity: 0.0 });
-                    }
-                }
-                Event::BombBlast { pos } => {
-                    self.blasts.push((pos, 0.0, BOMB_BLAST_RADIUS));
-                    self.burst(pos, vec2(0.0, -1.0), 6.3, 50, GRAV, false, 170.0, 0.45, 0.0);
-                    self.burst(pos, vec2(0.0, -1.0), 6.3, 30, Color::new(0.85, 1.0, 0.9, 1.0), false, 90.0, 0.25, 0.0);
-                    self.burst(pos, vec2(0.0, -1.0), 6.3, 30, SCORCH, true, 110.0, 1.5, 300.0);
+                Event::Glued { pos } => {
+                    self.burst(pos, vec2(0.0, -1.0), 6.3, 12, GLUE, true, 50.0, 0.6, 300.0);
                 }
                 Event::Bite { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 2.0, 6, Color::new(0.9, 0.9, 0.85, 0.9), false, 50.0, 0.2, 200.0);
@@ -811,7 +798,7 @@ impl Art {
         }
         for e in &m.effects {
             match e {
-                Effect::Bomb(b) => draw_bomb(b, self.time),
+                Effect::Glue(g) => draw_glue(g, m, self.time),
                 Effect::Pet(p) => match p.breed {
                     Breed::Hound => draw_dog(p),
                     Breed::Cat(coat) => draw_cat(p, coat),
@@ -1270,28 +1257,45 @@ fn draw_table(t: &Table) {
     }
 }
 
-/// Sam's gravity bomb: a dark, pulsing orb in flight; once it goes off, a ring collapsing from
-/// the edge of its reach onto the core.
-fn draw_bomb(b: &Bomb, time: f32) {
-    let c = b.pos;
-    match b.crunch {
-        None => {
-            draw_circle(c.x, c.y, 4.0 + (time * 30.0).sin() * 0.7, Color::new(GRAV.r, GRAV.g, GRAV.b, 0.25));
-            draw_circle(c.x, c.y, 2.0, Color::new(0.04, 0.08, 0.06, 1.0));
-            draw_rectangle(c.x.floor(), c.y.floor() - 1.0, 1.0, 1.0, GRAV);
-        }
-        Some(left) => {
-            let k = left as f32 / BOMB_CRUNCH as f32;
-            // The pull reaches the whole map: faint rings sweep in from beyond the walls.
-            for (r0, a) in [(W, 0.18), (W * 0.6, 0.28)] {
-                draw_circle_lines(c.x, c.y, r0 * k, 1.0, Color::new(GRAV.r, GRAV.g, GRAV.b, a * (1.0 - k * 0.5)));
-            }
-            draw_circle(c.x, c.y, BOMB_PULL_RADIUS * k, Color::new(GRAV.r * 0.3, GRAV.g * 0.3, GRAV.b * 0.3, 0.18 * (1.0 - k)));
-            draw_circle_lines(c.x, c.y, BOMB_PULL_RADIUS * k, 1.0, Color::new(GRAV.r, GRAV.g, GRAV.b, 0.9));
-            draw_circle(c.x, c.y, 3.0 + 3.0 * (1.0 - k), Color::new(0.02, 0.05, 0.03, 0.95));
-            draw_circle_lines(c.x, c.y, 3.5 + 3.0 * (1.0 - k), 1.0, GRAV);
-        }
+/// Sam's glue: a wobbling glob in flight; stuck, a blob with a sagging strand to everyone it holds
+/// (sagging less the more it's stretched), and a splotch on each of them. It fades as it dries.
+fn draw_glue(g: &Glue, m: &Match, time: f32) {
+    let fade = if g.stuck { (g.ticks as f32 * DT / 0.6).min(1.0) } else { 1.0 };
+    let c = |a: f32| Color::new(GLUE.r, GLUE.g, GLUE.b, a * fade);
+    if !g.stuck {
+        let r = 2.0 + (time * 25.0).sin() * 0.4;
+        draw_circle(g.pos.x, g.pos.y, r + 1.0, c(0.35));
+        draw_circle(g.pos.x, g.pos.y, r, c(1.0));
+        draw_rectangle(g.pos.x.floor() - 1.0, g.pos.y.floor() - 1.0, 1.0, 1.0, Color::new(1.0, 1.0, 1.0, 1.0));
+        let back = g.pos - g.vel.normalize_or_zero() * 4.0;
+        draw_line(g.pos.x, g.pos.y, back.x, back.y, 1.0, c(0.6));
+        return;
     }
+    let a = g.pos;
+    for &h in &g.held {
+        let f = &m.f[h as usize];
+        if !f.present() {
+            continue;
+        }
+        let b = f.center();
+        let d = b - a;
+        let slack = (1.0 - (d.length() - TETHER_REST).max(0.0) / (TETHER_BREAK - TETHER_REST)).clamp(0.0, 1.0);
+        let sag = vec2(0.0, 6.0 * slack);
+        let mut prev = a;
+        for k in 1..=8 {
+            let t = k as f32 / 8.0;
+            let p = a + d * t + sag * (4.0 * t * (1.0 - t));
+            draw_line(prev.x, prev.y, p.x, p.y, 2.0, c(0.35));
+            draw_line(prev.x, prev.y, p.x, p.y, 1.0, c(0.9));
+            prev = p;
+        }
+        draw_circle(b.x, b.y, 3.0, c(0.55));
+    }
+    draw_circle(a.x, a.y, 4.0, c(0.4));
+    draw_circle(a.x, a.y, 2.5, c(0.95));
+    // A drip hanging off the blob.
+    let drip = 1.0 + ((time * 2.0 + a.x).sin() * 0.5 + 0.5) * 2.0;
+    draw_rectangle(a.x.floor(), a.y.floor() + 2.0, 1.0, drip.round(), c(0.8));
 }
 
 /// Draws a held spear for the current swing phase and returns where the hand is.

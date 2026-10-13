@@ -264,6 +264,12 @@ impl Room {
                 }
             }
             ClientMsg::Start if is_leader && lobby => self.start(),
+            ClientMsg::EndMatch if is_leader => {
+                if let Some(r) = &mut self.running {
+                    r.m.end_now();
+                    tracing::info!(room = %self.code, "match ended by the leader");
+                }
+            }
             ClientMsg::Input { seq, action } => {
                 let playing = self.running.is_some();
                 let Some(p) = self.player(id) else { return };
@@ -463,6 +469,24 @@ mod tests {
         assert_eq!(res.seats.len(), 3, "the empty seat isn't on the scoreboard");
         assert!(res.seats[1].bot && !res.seats[0].bot);
         assert!(res.winner.is_none_or(|w| w < 3));
+    }
+
+    #[test]
+    fn the_leader_can_end_a_match_early() {
+        let mut r = room();
+        let mut a = join(&mut r, 1);
+        let _b = join(&mut r, 2);
+        r.on_msg(1, ClientMsg::Start);
+        for _ in 0..10 {
+            r.step();
+        }
+        r.on_msg(2, ClientMsg::EndMatch);
+        r.step();
+        assert!(r.running.is_some(), "only the leader can end it");
+        r.on_msg(1, ClientMsg::EndMatch);
+        r.step();
+        assert!(r.running.is_none(), "over");
+        assert!(last_room(&mut a).last_results.is_some(), "with results");
     }
 
     #[test]
