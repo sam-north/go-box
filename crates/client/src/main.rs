@@ -123,7 +123,7 @@ async fn main() {
         // The gamepad drives the menus whenever you're not mid-match (or the settings are up).
         let in_menus = !playing || app.settings_open;
         let nav = app.controls.nav();
-        ui.begin(if in_menus { nav } else { ui::Nav::default() }, in_menus && app.controls.using_pad);
+        ui.begin(if in_menus { nav } else { ui::Nav::default() }, in_menus && app.controls.using_pad, in_menus);
 
         // Your inputs, at the sim's fixed 60/s.
         let mouse: Vec2 = mouse_position().into();

@@ -12,6 +12,10 @@ use std::sync::{OnceLock, RwLock};
 /// The languages built in: (code, file contents). The first is the fallback.
 const LANGUAGES: &[(&str, &str)] = &[("en-US", include_str!("../text/en-US.txt"))];
 
+/// The longest a character's description (`about.<id>`) may be, in characters: what fits its
+/// preview in the lobby.
+pub const ABOUT_MAX: usize = 250;
+
 struct Table {
     /// Index into `LANGUAGES`.
     current: usize,
@@ -134,6 +138,16 @@ mod tests {
         let unused: Vec<_> = english.difference(&used).collect();
         assert!(missing.is_empty(), "keys used in code but missing from en-US.txt: {missing:?}");
         assert!(unused.is_empty(), "keys in en-US.txt that nothing uses: {unused:?}");
+    }
+
+    #[test]
+    fn character_descriptions_fit_their_preview() {
+        for (code, text) in LANGUAGES {
+            for (key, value) in parse(text).iter().filter(|(k, _)| k.starts_with("about.")) {
+                let n = value.chars().count();
+                assert!(n <= ABOUT_MAX, "{code} {key} is {n} characters (at most {ABOUT_MAX})");
+            }
+        }
     }
 
     #[test]

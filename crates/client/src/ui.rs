@@ -27,6 +27,19 @@ pub struct Nav {
     pub activate: bool,
 }
 
+/// The text-editing keys pressed this frame.
+#[derive(Clone, Copy, Default, Debug)]
+struct Edit {
+    left: bool,
+    right: bool,
+    home: bool,
+    end: bool,
+    delete: bool,
+    select_all: bool,
+    /// Extending the selection (Shift held).
+    shift: bool,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Slider {
     Master,
@@ -41,6 +54,20 @@ pub struct Ui {
     clicked: bool,
     pub focus: Option<Field>,
     typed: Vec<char>,
+    /// The focused text box's cursor and the other end of its selection (char indices; equal
+    /// when nothing is selected).
+    cursor: usize,
+    anchor: usize,
+    /// Dragging out a selection in this box.
+    text_drag: Option<Field>,
+    /// When and in which box the last click landed (two quick ones select everything).
+    last_click: (f64, Option<Field>),
+    /// Editing keys this frame (Backspace, Delete and the arrows repeat while held).
+    edit: Edit,
+    repeats: Vec<(KeyCode, f64)>,
+    /// Tab has moved the focus (shown as a ring, like the gamepad's), and did so this frame.
+    tab_mode: bool,
+    tab_moved: bool,
     /// Text pasted this frame, and whether copy (Ctrl+C) or cut (Ctrl+X) was pressed.
     pasted: Option<String>,
     copy: bool,
@@ -73,7 +100,7 @@ fn same_rect(a: Rect, b: Rect) -> bool {
 
 impl Ui {
     pub fn new() -> Self {
-        Self { s: 1.0, mouse: Vec2::ZERO, clicked: false, focus: None, typed: Vec::new(), pasted: None, copy: false, cut: false, backspace: false, enter: false, hot: false,
+        Self { s: 1.0, mouse: Vec2::ZERO, clicked: false, focus: None, typed: Vec::new(), cursor: 0, anchor: 0, text_drag: None, last_click: (0.0, None), edit: Edit::default(), repeats: Vec::new(), tab_mode: false, tab_moved: false, pasted: None, copy: false, cut: false, backspace: false, enter: false, hot: false,
             blocked: false,
             dragging: None,
             pressed: false,
@@ -86,7 +113,8 @@ impl Ui {
         }
     }
 
-    pub fn begin(&mut self, nav: Nav, pad_mode: bool) {
+    /// `menus`: a menu is up (Tab navigates only then, never in play).
+    pub fn begin(&mut self, nav: Nav, pad_mode: bool, menus: bool) {
         self.pad_mode = pad_mode;
         self.prev_targets = std::mem::take(&mut self.targets);
         self.navigate(nav);
@@ -106,14 +134,72 @@ impl Ui {
         self.pasted = crate::platform::take_paste();
         self.copy = ctrl && is_key_pressed(KeyCode::C);
         self.cut = ctrl && is_key_pressed(KeyCode::X);
-        self.backspace = is_key_pressed(KeyCode::Backspace);
+        self.backspace = self.pressed_or_repeat(KeyCode::Backspace);
         self.enter = is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::KpEnter);
+        let shift = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
+        self.edit = Edit {
+            left: self.pressed_or_repeat(KeyCode::Left),
+            right: self.pressed_or_repeat(KeyCode::Right),
+            home: is_key_pressed(KeyCode::Home),
+            end: is_key_pressed(KeyCode::End),
+            delete: self.pressed_or_repeat(KeyCode::Delete),
+            select_all: ctrl && is_key_pressed(KeyCode::A),
+            shift,
+        };
+        // Tab / Shift+Tab: the next / previous control on screen (as drawn last frame, so only
+        // what's visible). Enter presses a focused button.
+        self.tab_moved = false;
+        self.tab_mode &= menus;
+        if menus && is_key_pressed(KeyCode::Tab) && !self.prev_targets.is_empty() {
+            let n = self.prev_targets.len();
+            let at = self.nav_focus.and_then(|f| self.prev_targets.iter().position(|(r, _)| same_rect(*r, f)));
+            let next = match at {
+                Some(i) if shift => (i + n - 1) % n,
+                Some(i) => (i + 1) % n,
+                None if shift => n - 1,
+                None => 0,
+            };
+            self.nav_focus = Some(self.prev_targets[next].0);
+            self.tab_mode = true;
+            self.tab_moved = true;
+            self.focus = None;
+        }
+        if self.tab_mode && self.enter {
+            self.nav.activate = true;
+        }
     }
 
-    /// Clicking empty space drops keyboard focus.
+    /// A key just pressed, or held long enough to repeat (macroquad doesn't report repeats).
+    fn pressed_or_repeat(&mut self, k: KeyCode) -> bool {
+        let now = get_time();
+        if is_key_pressed(k) {
+            self.repeats.retain(|(c, _)| *c != k);
+            self.repeats.push((k, now + 0.45));
+            return true;
+        }
+        if !is_key_down(k) {
+            self.repeats.retain(|(c, _)| *c != k);
+            return false;
+        }
+        match self.repeats.iter_mut().find(|(c, _)| *c == k) {
+            Some(r) if now >= r.1 => {
+                r.1 = now + 0.035;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Clicking empty space drops keyboard focus; any click ends Tab navigation.
     pub fn end(&mut self) {
-        if self.clicked && !self.hot {
-            self.focus = None;
+        if self.clicked {
+            self.tab_mode = false;
+            if !self.hot {
+                self.focus = None;
+            }
+        }
+        if !is_mouse_button_down(MouseButton::Left) {
+            self.text_drag = None;
         }
     }
 
@@ -212,7 +298,7 @@ impl Ui {
             return false;
         }
         self.targets.push((r, slider));
-        self.pad_mode && self.nav_focus.is_some_and(|f| same_rect(f, r))
+        (self.pad_mode || self.tab_mode) && self.nav_focus.is_some_and(|f| same_rect(f, r))
     }
 
     fn draw_focus(&self, r: Rect) {
@@ -259,6 +345,8 @@ impl Ui {
         if clicked {
             self.hot = true;
             self.pressed = true;
+            // Tab carries on from here.
+            self.nav_focus = Some(r);
         }
         clicked
     }
@@ -296,53 +384,168 @@ impl Ui {
         changed
     }
 
-    /// A single-line text box. `filter` maps typed (or pasted) characters (None = rejected).
-    /// Ctrl+V pastes; Ctrl+C copies and Ctrl+X cuts the whole box (not the passphrase).
-    /// Returns true when Enter is pressed in it.
+    /// A single-line text box, edited like any other: click to place the cursor, drag (or
+    /// Shift+arrows, Shift+Home/End) to select, double-click or Ctrl/Cmd+A for everything;
+    /// typing and pasting replace the selection; Ctrl+C / Ctrl+X copy or cut the selection (the
+    /// whole box if nothing's selected; never the passphrase). Tab moves on. `filter` maps typed
+    /// (or pasted) characters (None = rejected). Returns true when Enter is pressed in it.
     pub fn field(&mut self, id: Field, r: Rect, text: &mut String, placeholder: &str, max: usize, filter: impl Fn(char) -> Option<char>) -> bool {
-        if self.clicked && self.hovered(r) {
+        let size = (r.h / self.s * 0.5).min(24.0);
+        let x = r.x + self.px(10.0);
+        let mask = |t: &str| if id == Field::Passphrase { "*".repeat(t.chars().count()) } else { t.to_string() };
+
+        // Tab landed here: focus it with everything selected, as browsers do.
+        let nav = self.nav_target(r, false);
+        if nav && self.tab_moved {
             self.focus = Some(id);
+            self.anchor = 0;
+            self.cursor = text.chars().count();
+        }
+        if self.clicked && self.hovered(r) {
+            let now = get_time();
+            let double = self.last_click.1 == Some(id) && now - self.last_click.0 < 0.35;
+            self.last_click = (now, Some(id));
+            self.focus = Some(id);
+            self.nav_focus = Some(r);
             self.hot = true;
+            if double {
+                self.anchor = 0;
+                self.cursor = text.chars().count();
+            } else {
+                self.cursor = self.index_at(&mask(text), x, size);
+                if !self.edit.shift {
+                    self.anchor = self.cursor;
+                }
+                self.text_drag = Some(id);
+            }
         }
         let focused = self.focus == Some(id);
         if focused {
-            let mut pasted = self.pasted.as_deref().unwrap_or("");
-            // A whole invite link pasted into the room code box: just its code.
-            if id == Field::Code
-                && let Some((_, code)) = pasted.split_once("room=")
-            {
-                pasted = code.split('&').next().unwrap_or("");
+            let len = text.chars().count();
+            self.cursor = self.cursor.min(len);
+            self.anchor = self.anchor.min(len);
+            if self.text_drag == Some(id) && is_mouse_button_down(MouseButton::Left) && !self.clicked {
+                self.cursor = self.index_at(&mask(text), x, size);
             }
-            let pasted = pasted.chars();
-            for c in self.typed.iter().copied().chain(pasted) {
-                if let Some(c) = filter(c)
-                    && text.chars().count() < max
-                {
-                    text.push(c);
-                }
-            }
-            if (self.copy || self.cut) && id != Field::Passphrase && !text.is_empty() {
-                crate::platform::copy(text);
-                if self.cut {
-                    text.clear();
-                }
-            }
-            if self.backspace {
-                text.pop();
-            }
+            self.edit_text(id, text, max, &filter);
         }
+
         draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0.02, 0.02, 0.03, 0.95));
         draw_rectangle_lines(r.x, r.y, r.w, r.h, 2.0, if focused { ACCENT } else { EDGE });
-        let size = (r.h / self.s * 0.5).min(24.0);
-        let display = if id == Field::Passphrase { "*".repeat(text.chars().count()) } else { text.clone() };
-        let (shown, c) = if text.is_empty() && !focused { (placeholder.to_string(), DIM) } else { (display.clone(), INK) };
-        let x = r.x + self.px(10.0);
+        if nav && !focused {
+            self.draw_focus(r);
+        }
+        let display = mask(text);
         let y = r.y + r.h / 2.0 + self.px(size) * 0.3;
-        self.text(&shown, x, y, size, c);
+        let width_to = |ui: &Ui, i: usize| ui.text_width(&display.chars().take(i).collect::<String>(), size);
+        if focused && self.cursor != self.anchor {
+            let (a, b) = (self.cursor.min(self.anchor), self.cursor.max(self.anchor));
+            let (xa, xb) = (x + width_to(self, a), x + width_to(self, b));
+            draw_rectangle(xa, r.y + r.h * 0.2, xb - xa, r.h * 0.6, Color::new(ACCENT.r, ACCENT.g, ACCENT.b, 0.35));
+        }
+        if text.is_empty() && !focused {
+            self.text(placeholder, x, y, size, DIM);
+        } else {
+            self.text(&display, x, y, size, INK);
+        }
         if focused && (get_time() * 2.0).fract() < 0.5 {
-            let cx = x + self.text_width(&display, size) + 2.0;
+            let cx = x + width_to(self, self.cursor) + 1.0;
             draw_rectangle(cx, r.y + r.h * 0.22, 2.0, r.h * 0.56, INK);
         }
         focused && self.enter
+    }
+
+    /// Where in `shown` (drawn from `x`) the mouse is: the nearest gap between characters.
+    fn index_at(&self, shown: &str, x: f32, size: f32) -> usize {
+        let chars: Vec<char> = shown.chars().collect();
+        let gap = |i: usize| (x + self.text_width(&chars[..i].iter().collect::<String>(), size) - self.mouse.x).abs();
+        (0..=chars.len()).min_by(|&a, &b| gap(a).total_cmp(&gap(b))).unwrap_or(0)
+    }
+
+    /// This frame's keys and typing, applied to the focused box's text, cursor and selection.
+    fn edit_text(&mut self, id: Field, text: &mut String, max: usize, filter: &impl Fn(char) -> Option<char>) {
+        let byte = |t: &str, i: usize| t.char_indices().nth(i).map_or(t.len(), |(b, _)| b);
+        let delete = |t: &mut String, a: usize, b: usize| {
+            let (a, b) = (byte(t, a), byte(t, b));
+            t.replace_range(a..b, "");
+        };
+        let len = text.chars().count();
+        let (lo, hi) = (self.cursor.min(self.anchor), self.cursor.max(self.anchor));
+        let selected = lo != hi;
+        let e = self.edit;
+        if e.select_all {
+            self.anchor = 0;
+            self.cursor = len;
+            return;
+        }
+        // Copy / cut: the selection, or the whole box if nothing's selected.
+        if (self.copy || self.cut) && id != Field::Passphrase && !text.is_empty() {
+            let (a, b) = if selected { (lo, hi) } else { (0, len) };
+            crate::platform::copy(&text[byte(text, a)..byte(text, b)]);
+            if self.cut {
+                delete(text, a, b);
+                self.cursor = a;
+                self.anchor = a;
+            }
+            return;
+        }
+        // Moving the cursor (Shift extends the selection; without it, a selection collapses).
+        let moved = if e.left {
+            Some(if selected && !e.shift { lo } else { self.cursor.saturating_sub(1) })
+        } else if e.right {
+            Some(if selected && !e.shift { hi } else { (self.cursor + 1).min(len) })
+        } else if e.home {
+            Some(0)
+        } else if e.end {
+            Some(len)
+        } else {
+            None
+        };
+        if let Some(c) = moved {
+            self.cursor = c;
+            if !e.shift {
+                self.anchor = c;
+            }
+            return;
+        }
+        // Deleting.
+        if self.backspace || e.delete {
+            if selected {
+                delete(text, lo, hi);
+                self.cursor = lo;
+            } else if self.backspace && self.cursor > 0 {
+                delete(text, self.cursor - 1, self.cursor);
+                self.cursor -= 1;
+            } else if e.delete && self.cursor < len {
+                delete(text, self.cursor, self.cursor + 1);
+            }
+            self.anchor = self.cursor;
+            return;
+        }
+        // Typing and pasting replace the selection.
+        let mut pasted = self.pasted.as_deref().unwrap_or("");
+        // A whole invite link pasted into the room code box: just its code.
+        if id == Field::Code
+            && let Some((_, code)) = pasted.split_once("room=")
+        {
+            pasted = code.split('&').next().unwrap_or("");
+        }
+        let incoming: Vec<char> = self.typed.iter().copied().chain(pasted.chars()).filter_map(filter).collect();
+        if incoming.is_empty() {
+            return;
+        }
+        if selected {
+            delete(text, lo, hi);
+            self.cursor = lo;
+        }
+        for c in incoming {
+            if text.chars().count() >= max {
+                break;
+            }
+            let at = byte(text, self.cursor);
+            text.insert(at, c);
+            self.cursor += 1;
+        }
+        self.anchor = self.cursor;
     }
 }

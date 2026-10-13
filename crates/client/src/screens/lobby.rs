@@ -19,9 +19,10 @@ fn preview(ui: &Ui, r: Rect, c: Character, picked: bool, portraits: &[RenderTarg
     let k = Character::ALL.iter().position(|&x| x == c).unwrap_or(0);
     // The figure, cropped to its body so it fills the box.
     let src = Rect::new(4.0, 3.0, 18.0, 27.0);
-    let ph = r.h - ui.px(20.0);
+    // (Kept smallish, so the description gets the width.)
+    let ph = (r.h - ui.px(20.0)).min(ui.px(120.0));
     let pw = ph * src.w / src.h;
-    draw_texture_ex(&portraits[k].texture, r.x + ui.px(12.0), r.y + ui.px(10.0), WHITE, DrawTextureParams { dest_size: Some(vec2(pw, ph)), source: Some(src), ..Default::default() });
+    draw_texture_ex(&portraits[k].texture, r.x + ui.px(12.0), r.y + (r.h - ph) / 2.0, WHITE, DrawTextureParams { dest_size: Some(vec2(pw, ph)), source: Some(src), ..Default::default() });
     let tx = r.x + pw + ui.px(28.0);
     let tw = r.x + r.w - tx - ui.px(10.0);
     ui.text(character_name(c), tx, r.y + ui.px(34.0), 30.0, color);
@@ -34,10 +35,12 @@ fn preview(ui: &Ui, r: Rect, c: Character, picked: bool, portraits: &[RenderTarg
         None => t("lobby.no_special").to_string(),
     };
     ui.text(&ui.fit(&heading, 18.0, tw), tx, r.y + ui.px(60.0), 18.0, INK);
-    let mut ly = r.y + ui.px(84.0);
-    for line in ui.wrap(t(&format!("about.{}", c.id())), 16.0, tw) {
-        ui.text(&line, tx, ly, 16.0, DIM);
-        ly += ui.px(19.0);
+    // Up to `text::ABOUT_MAX` characters fit (a test holds the text files to it).
+    let mut ly = r.y + ui.px(82.0);
+    let about: String = t(&format!("about.{}", c.id())).chars().take(crate::text::ABOUT_MAX).collect();
+    for line in ui.wrap(&about, 15.0, tw) {
+        ui.text(&line, tx, ly, 15.0, DIM);
+        ly += ui.px(17.0);
     }
 }
 
@@ -45,7 +48,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     let (sw, sh) = (screen_width(), screen_height());
     let w = ui.px(860.0).min(sw - 32.0);
     let results_h = if room.last_results.is_some() { ui.px(240.0) } else { 0.0 };
-    let h = (ui.px(520.0) + results_h).min(sh - 24.0);
+    let h = (ui.px(560.0) + results_h).min(sh - 24.0);
     let r = Rect::new((sw - w) / 2.0, (sh - h) / 2.0, w, h);
     ui.panel(r);
     let pad = ui.px(24.0);
@@ -168,7 +171,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     // Character picker: small tiles (head and name) on the left; on the right, a preview of the
     // one under the mouse (or the one you picked) with its special explained.
     let mine = room.players.iter().find(|p| Some(p.id) == app.me).map(|p| p.character);
-    let ch = ui.px(160.0);
+    let ch = ui.px(200.0);
     let (tw, th, gap) = (ui.px(64.0), ui.px(70.0), ui.px(6.0));
     let cols = (((w - pad * 2.0) * 0.55 + gap) / (tw + gap)).floor().max(1.0) as usize;
     let grid_w = cols.min(Character::ALL.len()) as f32 * (tw + gap) - gap;
