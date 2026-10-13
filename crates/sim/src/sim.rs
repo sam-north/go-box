@@ -48,6 +48,8 @@ const JUMP_V: f32 = 250.0;
 // air you can steer and reverse, just not as sharply as on the ground.
 const WALK: f32 = 45.0;
 const RUN: f32 = 150.0;
+/// How much faster a hasted fighter runs (Tyler with his dogs out).
+const HASTE: f32 = 1.35;
 /// px/s²: getting going (up to walking pace), then building to a run.
 const GROUND_START: f32 = 900.0;
 const GROUND_BUILD: f32 = 290.0;
@@ -219,6 +221,10 @@ pub struct Fighter {
     /// Jake inside his phone: ticks until he comes back out (0 = he's here as normal). Meanwhile
     /// he can't act or be hurt, and his position follows the phone.
     pub digital: u32,
+    /// Pinned in place by Kyle: ticks left. Can't move or jump (can still swing and throw).
+    pub pinned: u32,
+    /// Running faster (Tyler, while his dogs are out): ticks left.
+    pub haste: u32,
 }
 
 impl Fighter {
@@ -249,6 +255,8 @@ impl Fighter {
             owner: None,
             life: None,
             digital: 0,
+            pinned: 0,
+            haste: 0,
         }
     }
 
@@ -390,6 +398,8 @@ pub enum Event {
     Hook { pos: Vec2 },
     /// Jake going into his phone (`out`: false) or coming back out of it, at his middle.
     Hologram { pos: Vec2, out: bool },
+    /// Robert's lightning striking someone.
+    Zap { pos: Vec2 },
     /// A thrown item hitting terrain hard.
     Clatter { pos: Vec2, kind: ItemKind },
 }
@@ -1282,13 +1292,17 @@ fn accel(v: f32, target: f32, grounded: bool) -> f32 {
 }
 
 fn control(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
+    let pinned = f.pinned > 0;
+    f.pinned = f.pinned.saturating_sub(1);
+    let run = if f.haste > 0 { RUN * HASTE } else { RUN };
+    f.haste = f.haste.saturating_sub(1);
     if !f.alive() {
         f.vel.x *= 0.9;
     } else if f.hitstun > 0 {
         f.hitstun -= 1;
         f.vel.x *= 0.97;
     } else {
-        let mut target = if a.mv.abs() < 0.2 { 0.0 } else { a.mv.signum() * if a.run { RUN } else { WALK } };
+        let mut target = if a.mv.abs() < 0.2 { 0.0 } else { a.mv.signum() * if a.run { run } else { WALK } };
         if f.atk_timer > 0 && f.grounded {
             target *= 0.4;
         }
@@ -1296,7 +1310,7 @@ fn control(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
         if f.atk_timer == 0 && a.mv.abs() >= 0.2 {
             f.facing = a.mv.signum();
         }
-        if a.jump && f.grounded {
+        if a.jump && f.grounded && !pinned {
             f.vel.y = -JUMP_V;
             f.grounded = false;
             events.push(Event::Jump { who, pos: f.pos });
@@ -1312,6 +1326,11 @@ fn control(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
             }
             events.push(Event::Swing { who });
         }
+    }
+    // Pinned: stuck exactly where they are (in mid-air too), whatever hits them.
+    if pinned {
+        f.vel = Vec2::ZERO;
+        return;
     }
     // Releasing jump early cuts the arc short.
     let g = if f.vel.y < 0.0 && !a.jump { GRAVITY * 2.0 } else { GRAVITY };
@@ -1344,7 +1363,10 @@ fn collide(f: &mut Fighter, arena: &Arena, props: &[Aabb]) {
 
     let prev_bottom = f.pos.y;
     f.pos.y += f.vel.y * DT;
-    f.grounded = false;
+    // (Only something pinned stands perfectly still: it keeps its footing.)
+    if f.vel.y != 0.0 {
+        f.grounded = false;
+    }
     for s in SOLIDS.iter() {
         if f.body().overlaps(s) {
             if f.vel.y > 0.0 {

@@ -36,6 +36,9 @@ const DOG_DARK: Color = Color::new(0.28, 0.19, 0.12, 1.0);
 const RICE: Color = Color::new(0.96, 0.95, 0.90, 1.0);
 /// Jake's hologram light, and how long the beam lasts going into or out of the phone.
 const HOLO: Color = Color::new(0.35, 0.95, 1.0, 1.0);
+/// Kyle's pin glow, and Robert's lightning.
+const PIN: Color = Color::new(0.55, 1.0, 0.75, 1.0);
+const BOLT: Color = Color::new(0.75, 0.85, 1.0, 1.0);
 const HOLO_PINK: Color = Color::new(1.0, 0.45, 0.85, 1.0);
 const HOLO_SECS: f32 = 0.45;
 const SALMON: Color = Color::new(1.0, 0.52, 0.34, 1.0);
@@ -88,6 +91,8 @@ pub enum HairStyle {
     OverEars,
     /// Swept down over one eye, longer at the back (Jake).
     Emo,
+    /// Shaved to stubble (Robert).
+    Shaved,
 }
 
 /// How a character looks and sounds: one row per character in `art`.
@@ -227,6 +232,40 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 beard: false,
                 glasses: true,
                 special_sound: Some(Sfx::ChainThrow),
+            };
+            &ART
+        }
+        // Shaved head, a dark work jacket; electric blue.
+        Character::Robert => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(0.38, 0.62, 1.0, 1.0)),
+                body: rgb(48, 54, 72),
+                legs: [rgb(32, 34, 42), rgb(44, 46, 56)],
+                arms: rgb(56, 62, 82),
+                hair: Some(rgb(164, 132, 112)),
+                headband: false,
+                skin: SKIN,
+                hair_style: HairStyle::Shaved,
+                beard: false,
+                glasses: false,
+                special_sound: Some(Sfx::Thunder),
+            };
+            &ART
+        }
+        // Dirty-blonde hair, a tidy polo; mint.
+        Character::Kyle => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(0.45, 0.95, 0.70, 1.0)),
+                body: rgb(88, 110, 98),
+                legs: [rgb(58, 52, 44), rgb(72, 66, 56)],
+                arms: SKIN,
+                hair: Some(rgb(196, 166, 102)),
+                headband: false,
+                skin: SKIN,
+                hair_style: HairStyle::Short,
+                beard: false,
+                glasses: false,
+                special_sound: Some(Sfx::Organize),
             };
             &ART
         }
@@ -648,6 +687,9 @@ impl Art {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 18, HOLO, false, 40.0, 0.5, -20.0);
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 8, HOLO_PINK, false, 30.0, 0.4, -20.0);
                 }
+                Event::Zap { pos } => {
+                    self.burst(pos, vec2(0.0, -1.0), 6.3, 10, BOLT, false, 90.0, 0.2, 0.0);
+                }
                 Event::Hook { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 8, Color::new(1.0, 0.95, 0.8, 1.0), false, 90.0, 0.2, 0.0);
                 }
@@ -776,11 +818,41 @@ impl Art {
                 },
                 Effect::Table(t) => draw_table(t),
                 Effect::Chain(c) => draw_chain(c, chain_anchor(&m.f[c.owner])),
+                // (Drawn over the fighters, below.)
+                Effect::Lightning(_) => {}
+                Effect::Order(_) => {}
             }
         }
         // Loose and flying items (held spears are drawn with their holder).
         for it in m.items.iter().filter(|it| !(it.held_by.is_some() && it.kind == ItemKind::Spear)) {
             draw_item(it, self.time);
+        }
+
+        // Kyle's pin: a glowing ring at the feet of everyone stuck. Tyler's haste: speed streaks.
+        for f in m.f.iter().filter(|f| f.present()) {
+            if f.pinned > 0 {
+                let pulse = 0.5 + 0.5 * (self.time * 8.0).sin();
+                let fade = (f.pinned as f32 / 20.0).min(1.0);
+                let w = 9.0 * f.scale + pulse;
+                draw_ellipse(f.pos.x, f.pos.y - 0.5, w + 3.0, 4.0, 0.0, Color::new(PIN.r, PIN.g, PIN.b, 0.15 * fade));
+                draw_ellipse(f.pos.x, f.pos.y - 0.5, w, 3.0, 0.0, Color::new(PIN.r, PIN.g, PIN.b, 0.4 * fade));
+                draw_ellipse_lines(f.pos.x, f.pos.y - 0.5, w, 3.0, 0.0, 1.0, Color::new(PIN.r, PIN.g, PIN.b, fade));
+                draw_ellipse_lines(f.pos.x, f.pos.y - 0.5, w + 3.0, 4.0, 0.0, 1.0, Color::new(PIN.r, PIN.g, PIN.b, 0.5 * pulse * fade));
+                for k in 0..3 {
+                    let x = f.pos.x + (k as f32 - 1.0) * 5.0 * f.scale;
+                    let h = 3.0 + 3.0 * ((self.time * 6.0 + k as f32 * 2.1).sin() * 0.5 + 0.5);
+                    draw_rectangle(x.round(), (f.pos.y - h).round(), 1.0, h.round(), Color::new(PIN.r, PIN.g, PIN.b, 0.75 * fade));
+                }
+            }
+            if f.haste > 0 && f.vel.x.abs() > 60.0 {
+                let a = look(f.character, 0).accent;
+                let back = -f.vel.x.signum();
+                for (k, dy) in [3.0, 7.0, 11.0].into_iter().enumerate() {
+                    let len = 4.0 + 3.0 * ((self.time * 20.0 + k as f32).sin() * 0.5 + 0.5);
+                    let x0 = f.pos.x + back * (5.0 + k as f32);
+                    draw_line(x0, f.pos.y - dy, x0 + back * len, f.pos.y - dy, 1.0, Color::new(a.r, a.g, a.b, 0.5));
+                }
+            }
         }
 
         // Dead underneath the living.
@@ -797,6 +869,14 @@ impl Art {
             }
             let flash = f.hitstun > 0 && (f.hitstun / 2) % 2 == 0;
             draw_human(&self.vis[i], f, &look(f.character, i), flash);
+        }
+        for e in &m.effects {
+            if let Effect::Lightning(l) = e {
+                draw_lightning(l, self.time);
+            }
+            if let Effect::Order(o) = e {
+                draw_order(o, &m.f[o.owner], self.time);
+            }
         }
         // The protected start: a pulsing shield around everyone, fading out as it ends.
         if m.protected() {
@@ -1006,7 +1086,8 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
             // A rectangle relative to the head, drawn as if facing right and mirrored when not.
             let px = |dx: f32, dy: f32, w: f32, h: f32, c: Color| draw_rectangle(if s > 0.0 { hx + dx } else { hx + 1.0 - dx - w }, hy + dy, w, h, c);
             draw_circle(head.x, head.y, 2.4, tint(look.skin, flash));
-            px(-2.0, -3.0, 5.0, 2.0, hair);
+            // Over the top (just a shadow of stubble when shaved).
+            px(-2.0, -3.0, 5.0, if look.hair_style == HairStyle::Shaved { 1.0 } else { 2.0 }, hair);
             match look.hair_style {
                 HairStyle::Short => px(-3.0, -2.0, 2.0, 3.0, hair),
                 HairStyle::Long => {
@@ -1018,6 +1099,7 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
                     px(-1.0, -1.0, 2.0, 2.0, hair);
                     px(2.0, -2.0, 1.0, 1.0, hair);
                 }
+                HairStyle::Shaved => {}
                 HairStyle::Emo => {
                     px(-3.0, -3.0, 6.0, 1.0, hair);
                     px(-3.0, -2.0, 2.0, 4.0, hair);
@@ -1081,6 +1163,67 @@ fn draw_cat(c: &Pet, coat: u8) {
     draw_rectangle(hx + 1.0, y - 5.0, 1.0, 1.0, dark);
     let tx = if s > 0.0 { x - 3.0 } else { x + 2.0 };
     draw_rectangle(tx, y - 5.0 - stride, 1.0, 3.0, dark);
+}
+
+/// Robert's lightning: a jagged bolt to each foe, with a couple of short forks branching off, all
+/// flickering (re-shaped a few times a second) and fading out.
+fn draw_lightning(l: &Lightning, time: f32) {
+    let fade = (l.ticks as f32 / 20.0).min(1.0);
+    let frame = (time * 24.0) as i32;
+    for (b, &to) in l.to.iter().enumerate() {
+        let d = to - l.from;
+        let n = ((d.length() / 10.0) as i32).clamp(3, 30);
+        let side = vec2(-d.y, d.x).normalize_or_zero();
+        let jag = |k: i32, salt: i32| (hash(k + salt * 97, frame + b as i32 * 13, l.seed) - 0.5) * 8.0;
+        let mut prev = l.from;
+        for k in 1..=n {
+            let t = k as f32 / n as f32;
+            let p = if k == n { to } else { l.from + d * t + side * jag(k, 0) };
+            draw_line(prev.x, prev.y, p.x, p.y, 3.0, Color::new(BOLT.r, BOLT.g, BOLT.b, 0.25 * fade));
+            draw_line(prev.x, prev.y, p.x, p.y, 1.0, Color::new(1.0, 1.0, 1.0, 0.95 * fade));
+            // Now and then a fork splits off.
+            if k < n && hash(k, b as i32, l.seed ^ 0x5a5a) < 0.18 {
+                let dir = (d.normalize_or_zero() + side * (hash(k, 7, l.seed) - 0.5) * 2.5).normalize_or_zero();
+                let mut q = p;
+                for s in 0..3 {
+                    let r = q + dir * 5.0 + side * jag(k * 5 + s, 3) * 0.5;
+                    draw_line(q.x, q.y, r.x, r.y, 1.0, Color::new(BOLT.r, BOLT.g, BOLT.b, 0.8 * fade));
+                    q = r;
+                }
+            }
+            prev = p;
+        }
+        draw_circle(to.x, to.y, 4.0, Color::new(BOLT.r, BOLT.g, BOLT.b, 0.3 * fade));
+    }
+    draw_circle(l.from.x, l.from.y, 3.0, Color::new(1.0, 1.0, 1.0, 0.6 * fade));
+}
+
+/// Kyle's organize, on Kyle: a shockwave ring sweeping out across the arena as he casts it, then
+/// while it holds a pillar of light and little blocks orbiting him, so everyone sees who did it.
+fn draw_order(o: &Order, kyle: &Fighter, time: f32) {
+    let t = (PIN_TICKS - o.ticks.min(PIN_TICKS)) as f32 * DT;
+    let fade = (o.ticks as f32 * DT / 0.3).min(1.0);
+    for (lag, width) in [(0.0, 2.0), (0.08, 1.0)] {
+        let k = ((t - lag) / 0.5).clamp(0.0, 1.0);
+        if k > 0.0 && k < 1.0 {
+            draw_circle_lines(o.at.x, o.at.y, 8.0 + k * W, width, Color::new(PIN.r, PIN.g, PIN.b, 0.9 * (1.0 - k)));
+        }
+    }
+    if !kyle.present() {
+        return;
+    }
+    let c = kyle.center();
+    let pulse = 0.5 + 0.5 * (time * 6.0).sin();
+    draw_rectangle(c.x - 5.0, c.y - 40.0, 10.0, 40.0 + kyle.height() * 0.5, Color::new(PIN.r, PIN.g, PIN.b, (0.10 + 0.08 * pulse) * fade));
+    draw_rectangle(c.x - 2.0, c.y - 60.0, 4.0, 60.0 + kyle.height() * 0.5, Color::new(PIN.r, PIN.g, PIN.b, (0.12 + 0.1 * pulse) * fade));
+    draw_circle(c.x, c.y, 11.0 + pulse * 2.0, Color::new(PIN.r, PIN.g, PIN.b, 0.18 * fade));
+    draw_circle_lines(c.x, c.y, 11.0 + pulse * 2.0, 1.0, Color::new(PIN.r, PIN.g, PIN.b, 0.9 * fade));
+    for k in 0..4 {
+        let a = time * 3.0 + k as f32 * std::f32::consts::FRAC_PI_2;
+        let p = c + vec2(a.cos() * 13.0, a.sin() * 6.0);
+        draw_rectangle((p.x - 1.0).round(), (p.y - 1.0).round(), 2.0, 2.0, Color::new(1.0, 1.0, 1.0, fade));
+        draw_rectangle_lines((p.x - 2.0).round(), (p.y - 2.0).round(), 4.0, 4.0, 1.0, Color::new(PIN.r, PIN.g, PIN.b, fade));
+    }
 }
 
 /// Jake breaking up into (or coming back out of) light: a stack of flickering scan lines the

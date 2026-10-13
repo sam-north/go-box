@@ -44,19 +44,22 @@ Everyone has the same body; each character adds one special on a cooldown.
 | Classic | none — the hooded fighter the brains were trained as | — |
 | Sam | **Gravity Bomb**: lobs a bomb ~90px ahead; it goes off when it lands or touches someone and yanks everyone on the map toward it for a quarter second (anyone within 76px right into the middle, the rest less the farther away they are), then explodes for up to 34 | 30s |
 | Austin | **Pop-Up**: teleports in the direction he's facing, at least 160px ahead (a third of the arena) when there's room, else anywhere ahead; prefers spots 40px from everyone | 15s |
-| Tyler | **Release the Hounds**: three dogs run the floors for 5s, biting anyone but Tyler for 15 (each dog at most twice a second per victim) | 30s |
+| Tyler | **Release the Hounds**: three dogs run the floors for 5s, biting anyone but Tyler for 15 (each dog at most twice a second per victim), and Tyler runs 35% faster while they're out | 30s |
 | Seth | **Mini Me**: two smaller (70%) clones hop out in front of him for 15s. They fight like bots (grabbing and throwing too), die to one hit, and their kills count as his; they vanish if he goes down | 30s |
 | Corwin | **Cat Herder**: twenty cats pour out and run the floors for 5s; each scratch is only 2 (once a second per cat per victim) but they come as a swarm | 30s |
 | Justin | **Sushi Table**: a table drops in front of him (onto him, if he's facing a wall) with three pieces of sushi on it. Solid from the sides and on top but never from below, so it can't pin anyone; sushi throws like a rock (10) and splats on whatever it hits. Lasts 15s, one at a time | 10s |
 | Ryan | **Yanking Your Chain**: throws a chain up to 110px the way he aims; the first foe it hooks takes 6 and is yanked to just in front of him, dazed for 0.4s | 8s |
 | Jake | **Into the Phone**: turns into light and hides inside his phone for 5s, which drops from his head; meanwhile he can't act or be hurt, and anyone can grab and throw the phone (it hits like a rock). Then he pops back out standing on wherever it went, and the phone stays as an ordinary item | 20s |
+| Robert | **Forked Lightning**: a forked bolt strikes every opponent in the arena at once (no line of sight needed): 30 up close, falling off to 5 at 300px and beyond | 25s |
+| Kyle | **Organize**: pins every opponent exactly where they are (even in mid-air) for 3s, with a glow at their feet; they can still swing and throw, just not move or jump | 20s |
 
 Bots playing a character use its special by a simple rule (the brains never trained with
 specials): Sam works out where his bomb would land and throws only if it would catch two people,
 finish one off, or turn a fight he's losing; Austin pops away from incoming projectiles, grenades
 about to blow, or a crowd when hurt; Tyler releases the hounds at someone on his level ahead; Seth splits when a foe is close; Corwin lets the cats go at someone on his level ahead; Justin
 serves a table when he has nothing to throw; Ryan throws the chain at someone level with him, in reach; Jake hides in his phone when Austin would
-pop away. Tuning lives at the top of `crates/sim/src/character.rs`.
+pop away; Robert casts when the bolts would do 30 all told or finish someone; Kyle organizes when someone's
+within arm's reach. Tuning lives at the top of `crates/sim/src/character.rs`.
 
 **Adding a map** is a variant in `ArenaId` with its platforms (`crates/sim/src/arena.rs`) and its
 name in the text file; check the bots cope with it using `--example tournament 400 <map id>`.

@@ -49,6 +49,9 @@ go_box_sim::enum_all! {
         Hook,
         Digitize,
         Materialize,
+        Thunder,
+        Zap,
+        Organize,
         Start,
         Win,
         Lose,
@@ -200,6 +203,23 @@ impl Sfx {
                     s.tone(k as f32 * 0.04, 0.05, f, f, Wave::Square, 0.001, 30.0, 0.09);
                 }
                 s.tone(0.24, 0.12, 180.0, 90.0, Wave::Sine, 0.002, 20.0, 0.4);
+            }
+            // Robert's lightning: a cracking snap and a rolling boom...
+            Sfx::Thunder => {
+                s.noise(0.0, 0.08, 9000.0, 4000.0, 0.001, 30.0, 0.7);
+                s.noise(0.04, 0.9, 1200.0, 80.0, 0.01, 4.0, 0.6);
+                s.tone(0.04, 0.8, 60.0, 35.0, Wave::Sine, 0.01, 4.0, 0.6);
+            }
+            // ...and its sizzle on each person it strikes.
+            Sfx::Zap => {
+                s.noise(0.0, 0.12, 7000.0, 3000.0, 0.001, 22.0, 0.35);
+                s.tone(0.0, 0.1, 1800.0, 600.0, Wave::Saw, 0.001, 25.0, 0.12);
+            }
+            // Kyle's organize: a firm clunk, then a bright tidy chime.
+            Sfx::Organize => {
+                s.tone(0.0, 0.1, 140.0, 90.0, Wave::Square, 0.001, 25.0, 0.3);
+                s.tone(0.08, 0.4, 1318.0, 1318.0, Wave::Sine, 0.002, 9.0, 0.22);
+                s.tone(0.14, 0.4, 1976.0, 1976.0, Wave::Sine, 0.002, 9.0, 0.16);
             }
             Sfx::Start => {
                 s.tone(0.0, 0.12, 440.0, 440.0, Wave::Square, 0.003, 10.0, 0.14);
@@ -465,6 +485,7 @@ impl Sounds {
                 Event::Scratch { pos } => self.at(Sfx::Scratch, pos, ear, 0.6),
                 Event::Splat { pos } => self.at(Sfx::Splat, pos, ear, 1.0),
                 Event::Hook { pos } => self.at(Sfx::Hook, pos, ear, 1.0),
+                Event::Zap { pos } => self.at(Sfx::Zap, pos, ear, 0.8),
                 Event::Hologram { pos, out } => self.at(if out { Sfx::Materialize } else { Sfx::Digitize }, pos, ear, 1.0),
                 Event::Clatter { pos, kind } => {
                     let s = match kind {

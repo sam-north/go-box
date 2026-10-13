@@ -169,7 +169,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     // one under the mouse (or the one you picked) with its special explained.
     let mine = room.players.iter().find(|p| Some(p.id) == app.me).map(|p| p.character);
     let ch = ui.px(160.0);
-    let (tw, th, gap) = (ui.px(72.0), ui.px(76.0), ui.px(8.0));
+    let (tw, th, gap) = (ui.px(64.0), ui.px(70.0), ui.px(6.0));
     let cols = (((w - pad * 2.0) * 0.55 + gap) / (tw + gap)).floor().max(1.0) as usize;
     let grid_w = cols.min(Character::ALL.len()) as f32 * (tw + gap) - gap;
     let mut shown = mine.unwrap_or(Character::ALL[0]);
@@ -180,11 +180,11 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
         draw_rectangle(rr.x, rr.y, rr.w, rr.h, Color::new(color.r * 0.15, color.g * 0.15, color.b * 0.15, 0.9));
         draw_rectangle_lines(rr.x, rr.y, rr.w, rr.h, if selected { 4.0 } else { 1.0 }, if selected { color } else { ui::EDGE });
         // Just the head: the top of the portrait, blown up.
-        let hs = ui.px(46.0);
+        let hs = ui.px(40.0);
         let src = Rect::new(8.0, 5.0, 10.0, 10.0);
         draw_texture_ex(&portraits[k].texture, rr.x + (rr.w - hs) / 2.0, rr.y + ui.px(4.0), WHITE, DrawTextureParams { dest_size: Some(vec2(hs, hs)), source: Some(src), ..Default::default() });
-        let name = ui.fit(character_name(c), 18.0, rr.w - ui.px(6.0));
-        ui.text_centered(&name, rr.x + rr.w / 2.0, rr.y + rr.h - ui.px(8.0), 18.0, color);
+        let name = ui.fit(character_name(c), 16.0, rr.w - ui.px(4.0));
+        ui.text_centered(&name, rr.x + rr.w / 2.0, rr.y + rr.h - ui.px(7.0), 16.0, color);
         let (clicked, hot) = ui.area_hover(rr);
         if hot {
             shown = c;

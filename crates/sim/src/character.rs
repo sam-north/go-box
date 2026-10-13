@@ -100,6 +100,20 @@ const CHAIN_TICKS: u32 = 90;
 const PHONE_COOLDOWN: u32 = 20 * SECOND;
 pub const PHONE_TICKS: u32 = 5 * SECOND;
 
+// Robert — Forked Lightning: a bolt forks out to every foe in the arena at once (no need to see
+// them), hurting most up close and least far away.
+const LIGHTNING_COOLDOWN: u32 = 25 * SECOND;
+const LIGHTNING_MAX: f32 = 30.0;
+const LIGHTNING_MIN: f32 = 5.0;
+/// From LIGHTNING_MAX at point blank down to LIGHTNING_MIN at this distance and beyond.
+const LIGHTNING_REACH: f32 = 300.0;
+/// How long the bolts stay on screen.
+const LIGHTNING_TICKS: u32 = 20;
+
+// Kyle — Organize: pins every foe exactly where they are for a few seconds.
+const ORGANIZE_COOLDOWN: u32 = 20 * SECOND;
+pub const PIN_TICKS: u32 = 3 * SECOND;
+
 crate::enum_all! {
     /// Who you play. Everyone has the same body; a character adds a special (see `def`).
     #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
@@ -115,6 +129,8 @@ crate::enum_all! {
         Justin,
         Ryan,
         Jake,
+        Robert,
+        Kyle,
     }
 }
 
@@ -142,6 +158,8 @@ impl Character {
             Character::Justin => &CharacterDef { id: "justin", special: Some(&SushiTable) },
             Character::Ryan => &CharacterDef { id: "ryan", special: Some(&YankChain) },
             Character::Jake => &CharacterDef { id: "jake", special: Some(&IntoThePhone) },
+            Character::Robert => &CharacterDef { id: "robert", special: Some(&ForkedLightning) },
+            Character::Kyle => &CharacterDef { id: "kyle", special: Some(&Organize) },
         }
     }
 
@@ -307,6 +325,8 @@ impl Special for Hounds {
         for (k, &speed) in HOUNDS.iter().enumerate() {
             m.effects.push(Effect::Pet(Pet::new(Breed::Hound, f.pos + vec2(f.facing * (2.0 + 4.0 * k as f32), 0.0), f.facing, speed, who, HOUND_TICKS)));
         }
+        // And Tyler runs with them: faster for as long as they're out.
+        m.f[who].haste = HOUND_TICKS;
     }
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
         let me = &m.f[who];
@@ -423,6 +443,87 @@ impl Special for YankChain {
             let dx = (f.pos.x - me.pos.x) * me.facing;
             (f.center().y - me.center().y).abs() < 8.0 && dx > 30.0 && dx < CHAIN_RANGE - 10.0
         })
+    }
+}
+
+struct ForkedLightning;
+
+impl Special for ForkedLightning {
+    fn id(&self) -> &'static str {
+        "forked_lightning"
+    }
+    fn cooldown(&self) -> u32 {
+        LIGHTNING_COOLDOWN
+    }
+    fn activate(&self, m: &mut Match, who: usize) {
+        let from = m.f[who].hand();
+        let targets: Vec<usize> = (0..N_BODIES).filter(|&j| m.foes(who, j)).collect();
+        let mut to = Vec::new();
+        for j in targets {
+            let c = m.f[j].center();
+            let d = c.distance(from);
+            let away = (c - from).normalize_or(vec2(0.0, -1.0));
+            to.push(c);
+            m.events.push(Event::Zap { pos: c });
+            m.damage(who, j, lightning_damage(d), vec2(away.x * 70.0, -70.0), 8, if away.x < 0.0 { -1.0 } else { 1.0 }, Source::Special, false);
+        }
+        m.effects.push(Effect::Lightning(Lightning { from, to, owner: who, seed: m.tick, ticks: LIGHTNING_TICKS }));
+    }
+    /// When it would do 30 or more all told, or finish someone off.
+    fn bot_wants(&self, m: &Match, who: usize) -> bool {
+        let from = m.f[who].hand();
+        let hits: Vec<(f32, f32)> = foes(m, who).map(|f| (lightning_damage(f.center().distance(from)), f.hp)).collect();
+        hits.iter().map(|h| h.0).sum::<f32>() >= 30.0 || hits.iter().any(|&(dmg, hp)| dmg >= hp)
+    }
+}
+
+fn lightning_damage(d: f32) -> f32 {
+    LIGHTNING_MIN + (LIGHTNING_MAX - LIGHTNING_MIN) * (1.0 - d / LIGHTNING_REACH).max(0.0)
+}
+
+/// Robert's bolts, from his hand to where each foe was when it struck (for drawing; the damage
+/// is done the moment it's cast).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Lightning {
+    pub from: Vec2,
+    pub to: Vec<Vec2>,
+    pub owner: usize,
+    /// Shapes the forks.
+    pub seed: u32,
+    pub ticks: u32,
+}
+
+/// Kyle's organize while it lasts: where he cast it (the shockwave starts there) and for how long.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Order {
+    pub at: Vec2,
+    pub owner: usize,
+    pub ticks: u32,
+}
+
+struct Organize;
+
+impl Special for Organize {
+    fn id(&self) -> &'static str {
+        "organize"
+    }
+    fn cooldown(&self) -> u32 {
+        ORGANIZE_COOLDOWN
+    }
+    fn activate(&self, m: &mut Match, who: usize) {
+        // Only his opponents: Kyle (and anyone on his side) moves freely.
+        let caught: Vec<usize> = (0..N_BODIES).filter(|&j| m.foes(who, j)).collect();
+        for j in caught {
+            m.f[j].pinned = PIN_TICKS;
+            m.f[j].vel = Vec2::ZERO;
+        }
+        let at = m.f[who].center();
+        m.effects.push(Effect::Order(Order { at, owner: who, ticks: PIN_TICKS }));
+    }
+    /// Someone close enough to hit while they're stuck.
+    fn bot_wants(&self, m: &Match, who: usize) -> bool {
+        let me = m.f[who].center();
+        foes(m, who).any(|f| f.center().distance(me) < 50.0)
     }
 }
 
@@ -624,6 +725,8 @@ impl Match {
                 Effect::Pet(p) => self.step_pet(p),
                 Effect::Table(t) => self.step_table(t),
                 Effect::Chain(c) => self.step_chain(c),
+                Effect::Lightning(l) => l.ticks = l.ticks.saturating_sub(1),
+                Effect::Order(o) => o.ticks = o.ticks.saturating_sub(1),
             }
             self.effects[e] = effect;
         }
@@ -771,6 +874,10 @@ pub enum Effect {
     Table(Table),
     /// Ryan's chain.
     Chain(Chain),
+    /// Robert's lightning.
+    Lightning(Lightning),
+    /// Kyle's organize, while it holds (drawn on him, so it's clear who did it).
+    Order(Order),
 }
 
 impl Effect {
@@ -781,6 +888,8 @@ impl Effect {
             Effect::Pet(p) => p.owner,
             Effect::Table(t) => t.owner,
             Effect::Chain(c) => c.owner,
+            Effect::Lightning(l) => l.owner,
+            Effect::Order(o) => o.owner,
         }
     }
 
@@ -791,6 +900,8 @@ impl Effect {
             Effect::Pet(p) => Some(p.center()),
             Effect::Table(_) => None,
             Effect::Chain(c) => Some(c.tip),
+            Effect::Lightning(_) => None,
+            Effect::Order(_) => None,
         }
     }
 
@@ -801,6 +912,8 @@ impl Effect {
             Effect::Pet(p) => p.pos,
             Effect::Table(t) => t.pos,
             Effect::Chain(c) => c.tip,
+            Effect::Lightning(l) => l.from,
+            Effect::Order(o) => o.at,
         }
     }
 
@@ -811,6 +924,8 @@ impl Effect {
             Effect::Pet(p) => &mut p.pos,
             Effect::Table(t) => &mut t.pos,
             Effect::Chain(c) => &mut c.tip,
+            Effect::Lightning(l) => &mut l.from,
+            Effect::Order(o) => &mut o.at,
         }
     }
 
@@ -820,6 +935,8 @@ impl Effect {
             Effect::Pet(p) => p.ticks == 0,
             Effect::Table(t) => t.ticks == 0,
             Effect::Chain(c) => c.ticks == 0,
+            Effect::Lightning(l) => l.ticks == 0,
+            Effect::Order(o) => o.ticks == 0,
         }
     }
 }
@@ -1395,5 +1512,63 @@ mod tests {
         assert_eq!(m.items[k].carries, None, "the phone stays, an ordinary item");
         m.damage(1, 0, 10.0, Vec2::ZERO, 0, 1.0, Source::Fist, false);
         assert_eq!(m.f[0].hp, MAX_HP - 10.0, "and he can be hurt again");
+    }
+
+    #[test]
+    fn roberts_lightning_hits_everyone_hardest_up_close() {
+        let z = zero_brain();
+        let mut m = staged([Character::Robert, Character::Classic, Character::Classic, Character::Classic], [100.0, 130.0, 250.0, 460.0]);
+        step_idle(&mut m, &z, true);
+        let lost: Vec<f32> = (1..N_FIGHTERS).map(|j| MAX_HP - m.f[j].hp).collect();
+        assert!(lost[0] > lost[1] && lost[1] > lost[2], "closer hurts more: {lost:?}");
+        assert!(lost[0] > 25.0 && lost[2] >= LIGHTNING_MIN, "{lost:?}");
+        assert_eq!(m.f[0].hp, MAX_HP);
+        assert!(matches!(m.effects.as_slice(), [Effect::Lightning(l)] if l.to.len() == 3), "a bolt to each");
+    }
+
+    #[test]
+    fn kyle_pins_everyone_else_where_they_stand_for_three_seconds() {
+        let z = zero_brain();
+        let mut m = staged([Character::Kyle, Character::Classic, Character::Classic, Character::Classic], [100.0, 200.0, 300.0, 400.0]);
+        m.f[2].pos.y = 150.0;
+        m.f[2].grounded = false;
+        step_idle(&mut m, &z, true);
+        let (x1, y2) = (m.f[1].pos.x, m.f[2].pos.y);
+        let run = Action { mv: 1.0, run: true, jump: true, ..Action::default() };
+        let brains = [&z; N_FIGHTERS];
+        for _ in 0..PIN_TICKS - 1 {
+            let mut humans = [None; N_FIGHTERS];
+            humans[0] = Some(run);
+            humans[1] = Some(run);
+            m.step_humans(brains, humans);
+        }
+        assert_eq!(m.f[1].pos.x, x1, "pinned: can't run");
+        assert_eq!(m.f[2].pos.y, y2, "pinned in mid-air");
+        assert!(m.f[0].pos.x > 150.0, "Kyle moves freely");
+        assert_eq!(m.f[0].pinned, 0, "Kyle isn't pinned by his own organize");
+        for _ in 0..30 {
+            let mut humans = [None; N_FIGHTERS];
+            humans[1] = Some(run);
+            m.step_humans(brains, humans);
+        }
+        assert!(m.f[1].pos.x > x1 + 5.0, "free again after 3s");
+        assert!(m.f[2].pos.y > y2, "and falling");
+    }
+
+    #[test]
+    fn tyler_runs_faster_while_his_dogs_are_out() {
+        let z = zero_brain();
+        let top_speed = |special: bool| {
+            let mut m = staged([Character::Tyler, Character::Classic, Character::Classic, Character::Classic], [40.0, 300.0, 380.0, 440.0]);
+            m.f[0].facing = 1.0;
+            step_idle(&mut m, &z, special);
+            let run = Action { mv: 1.0, run: true, ..Action::default() };
+            for _ in 0..60 {
+                m.step_with([&z; N_FIGHTERS], Some((0, run)));
+            }
+            m.f[0].vel.x
+        };
+        let (normal, hasted) = (top_speed(false), top_speed(true));
+        assert!(hasted > normal * 1.3, "{normal} -> {hasted}");
     }
 }

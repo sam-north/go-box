@@ -33,8 +33,8 @@ pub struct Options {
     pub code_file: Option<String>,
     pub shots: Option<String>,
     pub shot_every: f32,
-    /// Only take a shot while the match has this kind of effect in it (bomb, pet, table, chain, or
-    /// phone: Jake inside his),
+    /// Only take a shot while the match has this kind of effect in it (bomb, pet, table, chain,
+    /// lightning; or phone: Jake inside his; or pinned: Kyle's pin),
     /// e.g. to catch a special in action.
     pub shot_when: Option<String>,
     pub quit_after: Option<f32>,
@@ -134,7 +134,7 @@ impl Automation {
             }
         }
         let wanted = opts.shot_when.as_deref().is_none_or(|kind| {
-            shown.is_some_and(|m| m.effects.iter().any(|e| effect_kind(e) == kind) || (kind == "phone" && m.items.iter().any(|it| it.carries.is_some())))
+            shown.is_some_and(|m| m.effects.iter().any(|e| effect_kind(e) == kind) || (kind == "phone" && m.items.iter().any(|it| it.carries.is_some())) || (kind == "pinned" && m.f.iter().any(|f| f.pinned > 0)))
         });
         if let Some(prefix) = &opts.shots
             && get_time() as f32 >= self.next_shot
@@ -156,5 +156,7 @@ fn effect_kind(e: &go_box_sim::character::Effect) -> &'static str {
         Effect::Pet(_) => "pet",
         Effect::Table(_) => "table",
         Effect::Chain(_) => "chain",
+        Effect::Lightning(_) => "lightning",
+        Effect::Order(_) => "order",
     }
 }

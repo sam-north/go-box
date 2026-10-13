@@ -70,6 +70,8 @@ character.corwin = Corwin
 character.justin = Justin
 character.ryan = Ryan
 character.jake = Jake
+character.robert = Robert
+character.kyle = Kyle
 special.gravity_bomb = Gravity Bomb
 special.pop_up = Pop-Up
 special.hounds = Release the Hounds
@@ -78,6 +80,8 @@ special.cat_herder = Cat Herder
 special.sushi_table = Sushi Table
 special.yank_chain = Yanking Your Chain
 special.into_the_phone = Into the Phone
+special.forked_lightning = Forked Lightning
+special.organize = Organize
 
 # Maps (by id)
 arena.tiers = Tiers
@@ -187,3 +191,5 @@ about.corwin = Twenty cats pour out and run the floors for 5 seconds. Each scrat
 about.justin = A table drops in front of him, serving three pieces of sushi to throw. It's solid: run into it or jump on top.
 about.ryan = Throws a chain a short way ahead. Whoever it hooks gets yanked right up to him, dazed for a moment.
 about.jake = Turns into light and hides inside his phone for 5 seconds; anyone can grab and throw it. Then he pops back out, wherever the phone ended up.
+about.robert = Lightning forks out to every opponent in the arena at once. It hits hardest up close (30) and still stings from across the map (5).
+about.kyle = Pins every opponent right where they are, even in mid-air, for 3 seconds. They can still swing and throw, but they can't move.
