@@ -58,6 +58,8 @@ pub struct Ui {
     /// when nothing is selected).
     cursor: usize,
     anchor: usize,
+    /// The focused box's first visible character, when its text is too long to fit.
+    scroll: usize,
     /// Dragging out a selection in this box.
     text_drag: Option<Field>,
     /// When and in which box the last click landed (two quick ones select everything).
@@ -100,7 +102,7 @@ fn same_rect(a: Rect, b: Rect) -> bool {
 
 impl Ui {
     pub fn new() -> Self {
-        Self { s: 1.0, mouse: Vec2::ZERO, clicked: false, focus: None, typed: Vec::new(), cursor: 0, anchor: 0, text_drag: None, last_click: (0.0, None), edit: Edit::default(), repeats: Vec::new(), tab_mode: false, tab_moved: false, pasted: None, copy: false, cut: false, backspace: false, enter: false, hot: false,
+        Self { s: 1.0, mouse: Vec2::ZERO, clicked: false, focus: None, typed: Vec::new(), cursor: 0, anchor: 0, scroll: 0, text_drag: None, last_click: (0.0, None), edit: Edit::default(), repeats: Vec::new(), tab_mode: false, tab_moved: false, pasted: None, copy: false, cut: false, backspace: false, enter: false, hot: false,
             blocked: false,
             dragging: None,
             pressed: false,
@@ -422,6 +424,7 @@ impl Ui {
         let nav = self.nav_target(r, false);
         if nav && self.tab_moved {
             self.focus = Some(id);
+            self.scroll = 0;
             self.anchor = 0;
             self.cursor = text.chars().count();
         }
@@ -429,6 +432,10 @@ impl Ui {
             let now = get_time();
             let double = self.last_click.1 == Some(id) && now - self.last_click.0 < 0.35;
             self.last_click = (now, Some(id));
+            // (A box that wasn't focused is showing its text from the start.)
+            if self.focus != Some(id) {
+                self.scroll = 0;
+            }
             self.focus = Some(id);
             self.nav_focus = Some(r);
             self.hot = true;
@@ -436,7 +443,7 @@ impl Ui {
                 self.anchor = 0;
                 self.cursor = text.chars().count();
             } else {
-                self.cursor = self.index_at(&mask(text), x, size);
+                self.cursor = self.index_at(&mask(text), self.scroll, x, size);
                 if !self.edit.shift {
                     self.anchor = self.cursor;
                 }
@@ -449,7 +456,7 @@ impl Ui {
             self.cursor = self.cursor.min(len);
             self.anchor = self.anchor.min(len);
             if self.text_drag == Some(id) && is_mouse_button_down(MouseButton::Left) && !self.clicked {
-                self.cursor = self.index_at(&mask(text), x, size);
+                self.cursor = self.index_at(&mask(text), self.scroll, x, size);
             }
             self.edit_text(id, text, max, &filter);
         }
@@ -459,31 +466,53 @@ impl Ui {
         if nav && !focused {
             self.draw_focus(r);
         }
-        let display = mask(text);
+        // Only what fits inside the box is drawn: scrolled along to keep the cursor in view when
+        // focused, from the start otherwise.
+        let chars: Vec<char> = mask(text).chars().collect();
+        let inner = r.w - self.px(20.0);
+        let span = |ui: &Ui, a: usize, b: usize| ui.text_width(&chars[a..b].iter().collect::<String>(), size);
+        let mut from = 0;
+        if focused {
+            from = self.scroll.min(self.cursor);
+            while from < self.cursor && span(self, from, self.cursor) > inner {
+                from += 1;
+            }
+            // Scroll back as far as still fits (after deleting, say).
+            while from > 0 && span(self, from - 1, chars.len()) <= inner && span(self, from - 1, self.cursor) <= inner {
+                from -= 1;
+            }
+            self.scroll = from;
+        }
+        let mut to = chars.len();
+        while to > from && span(self, from, to) > inner {
+            to -= 1;
+        }
         let y = r.y + r.h / 2.0 + self.px(size) * 0.3;
-        let width_to = |ui: &Ui, i: usize| ui.text_width(&display.chars().take(i).collect::<String>(), size);
+        let x_of = |ui: &Ui, i: usize| x + span(ui, from, i.clamp(from, to));
         if focused && self.cursor != self.anchor {
             let (a, b) = (self.cursor.min(self.anchor), self.cursor.max(self.anchor));
-            let (xa, xb) = (x + width_to(self, a), x + width_to(self, b));
+            let (xa, xb) = (x_of(self, a), x_of(self, b));
             draw_rectangle(xa, r.y + r.h * 0.2, xb - xa, r.h * 0.6, Color::new(ACCENT.r, ACCENT.g, ACCENT.b, 0.35));
         }
         if text.is_empty() && !focused {
-            self.text(placeholder, x, y, size, DIM);
+            self.text(&self.fit(placeholder, size, inner), x, y, size, DIM);
         } else {
-            self.text(&display, x, y, size, INK);
+            self.text(&chars[from..to].iter().collect::<String>(), x, y, size, INK);
         }
         if focused && (get_time() * 2.0).fract() < 0.5 {
-            let cx = x + width_to(self, self.cursor) + 1.0;
+            let cx = x_of(self, self.cursor) + 1.0;
             draw_rectangle(cx, r.y + r.h * 0.22, 2.0, r.h * 0.56, INK);
         }
         focused && self.enter
     }
 
-    /// Where in `shown` (drawn from `x`) the mouse is: the nearest gap between characters.
-    fn index_at(&self, shown: &str, x: f32, size: f32) -> usize {
+    /// Where in `shown` (drawn from `x`, scrolled to start at character `from`) the mouse is:
+    /// the nearest gap between characters.
+    fn index_at(&self, shown: &str, from: usize, x: f32, size: f32) -> usize {
         let chars: Vec<char> = shown.chars().collect();
-        let gap = |i: usize| (x + self.text_width(&chars[..i].iter().collect::<String>(), size) - self.mouse.x).abs();
-        (0..=chars.len()).min_by(|&a, &b| gap(a).total_cmp(&gap(b))).unwrap_or(0)
+        let from = from.min(chars.len());
+        let gap = |i: usize| (x + self.text_width(&chars[from..i].iter().collect::<String>(), size) - self.mouse.x).abs();
+        (from..=chars.len()).min_by(|&a, &b| gap(a).total_cmp(&gap(b))).unwrap_or(from)
     }
 
     /// This frame's keys and typing, applied to the focused box's text, cursor and selection.

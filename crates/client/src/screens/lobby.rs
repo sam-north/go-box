@@ -75,7 +75,8 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
         let length = tf("lobby.match_length", &[("time", &mmss(res.duration))]);
         ui.text(&length, r.x + w - pad - ui.text_width(&length, 18.0), y + ui.px(10.0), 18.0, DIM);
         y += ui.px(30.0);
-        let cols = [0.0, 0.30, 0.47, 0.57, 0.70, 0.82];
+        // (The place, 1st..4th, sits in front of the first column.)
+        let cols = [0.07, 0.32, 0.48, 0.58, 0.70, 0.82];
         let heads = [t("lobby.col_player"), t("lobby.col_character"), t("lobby.col_kills"), t("lobby.col_headshots"), t("lobby.col_damage"), t("lobby.col_down")];
         let tw = w - pad * 2.0;
         for (k, head) in heads.iter().enumerate() {
@@ -89,7 +90,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
             let lasted = |s: &SeatResult| s.died_at.unwrap_or(f32::INFINITY);
             lasted(b).total_cmp(&lasted(a)).then(b.kills.cmp(&a.kills)).then(b.damage_dealt.total_cmp(&a.damage_dealt)).then(b.headshots.cmp(&a.headshots))
         });
-        for i in order {
+        for (place, i) in order.into_iter().enumerate() {
             let s = &res.seats[i];
             y += ui.px(23.0);
             let color = render::look(s.character, i).accent;
@@ -101,6 +102,10 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
                 None => tf("lobby.survived", &[("hp", &format!("{:.0}", s.hp))]),
             };
             let cells = [seat_name(&s.name, s.character, s.bot), character_name(s.character).to_string(), s.kills.to_string(), s.headshots.to_string(), format!("{:.0}", s.damage_dealt), fate];
+            let places = [t("lobby.place_1"), t("lobby.place_2"), t("lobby.place_3"), t("lobby.place_4")];
+            if let Some(p) = places.get(place) {
+                ui.text(p, r.x + pad, y, 20.0, if place == 0 { ACCENT } else { DIM });
+            }
             for (k, cell) in cells.iter().enumerate() {
                 ui.text(cell, r.x + pad + cols[k] * tw, y, 20.0, if k == 0 { color } else { INK });
             }

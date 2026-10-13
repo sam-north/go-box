@@ -86,7 +86,8 @@ async fn main() {
         preview_at: 0.0,
         rng: SmallRng::seed_from_u64((get_time() * 1e6) as u64),
         was_over: false,
-        create_open: false,
+        // (A test client given a passphrase shows it.)
+        create_open: opts.passphrase.is_some(),
     };
     if opts.create {
         app.create_room();
