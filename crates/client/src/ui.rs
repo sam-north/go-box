@@ -351,6 +351,30 @@ impl Ui {
         clicked
     }
 
+    /// A low-key button (e.g. Exit): just an outline and dim text, filling with `color` only
+    /// while hovered or focused. True when clicked.
+    pub fn ghost_button(&mut self, r: Rect, label: &str, color: Color) -> bool {
+        let focused = self.nav_target(r, false);
+        let lit = self.hovered(r) || focused;
+        let fill = if lit { Color::new(color.r * 0.55, color.g * 0.55, color.b * 0.55, 0.95) } else { Color::new(0.0, 0.0, 0.0, 0.15) };
+        draw_rectangle(r.x, r.y, r.w, r.h, fill);
+        let edge = if lit { color } else { Color::new(color.r, color.g, color.b, 0.45) };
+        draw_rectangle_lines(r.x, r.y, r.w, r.h, if lit { 2.0 } else { 1.0 }, edge);
+        let size = (r.h / self.s * 0.5).min(24.0);
+        let tw = self.text_width(label, size);
+        self.text(label, r.x + (r.w - tw) / 2.0, r.y + r.h / 2.0 + self.px(size) * 0.3, size, if lit { INK } else { DIM });
+        if focused {
+            self.draw_focus(r);
+        }
+        let clicked = (self.hovered(r) && self.clicked) || (focused && self.nav.activate);
+        if clicked {
+            self.hot = true;
+            self.pressed = true;
+            self.nav_focus = Some(r);
+        }
+        clicked
+    }
+
     /// A 0..1 slider: click or drag along it. Returns true while the value changes.
     pub fn slider(&mut self, id: Slider, r: Rect, value: &mut f32) -> bool {
         if self.clicked && self.hovered(Rect::new(r.x, r.y - r.h, r.w, r.h * 3.0)) {

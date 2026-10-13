@@ -1,7 +1,7 @@
 //! In the match: names and health, the clock, your special, and the marks drawn over the arena.
 
 use crate::app::*;
-use crate::screens::{mmss, seat_name, special_name};
+use crate::screens::{character_name, mmss, seat_name, special_name};
 use crate::settings::Act;
 use crate::text::{t, tf};
 use crate::ui::{ACCENT, DIM, INK, Ui};
@@ -70,7 +70,7 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
         // Their special: a little clock filling up as it recharges, solid when it's ready.
         if let Some(sp) = f.character.special().filter(|_| f.alive()) {
             let ready = 1.0 - f.special_cd as f32 / sp.cooldown() as f32;
-            special_pie(vec2(x + bw + ui.px(14.0), ui.px(39.0)), ui.px(8.0), ready, render::character_color(f.character));
+            special_pie(vec2(x + bw + ui.px(18.0), ui.px(35.0)), ui.px(11.0), ready, render::character_color(f.character));
         }
     }
     // Whole seconds left, counted in ticks (float maths made 45s show as 0:46).
@@ -132,8 +132,9 @@ fn special_pie(c: Vec2, r: f32, ready: f32, color: Color) {
         draw_circle_lines(c.x, c.y, r, 1.5, Color::new(1.0, 1.0, 1.0, 0.8));
         return;
     }
-    draw_circle(c.x, c.y, r, Color::new(0.0, 0.0, 0.0, 0.5));
-    let fill = Color::new(color.r * 0.8, color.g * 0.8, color.b * 0.8, 0.9);
+    draw_circle(c.x, c.y, r + 1.5, Color::new(0.0, 0.0, 0.0, 0.75));
+    draw_circle(c.x, c.y, r, Color::new(0.10, 0.10, 0.12, 0.9));
+    let fill = Color::new(color.r * 0.85, color.g * 0.85, color.b * 0.85, 1.0);
     let steps = 32;
     let end = ready.clamp(0.0, 1.0) * std::f32::consts::TAU;
     let at = |a: f32| c + vec2(a.sin(), -a.cos()) * r;
@@ -141,7 +142,7 @@ fn special_pie(c: Vec2, r: f32, ready: f32, color: Color) {
         let (a0, a1) = (end * k as f32 / steps as f32, end * (k + 1) as f32 / steps as f32);
         draw_triangle(c, at(a0), at(a1), fill);
     }
-    draw_circle_lines(c.x, c.y, r, 1.5, color);
+    draw_circle_lines(c.x, c.y, r, 2.0, color);
 }
 
 /// Everyone's name over their head. Others' are small and faded so they don't pull the eye;
@@ -156,11 +157,18 @@ fn names_over_heads(ui: &Ui, app: &App, m: &Match) {
         if !f.alive() {
             continue;
         }
+        // A small recharge clock just right of the health bar floating over them.
+        if let Some(sp) = f.character.special().filter(|_| f.present()) {
+            let ready = 1.0 - f.special_cd as f32 / sp.cooldown() as f32;
+            special_pie(to_screen(f.pos + vec2(9.5, -21.5)), ui.px(5.0), ready, render::character_color(f.character));
+        }
         let seat = &g.start.seats[i];
         let name = seat_name(&seat.name, f.character, seat.player.is_none());
         if g.seat() == Some(i) {
-            // Above the arrow (which sits above the health bar).
-            let p = to_screen(f.pos - vec2(0.0, 34.0));
+            // Your name, then (small and quiet) your character, above the arrow (which sits above
+            // the health bar).
+            let p = to_screen(f.pos - vec2(0.0, 38.0));
+            let pc = to_screen(f.pos - vec2(0.0, 31.0));
             // Your colour, lifted toward white so even a dark one (Sam's green) reads on the dark arena.
             let a = render::look(f.character, i).accent;
             let color = Color::new(a.r + (1.0 - a.r) * 0.45, a.g + (1.0 - a.g) * 0.45, a.b + (1.0 - a.b) * 0.45, 1.0);
@@ -169,6 +177,12 @@ fn names_over_heads(ui: &Ui, app: &App, m: &Match) {
                 ui.text_centered(&name, p.x + dx, p.y + dy, 26.0, Color::new(0.0, 0.0, 0.0, 0.9));
             }
             ui.text_centered(&name, p.x, p.y, 26.0, color);
+            let who = character_name(f.character);
+            let o = ui.px(1.0);
+            for (dx, dy) in [(-o, 0.0), (o, 0.0), (0.0, -o), (0.0, o)] {
+                ui.text_centered(who, pc.x + dx, pc.y + dy, 13.0, Color::new(0.0, 0.0, 0.0, 0.7));
+            }
+            ui.text_centered(who, pc.x, pc.y, 13.0, Color::new(0.80, 0.81, 0.84, 0.75));
         } else {
             let p = to_screen(f.pos - vec2(0.0, 25.0));
             ui.text_centered(&name, p.x, p.y, 14.0, Color::new(0.85, 0.86, 0.88, 0.5));

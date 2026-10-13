@@ -47,7 +47,7 @@ fn preview(ui: &Ui, r: Rect, c: Character, picked: bool, portraits: &[RenderTarg
 pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[RenderTarget]) {
     let (sw, sh) = (screen_width(), screen_height());
     let w = ui.px(860.0).min(sw - 32.0);
-    let results_h = if room.last_results.is_some() { ui.px(240.0) } else { 0.0 };
+    let results_h = if room.last_results.is_some() { ui.px(208.0) } else { 0.0 };
     let h = (ui.px(560.0) + results_h).min(sh - 24.0);
     let r = Rect::new((sw - w) / 2.0, (sh - h) / 2.0, w, h);
     ui.panel(r);
@@ -66,7 +66,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
 
     // Last match's scoreboard.
     if let Some(res) = &room.last_results {
-        y += ui.px(16.0);
+        y += ui.px(8.0);
         let banner = match res.winner {
             Some(w) => tf("lobby.wins", &[("name", &seat_name(&res.seats[w].name, res.seats[w].character, res.seats[w].bot))]),
             None => t("lobby.draw").to_string(),
@@ -74,7 +74,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
         ui.text(&banner, r.x + pad, y + ui.px(10.0), 30.0, INK);
         let length = tf("lobby.match_length", &[("time", &mmss(res.duration))]);
         ui.text(&length, r.x + w - pad - ui.text_width(&length, 18.0), y + ui.px(10.0), 18.0, DIM);
-        y += ui.px(36.0);
+        y += ui.px(30.0);
         let cols = [0.0, 0.30, 0.47, 0.57, 0.70, 0.82];
         let heads = [t("lobby.col_player"), t("lobby.col_character"), t("lobby.col_kills"), t("lobby.col_headshots"), t("lobby.col_damage"), t("lobby.col_down")];
         let tw = w - pad * 2.0;
@@ -82,11 +82,19 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
             ui.text(head, r.x + pad + cols[k] * tw, y, 18.0, DIM);
         }
         y += ui.px(8.0);
-        for (i, s) in res.seats.iter().enumerate() {
-            y += ui.px(26.0);
+        // First to last: whoever lasted longest (survivors first), then kills, damage dealt, headshots.
+        let mut order: Vec<usize> = (0..res.seats.len()).collect();
+        order.sort_by(|&a, &b| {
+            let (a, b) = (&res.seats[a], &res.seats[b]);
+            let lasted = |s: &SeatResult| s.died_at.unwrap_or(f32::INFINITY);
+            lasted(b).total_cmp(&lasted(a)).then(b.kills.cmp(&a.kills)).then(b.damage_dealt.total_cmp(&a.damage_dealt)).then(b.headshots.cmp(&a.headshots))
+        });
+        for i in order {
+            let s = &res.seats[i];
+            y += ui.px(23.0);
             let color = render::look(s.character, i).accent;
             if res.winner == Some(i) {
-                draw_rectangle(r.x + pad - ui.px(6.0), y - ui.px(19.0), tw + ui.px(12.0), ui.px(25.0), Color::new(color.r, color.g, color.b, 0.18));
+                draw_rectangle(r.x + pad - ui.px(6.0), y - ui.px(18.0), tw + ui.px(12.0), ui.px(23.0), Color::new(color.r, color.g, color.b, 0.18));
             }
             let fate = match s.died_at {
                 Some(t) => mmss(t),
@@ -97,7 +105,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
                 ui.text(cell, r.x + pad + cols[k] * tw, y, 20.0, if k == 0 { color } else { INK });
             }
         }
-        y += ui.px(24.0);
+        y += ui.px(18.0);
         draw_line(r.x + pad, y, r.x + w - pad, y, 1.0, ui::EDGE);
     }
 
@@ -206,24 +214,30 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     let again = room.last_results.is_some();
     let others = room.players.iter().filter(|p| p.id != room.leader).count();
     let ready = room.players.iter().filter(|p| p.id != room.leader && p.ready).count();
+    // Exit, quietly, on the left; play (or ready up) on the right, with who's ready beside it.
+    let ew = ui.px(140.0);
+    if ui.ghost_button(Rect::new(r.x + pad, y, ew, bh), t("lobby.exit"), BAD) {
+        app.send(ClientMsg::LeaveRoom);
+    }
+    let play = Rect::new(r.x + w - pad - bw, y, bw, bh);
+    let note_right = play.x - ui.px(16.0);
     if leader {
         let label = if again { t("lobby.play_again") } else { t("lobby.start") };
-        if ui.button(Rect::new(r.x + pad, y, bw, bh), label, true, ACCENT) {
+        if ui.button(play, label, true, ACCENT) {
             app.send(ClientMsg::Start);
         }
         if others > 0 {
-            ui.text(&format!("{ready}/{others} ready"), r.x + pad + bw + ui.px(16.0), y + bh * 0.62, 20.0, DIM);
+            let note = format!("{ready}/{others} ready");
+            ui.text(&note, note_right - ui.text_width(&note, 20.0), y + bh * 0.62, 20.0, DIM);
         }
     } else {
         let me_ready = room.players.iter().any(|p| Some(p.id) == app.me && p.ready);
         let label = if me_ready { t("lobby.is_ready") } else if again { t("lobby.play_again") } else { t("lobby.ready") };
-        if ui.button(Rect::new(r.x + pad, y, bw, bh), label, true, if me_ready { ACCENT } else { INK }) {
+        if ui.button(play, label, true, if me_ready { ACCENT } else { INK }) {
             app.send(ClientMsg::SetReady(!me_ready));
         }
-        ui.text(t("lobby.leader_starts"), r.x + pad + bw + ui.px(16.0), y + bh * 0.62, 18.0, DIM);
-    }
-    if ui.button(Rect::new(r.x + w - pad - ui.px(140.0), y, ui.px(140.0), bh), t("lobby.exit"), true, BAD) {
-        app.send(ClientMsg::LeaveRoom);
+        let note = t("lobby.leader_starts");
+        ui.text(note, note_right - ui.text_width(note, 18.0), y + bh * 0.62, 18.0, DIM);
     }
     ui.text_centered(&app.controls_help(), sw / 2.0, sh - ui.px(12.0), 18.0, DIM);
 }
