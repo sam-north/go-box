@@ -47,6 +47,8 @@ go_box_sim::enum_all! {
         Splat,
         ChainThrow,
         Hook,
+        Digitize,
+        Materialize,
         Start,
         Win,
         Lose,
@@ -184,6 +186,20 @@ impl Sfx {
                 s.tone(0.0, 0.18, 980.0, 900.0, Wave::Square, 0.001, 18.0, 0.18);
                 s.tone(0.0, 0.18, 1470.0, 1400.0, Wave::Sine, 0.001, 16.0, 0.18);
                 s.noise(0.0, 0.05, 5000.0, 2000.0, 0.001, 60.0, 0.3);
+            }
+            // Jake going digital: a fast rising arpeggio of square blips over a filtered sweep...
+            Sfx::Digitize => {
+                for (k, f) in [523.0, 784.0, 1046.0, 1568.0, 2093.0, 3136.0].into_iter().enumerate() {
+                    s.tone(k as f32 * 0.04, 0.05, f, f, Wave::Square, 0.001, 30.0, 0.09);
+                }
+                s.swell(0.0, 0.3, 300.0, 6000.0, 0.2);
+            }
+            // ...and coming back: the same, falling.
+            Sfx::Materialize => {
+                for (k, f) in [3136.0, 2093.0, 1568.0, 1046.0, 784.0, 523.0].into_iter().enumerate() {
+                    s.tone(k as f32 * 0.04, 0.05, f, f, Wave::Square, 0.001, 30.0, 0.09);
+                }
+                s.tone(0.24, 0.12, 180.0, 90.0, Wave::Sine, 0.002, 20.0, 0.4);
             }
             Sfx::Start => {
                 s.tone(0.0, 0.12, 440.0, 440.0, Wave::Square, 0.003, 10.0, 0.14);
@@ -449,12 +465,14 @@ impl Sounds {
                 Event::Scratch { pos } => self.at(Sfx::Scratch, pos, ear, 0.6),
                 Event::Splat { pos } => self.at(Sfx::Splat, pos, ear, 1.0),
                 Event::Hook { pos } => self.at(Sfx::Hook, pos, ear, 1.0),
+                Event::Hologram { pos, out } => self.at(if out { Sfx::Materialize } else { Sfx::Digitize }, pos, ear, 1.0),
                 Event::Clatter { pos, kind } => {
                     let s = match kind {
                         ItemKind::Rock => Sfx::ClatterRock,
                         ItemKind::Spear => Sfx::ClatterSpear,
                         ItemKind::Grenade => Sfx::ClatterGrenade,
                         ItemKind::Sushi => Sfx::Splat,
+                        ItemKind::Phone => Sfx::ClatterGrenade,
                     };
                     self.at(s, pos, ear, 0.7);
                 }

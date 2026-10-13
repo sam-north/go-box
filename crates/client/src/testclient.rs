@@ -33,7 +33,8 @@ pub struct Options {
     pub code_file: Option<String>,
     pub shots: Option<String>,
     pub shot_every: f32,
-    /// Only take a shot while the match has this kind of effect in it (bomb, pet, table, chain),
+    /// Only take a shot while the match has this kind of effect in it (bomb, pet, table, chain, or
+    /// phone: Jake inside his),
     /// e.g. to catch a special in action.
     pub shot_when: Option<String>,
     pub quit_after: Option<f32>,
@@ -132,7 +133,9 @@ impl Automation {
                 app.send(ClientMsg::Start);
             }
         }
-        let wanted = opts.shot_when.as_deref().is_none_or(|kind| shown.is_some_and(|m| m.effects.iter().any(|e| effect_kind(e) == kind)));
+        let wanted = opts.shot_when.as_deref().is_none_or(|kind| {
+            shown.is_some_and(|m| m.effects.iter().any(|e| effect_kind(e) == kind) || (kind == "phone" && m.items.iter().any(|it| it.carries.is_some())))
+        });
         if let Some(prefix) = &opts.shots
             && get_time() as f32 >= self.next_shot
             && wanted

@@ -28,7 +28,7 @@ use go_box_sim::sim::{Action, ArenaId, Event, MatchConfig, MatchView, N_FIGHTERS
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 16;
+pub const PROTOCOL_VERSION: u16 = 17;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -236,14 +236,14 @@ mod tests {
 
     /// Matches of bots playing every character, with a snapshot taken the first time each
     /// special's leftovers are about (a gravity bomb, dogs, minis, cats, a table and its sushi,
-    /// a chain), so their layouts are on the wire too.
+    /// a chain, Jake in his phone), so their layouts are on the wire too.
     fn sample_snapshots() -> Vec<Snapshot> {
         use go_box_sim::brain::Brain;
         use go_box_sim::character::{Breed, Effect};
         use go_box_sim::sim::ItemKind;
         let brain = Brain::from_json(include_str!("../../../brains/gen_219000.json")).unwrap();
         type Seen = fn(&Match) -> bool;
-        let wanted: [(&str, Seen); 7] = [
+        let wanted: [(&str, Seen); 8] = [
             ("bomb", |m| m.effects.iter().any(|e| matches!(e, Effect::Bomb(_)))),
             ("dogs", |m| m.effects.iter().any(|e| matches!(e, Effect::Pet(p) if p.breed == Breed::Hound))),
             ("minis", |m| m.f[N_FIGHTERS..].iter().any(|f| !f.absent)),
@@ -251,11 +251,12 @@ mod tests {
             ("table", |m| m.effects.iter().any(|e| matches!(e, Effect::Table(_)))),
             ("sushi", |m| m.items.iter().any(|it| it.kind == ItemKind::Sushi)),
             ("chain", |m| m.effects.iter().any(|e| matches!(e, Effect::Chain(_)))),
+            ("phone", |m| m.items.iter().any(|it| it.carries.is_some())),
         ];
         let mut found: Vec<Option<Snapshot>> = vec![None; wanted.len()];
         let casts = [
             [Character::Seth, Character::Sam, Character::Austin, Character::Tyler],
-            [Character::Corwin, Character::Justin, Character::Ryan, Character::Classic],
+            [Character::Corwin, Character::Justin, Character::Ryan, Character::Jake],
         ];
         for (seed, cast) in casts.into_iter().enumerate() {
             let mut m = Match::new(5 + seed as u64, &MatchConfig::default());
@@ -350,7 +351,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (16, 0x34d0_ef2a_b79b_f2ad);
+    const WIRE: (u16, u64) = (17, 0x0f3e_7358_ce35_e585);
 
     #[test]
     fn every_sample_round_trips() {

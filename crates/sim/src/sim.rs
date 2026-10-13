@@ -216,6 +216,9 @@ pub struct Fighter {
     /// For a mini: ticks until it vanishes.
     #[serde(skip)]
     pub life: Option<u32>,
+    /// Jake inside his phone: ticks until he comes back out (0 = he's here as normal). Meanwhile
+    /// he can't act or be hurt, and his position follows the phone.
+    pub digital: u32,
 }
 
 impl Fighter {
@@ -245,6 +248,7 @@ impl Fighter {
             scale: 1.0,
             owner: None,
             life: None,
+            digital: 0,
         }
     }
 
@@ -258,6 +262,11 @@ impl Fighter {
 
     pub fn alive(&self) -> bool {
         self.hp > 0.0
+    }
+
+    /// Alive and in the arena: not tucked away inside a phone (Jake).
+    pub fn present(&self) -> bool {
+        self.alive() && self.digital == 0
     }
 
     pub fn half_w(&self) -> f32 {
@@ -334,13 +343,15 @@ pub struct Item {
     pub lethal: bool,
     /// Ticks left before a thrown grenade explodes.
     pub fuse: Option<u32>,
+    /// Jake's phone with Jake inside it: whose seat.
+    pub carries: Option<usize>,
     #[serde(skip)]
     age: u32,
 }
 
 impl Item {
     pub(crate) fn new(kind: ItemKind, pos: Vec2) -> Self {
-        Self { kind, pos, vel: Vec2::ZERO, held_by: None, owner: None, lethal: false, fuse: None, age: 0 }
+        Self { kind, pos, vel: Vec2::ZERO, held_by: None, owner: None, lethal: false, fuse: None, carries: None, age: 0 }
     }
     /// On the ground and safe to pick up.
     pub fn loose(&self) -> bool {
@@ -377,6 +388,8 @@ pub enum Event {
     Splat { pos: Vec2 },
     /// Ryan's chain hooking someone.
     Hook { pos: Vec2 },
+    /// Jake going into his phone (`out`: false) or coming back out of it, at his middle.
+    Hologram { pos: Vec2, out: bool },
     /// A thrown item hitting terrain hard.
     Clatter { pos: Vec2, kind: ItemKind },
 }
@@ -616,7 +629,7 @@ impl Match {
 
     /// Are `j` and `i` enemies: `j` is alive and on another team (a mini is on its summoner's)?
     pub fn foes(&self, i: usize, j: usize) -> bool {
-        j != i && self.f[j].alive() && self.f[j].team(j) != self.f[i].team(i)
+        j != i && self.f[j].present() && self.f[j].team(j) != self.f[i].team(i)
     }
 
     /// Still in the 3-2-1 before the start.
@@ -771,7 +784,7 @@ impl Match {
         let mut actions = [Action::default(); N_BODIES];
         let frozen = self.counting_down();
         for i in 0..N_BODIES {
-            if !self.f[i].alive() || frozen {
+            if !self.f[i].present() || frozen {
                 continue;
             }
             if let Some(a) = humans.get(i).copied().flatten() {
@@ -801,7 +814,7 @@ impl Match {
         // 2. Move.
         let props = props(&self.effects);
         for i in 0..N_BODIES {
-            if self.f[i].absent {
+            if self.f[i].absent || self.f[i].digital > 0 {
                 continue;
             }
             let was_grounded = self.f[i].grounded;
@@ -860,6 +873,7 @@ impl Match {
         self.step_items();
         self.step_effects();
         self.step_minis();
+        self.step_digital();
         self.step_heals();
         self.spawn_items();
 
@@ -876,7 +890,7 @@ impl Match {
         if f.hand_cd > 0 {
             f.hand_cd -= 1;
         }
-        if !f.alive() || f.hitstun > 0 || f.hand_cd > 0 {
+        if !f.present() || f.hitstun > 0 || f.hand_cd > 0 {
             return;
         }
         if f.holding.is_none() {
@@ -966,7 +980,7 @@ impl Match {
                 let own_grace = it.owner == Some(j) && it.age < OWN_GRACE;
                 // Thrown things don't hit the thrower's teammates (Seth and his minis).
                 let friendly = it.owner.is_some_and(|o| o != j && self.f[o].team(o) == self.f[j].team(j));
-                self.f[j].alive() && !own_grace && !friendly && ib.overlaps(&self.f[j].body())
+                self.f[j].present() && !own_grace && !friendly && ib.overlaps(&self.f[j].body())
             });
             if let Some(j) = victim {
                 let dir = it.vel.x.signum();
@@ -1032,7 +1046,7 @@ impl Match {
             // (Not minis: one hit is all they take.)
             let taker = (0..N_FIGHTERS).find(|&j| {
                 let f = &self.f[j];
-                f.alive() && f.hp < MAX_HP && f.body().overlaps(&hb)
+                f.present() && f.hp < MAX_HP && f.body().overlaps(&hb)
             });
             match taker {
                 Some(j) => {
@@ -1074,8 +1088,9 @@ impl Match {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn damage(&mut self, src: usize, victim: usize, dmg: f32, knockback: Vec2, stun: u32, dir: f32, source: Source, headshot: bool) {
-        // Nobody can be hurt at the start (the hit just doesn't happen: no knockback either).
-        if self.protected() {
+        // Nobody can be hurt at the start (the hit just doesn't happen: no knockback either), nor
+        // Jake while he's inside his phone.
+        if self.protected() || self.f[victim].digital > 0 {
             return;
         }
         // What a mini does counts for whoever summoned it; hurting your own side counts for nobody.
@@ -1171,7 +1186,7 @@ impl Match {
 /// immediately, and the server's snapshots correct it. Its jumps and swings go in `events`.
 /// `props` are the tables in the arena (`props(&view.effects)`).
 pub fn predict(arena: &Arena, props: &[Aabb], f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
-    if f.absent {
+    if f.absent || f.digital > 0 {
         return;
     }
     control(f, who, a, events);

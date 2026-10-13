@@ -34,6 +34,10 @@ const SKIN: Color = Color::new(0.86, 0.70, 0.58, 1.0);
 const DOG_FUR: Color = Color::new(0.55, 0.38, 0.22, 1.0);
 const DOG_DARK: Color = Color::new(0.28, 0.19, 0.12, 1.0);
 const RICE: Color = Color::new(0.96, 0.95, 0.90, 1.0);
+/// Jake's hologram light, and how long the beam lasts going into or out of the phone.
+const HOLO: Color = Color::new(0.35, 0.95, 1.0, 1.0);
+const HOLO_PINK: Color = Color::new(1.0, 0.45, 0.85, 1.0);
+const HOLO_SECS: f32 = 0.45;
 const SALMON: Color = Color::new(1.0, 0.52, 0.34, 1.0);
 const NORI: Color = Color::new(0.10, 0.16, 0.12, 1.0);
 const WOOD: Color = Color::new(0.52, 0.34, 0.20, 1.0);
@@ -82,6 +86,8 @@ pub enum HairStyle {
     Long,
     /// Straight, with a fringe, covering the ears (Justin).
     OverEars,
+    /// Swept down over one eye, longer at the back (Jake).
+    Emo,
 }
 
 /// How a character looks and sounds: one row per character in `art`.
@@ -221,6 +227,23 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 beard: false,
                 glasses: true,
                 special_sound: Some(Sfx::ChainThrow),
+            };
+            &ART
+        }
+        // Blonde emo fringe over his eyes, a black hoodie; hot pink.
+        Character::Jake => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(1.0, 0.38, 0.72, 1.0)),
+                body: rgb(30, 30, 36),
+                legs: [rgb(22, 22, 28), rgb(34, 34, 42)],
+                arms: rgb(40, 40, 48),
+                hair: Some(rgb(236, 214, 140)),
+                headband: false,
+                skin: rgb(232, 200, 178),
+                hair_style: HairStyle::Emo,
+                beard: false,
+                glasses: false,
+                special_sound: None,
             };
             &ART
         }
@@ -467,6 +490,8 @@ pub struct Art {
     minis: Vec<RenderTarget>,
     /// Recent explosions (position, seconds since) for the flash.
     blasts: Vec<(Vec2, f32, f32)>,
+    /// Jake's hologram beams: (his middle, seconds since, coming out?).
+    holos: Vec<(Vec2, f32, bool)>,
     /// A flag in their colour where each fighter went down (ground position, colour).
     flags: Vec<(Vec2, Color)>,
     time: f32,
@@ -503,6 +528,7 @@ impl Art {
                 })
                 .collect(),
             blasts: Vec::new(),
+            holos: Vec::new(),
             flags: Vec::new(),
             time: 0.0,
         }
@@ -523,6 +549,7 @@ impl Art {
         self.particles.clear();
         self.blasts.clear();
         self.flags.clear();
+        self.holos.clear();
         self.vis = Default::default();
     }
 
@@ -616,6 +643,11 @@ impl Art {
                 Event::Scratch { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 2.0, 3, Color::new(0.95, 0.85, 0.80, 0.9), false, 40.0, 0.15, 200.0);
                 }
+                Event::Hologram { pos, out } => {
+                    self.holos.push((pos, 0.0, out));
+                    self.burst(pos, vec2(0.0, -1.0), 6.3, 18, HOLO, false, 40.0, 0.5, -20.0);
+                    self.burst(pos, vec2(0.0, -1.0), 6.3, 8, HOLO_PINK, false, 30.0, 0.4, -20.0);
+                }
                 Event::Hook { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 8, Color::new(1.0, 0.95, 0.8, 1.0), false, 90.0, 0.2, 0.0);
                 }
@@ -644,6 +676,10 @@ impl Art {
             b.1 += dt;
         }
         self.blasts.retain(|b| b.1 < 0.25);
+        for h in self.holos.iter_mut() {
+            h.1 += dt;
+        }
+        self.holos.retain(|h| h.1 < HOLO_SECS);
         // Lit grenade fuses throw off sparks.
         for it in m.items.iter().filter(|it| it.fuse.is_some()) {
             if hash((self.time * 977.0) as i32, it.pos.x as i32, 41) < dt * 30.0 {
@@ -748,7 +784,7 @@ impl Art {
         }
 
         // Dead underneath the living.
-        let mut order: Vec<usize> = (0..N_BODIES).filter(|&i| !m.f[i].absent).collect();
+        let mut order: Vec<usize> = (0..N_BODIES).filter(|&i| !m.f[i].absent && m.f[i].digital == 0).collect();
         order.sort_by_key(|&i| m.f[i].alive());
         for i in order {
             let f = &m.f[i];
@@ -767,7 +803,7 @@ impl Art {
             let left = (m.config.countdown + m.config.spawn_grace - m.tick) as f32 * DT;
             let fade = (left / 0.5).min(1.0);
             let pulse = 0.5 + 0.5 * (self.time * 7.0).sin();
-            for f in m.f.iter().filter(|f| f.alive()) {
+            for f in m.f.iter().filter(|f| f.present()) {
                 let c = f.center();
                 let a = (0.25 + 0.35 * pulse) * fade;
                 draw_circle(c.x, c.y, 11.0 + pulse, Color::new(SHIELD.r, SHIELD.g, SHIELD.b, a * 0.25));
@@ -779,6 +815,9 @@ impl Art {
             draw_item(it, self.time);
         }
 
+        for &(pos, t, out) in &self.holos {
+            draw_hologram(pos, t, out);
+        }
         for &(pos, t, r) in &self.blasts {
             let k = 1.0 - t / 0.25;
             draw_circle(pos.x, pos.y, r * (0.5 + 0.5 * (1.0 - k)), Color::new(1.0, 0.85, 0.5, 0.35 * k));
@@ -789,7 +828,7 @@ impl Art {
         }
 
         // Health bars (not minis: one hit is all they take).
-        for (i, f) in m.f.iter().enumerate().take(N_FIGHTERS).filter(|(_, f)| f.alive()) {
+        for (i, f) in m.f.iter().enumerate().take(N_FIGHTERS).filter(|(_, f)| f.present()) {
             let (x, y) = ((f.pos.x - 6.0).round(), (f.pos.y - 22.0).round());
             draw_rectangle(x, y, 12.0, 1.0, Color::new(0.0, 0.0, 0.0, 0.6));
             draw_rectangle(x, y, (12.0 * f.hp / MAX_HP).ceil(), 1.0, look(f.character, i).accent);
@@ -839,6 +878,18 @@ fn draw_item(it: &Item, time: f32) {
                     draw_circle(p.x, p.y, 3.5, Color::new(1.0, 0.2, 0.1, 0.25));
                 }
             }
+        }
+        ItemKind::Phone => {
+            // A smartphone: dark case, screen lit up bright (and pulsing) while Jake is inside.
+            draw_rectangle(x, y - 1.0, 3.0, 4.0, Color::new(0.10, 0.10, 0.12, 1.0));
+            let screen = if it.carries.is_some() {
+                let k = 0.6 + 0.4 * (time * 9.0).sin();
+                draw_circle(p.x, p.y, 4.0, Color::new(HOLO.r, HOLO.g, HOLO.b, 0.22 * k));
+                Color::new(HOLO.r * k + (1.0 - k), HOLO.g * k + (1.0 - k), HOLO.b, 1.0)
+            } else {
+                Color::new(0.25, 0.32, 0.45, 1.0)
+            };
+            draw_rectangle(x + 1.0, y, 1.0, 2.0, screen);
         }
         ItemKind::Sushi => {
             // A piece of salmon nigiri: rice, fish on top, a band of nori.
@@ -967,6 +1018,13 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
                     px(-1.0, -1.0, 2.0, 2.0, hair);
                     px(2.0, -2.0, 1.0, 1.0, hair);
                 }
+                HairStyle::Emo => {
+                    px(-3.0, -3.0, 6.0, 1.0, hair);
+                    px(-3.0, -2.0, 2.0, 4.0, hair);
+                    // The fringe, swept forward and down over the eyes.
+                    px(-1.0, -2.0, 4.0, 2.0, hair);
+                    px(2.0, 0.0, 1.0, 1.0, hair);
+                }
             }
             if look.beard {
                 px(-1.0, 1.0, 4.0, 2.0, hair);
@@ -977,7 +1035,10 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
             }
         }
     }
-    draw_rectangle((head.x + s * 1.5).round(), head.y.round() - 1.0, 1.0, 1.0, Color::new(0.05, 0.05, 0.06, 1.0));
+    // The eye (hidden under an emo fringe).
+    if !(look.hair.is_some() && look.hair_style == HairStyle::Emo) {
+        draw_rectangle((head.x + s * 1.5).round(), head.y.round() - 1.0, 1.0, 1.0, Color::new(0.05, 0.05, 0.06, 1.0));
+    }
     if look.glasses {
         // A dark frame across the eye and a pale glint of lens in front of it.
         let (hx, hy) = (head.x.round(), head.y.round());
@@ -1020,6 +1081,22 @@ fn draw_cat(c: &Pet, coat: u8) {
     draw_rectangle(hx + 1.0, y - 5.0, 1.0, 1.0, dark);
     let tx = if s > 0.0 { x - 3.0 } else { x + 2.0 };
     draw_rectangle(tx, y - 5.0 - stride, 1.0, 3.0, dark);
+}
+
+/// Jake breaking up into (or coming back out of) light: a stack of flickering scan lines the
+/// height of a fighter, squeezing down to nothing going in, opening up coming out.
+fn draw_hologram(c: Vec2, t: f32, out: bool) {
+    let k = (t / HOLO_SECS).clamp(0.0, 1.0);
+    let open = if out { k } else { 1.0 - k };
+    let fade = if out { 1.0 - k } else { 1.0 };
+    for row in 0..9 {
+        let y = c.y - 8.0 + row as f32 * 2.0;
+        let flicker = ((t * 60.0 + row as f32 * 1.7).sin() * 0.5 + 0.5) * 0.6 + 0.4;
+        let w = (5.0 + 3.0 * ((row * 7) % 3) as f32) * open.max(0.08);
+        let col = if row % 2 == 0 { HOLO } else { HOLO_PINK };
+        draw_rectangle((c.x - w).round(), y.round(), (w * 2.0).round().max(1.0), 1.0, Color::new(col.r, col.g, col.b, 0.85 * flicker * fade));
+    }
+    draw_circle(c.x, c.y, 10.0 * open + 2.0, Color::new(HOLO.r, HOLO.g, HOLO.b, 0.12 * fade));
 }
 
 /// Ryan's chain: steel links from his chest to the hook.

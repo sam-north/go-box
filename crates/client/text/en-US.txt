@@ -69,6 +69,7 @@ character.seth = Seth
 character.corwin = Corwin
 character.justin = Justin
 character.ryan = Ryan
+character.jake = Jake
 special.gravity_bomb = Gravity Bomb
 special.pop_up = Pop-Up
 special.hounds = Release the Hounds
@@ -76,6 +77,7 @@ special.mini_me = Mini Me
 special.cat_herder = Cat Herder
 special.sushi_table = Sushi Table
 special.yank_chain = Yanking Your Chain
+special.into_the_phone = Into the Phone
 
 # Maps (by id)
 arena.tiers = Tiers
@@ -184,3 +186,4 @@ about.seth = Two smaller clones hop out and fight beside him for 15 seconds. One
 about.corwin = Twenty cats pour out and run the floors for 5 seconds. Each scratch is light, but there are a lot of them.
 about.justin = A table drops in front of him, serving three pieces of sushi to throw. It's solid: run into it or jump on top.
 about.ryan = Throws a chain a short way ahead. Whoever it hooks gets yanked right up to him, dazed for a moment.
+about.jake = Turns into light and hides inside his phone for 5 seconds; anyone can grab and throw it. Then he pops back out, wherever the phone ended up.

@@ -94,6 +94,12 @@ const CHAIN_STOP: f32 = 10.0;
 /// It gives up (and lets go) after this long, whatever is in the way.
 const CHAIN_TICKS: u32 = 90;
 
+// Jake — Into the Phone: he turns into light and goes inside his phone, which drops from his
+// head to the floor. For a while he can't act or be hurt; anyone can pick the phone up and throw
+// it. Then he comes back out, standing on wherever the phone is, and the phone stays behind.
+const PHONE_COOLDOWN: u32 = 20 * SECOND;
+pub const PHONE_TICKS: u32 = 5 * SECOND;
+
 crate::enum_all! {
     /// Who you play. Everyone has the same body; a character adds a special (see `def`).
     #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
@@ -108,6 +114,7 @@ crate::enum_all! {
         Corwin,
         Justin,
         Ryan,
+        Jake,
     }
 }
 
@@ -134,6 +141,7 @@ impl Character {
             Character::Corwin => &CharacterDef { id: "corwin", special: Some(&CatHerder) },
             Character::Justin => &CharacterDef { id: "justin", special: Some(&SushiTable) },
             Character::Ryan => &CharacterDef { id: "ryan", special: Some(&YankChain) },
+            Character::Jake => &CharacterDef { id: "jake", special: Some(&IntoThePhone) },
         }
     }
 
@@ -234,14 +242,20 @@ impl Special for PopUp {
         m.events.push(Event::Poof { pos: to });
     }
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
-        let me = &m.f[who];
-        let c = me.center();
-        let crowded = foes(m, who).any(|f| f.center().distance(c) < 24.0);
-        // A projectile about to hit: lethal, not mine, close and closing.
-        let incoming = m.items.iter().any(|it| it.lethal && it.owner != Some(who) && it.pos.distance(c) < 36.0 && (c - it.pos).dot(it.vel) > 0.0);
-        let grenade = m.items.iter().any(|it| it.fuse.is_some_and(|t| t < 30) && it.pos.distance(c) < 30.0);
-        incoming || grenade || (crowded && me.hp < 40.0)
+        in_danger(m, who)
     }
+}
+
+/// About to get hurt: a projectile closing in, a grenade about to blow, or crowded while weak.
+/// (Austin pops away from it; Jake hides in his phone.)
+fn in_danger(m: &Match, who: usize) -> bool {
+    let me = &m.f[who];
+    let c = me.center();
+    let crowded = foes(m, who).any(|f| f.center().distance(c) < 24.0);
+    // A projectile about to hit: lethal, not mine, close and closing.
+    let incoming = m.items.iter().any(|it| it.lethal && it.owner != Some(who) && it.pos.distance(c) < 36.0 && (c - it.pos).dot(it.vel) > 0.0);
+    let grenade = m.items.iter().any(|it| it.fuse.is_some_and(|t| t < 30) && it.pos.distance(c) < 30.0);
+    incoming || grenade || (crowded && me.hp < 40.0)
 }
 
 struct MiniMe;
@@ -412,6 +426,38 @@ impl Special for YankChain {
     }
 }
 
+struct IntoThePhone;
+
+impl Special for IntoThePhone {
+    fn id(&self) -> &'static str {
+        "into_the_phone"
+    }
+    fn cooldown(&self) -> u32 {
+        PHONE_COOLDOWN
+    }
+    fn activate(&self, m: &mut Match, who: usize) {
+        // Whatever he was holding drops where he stands.
+        if let Some(k) = m.held_item(who) {
+            m.items[k].held_by = None;
+            m.items[k].vel = Vec2::ZERO;
+        }
+        let f = &mut m.f[who];
+        f.holding = None;
+        f.atk_timer = 0;
+        f.vel = Vec2::ZERO;
+        f.digital = PHONE_TICKS;
+        let (center, head) = (f.center(), vec2(f.pos.x, f.pos.y - 13.0));
+        let mut phone = crate::sim::Item::new(crate::sim::ItemKind::Phone, head);
+        phone.vel = vec2(f.facing * 15.0, -30.0);
+        phone.carries = Some(who);
+        m.items.push(phone);
+        m.events.push(Event::Hologram { pos: center, out: false });
+    }
+    fn bot_wants(&self, m: &Match, who: usize) -> bool {
+        in_danger(m, who)
+    }
+}
+
 /// Ryan's chain: flying out, reeling back after a miss, or hauling in whoever it hooked.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Chain {
@@ -541,6 +587,31 @@ impl Match {
             let pos = self.f[j].center();
             self.f[j] = Fighter::empty();
             self.events.push(Event::Poof { pos });
+        }
+    }
+
+    /// Jake inside his phone goes wherever it goes; when his time's up he comes back out standing
+    /// on it (and the phone stays, an ordinary item now).
+    pub(crate) fn step_digital(&mut self) {
+        for i in 0..N_FIGHTERS {
+            if self.f[i].digital == 0 {
+                continue;
+            }
+            let phone = self.items.iter().position(|it| it.carries == Some(i));
+            let at = phone.map_or(self.f[i].pos, |k| self.items[k].pos + vec2(0.0, crate::sim::ITEM_R));
+            let f = &mut self.f[i];
+            f.digital -= 1;
+            let hw = f.half_w();
+            f.pos = vec2(at.x.clamp(crate::sim::WALL + hw, W - crate::sim::WALL - hw), at.y);
+            f.vel = Vec2::ZERO;
+            if f.digital == 0 {
+                f.grounded = false;
+                if let Some(k) = phone {
+                    self.items[k].carries = None;
+                }
+                let pos = self.f[i].center();
+                self.events.push(Event::Hologram { pos, out: true });
+            }
         }
     }
 
@@ -1292,5 +1363,37 @@ mod tests {
         }
         assert!(m.effects.is_empty(), "reeled back in");
         assert!((1..N_FIGHTERS).all(|j| m.f[j].hp == MAX_HP && m.f[j].pos.x > 290.0));
+    }
+
+    #[test]
+    fn jake_hides_in_his_phone_then_comes_out_wherever_it_went() {
+        use crate::sim::ItemKind;
+        let z = zero_brain();
+        let mut m = staged([Character::Jake, Character::Classic, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
+        step_idle(&mut m, &z, true);
+        assert!(m.f[0].digital > 0 && m.f[0].alive());
+        let phone = |m: &Match| m.items.iter().position(|it| it.kind == ItemKind::Phone).expect("a phone");
+        assert_eq!(m.items[phone(&m)].carries, Some(0));
+        assert!(m.items[phone(&m)].pos.y < crate::sim::FLOOR_Y - 8.0, "dropped from about head height");
+        // Inside, he's untouchable and nobody's target.
+        m.damage(1, 0, 50.0, Vec2::ZERO, 10, 1.0, Source::Fist, false);
+        assert_eq!(m.f[0].hp, MAX_HP);
+        assert!(!m.foes(1, 0));
+        // Someone picks the phone up, carries it off and drops it.
+        let k = phone(&m);
+        m.items[k].held_by = Some(1);
+        m.items[k].vel = Vec2::ZERO;
+        m.f[1].holding = Some(ItemKind::Phone);
+        m.f[1].pos.x = 250.0;
+        for _ in 0..PHONE_TICKS {
+            step_idle(&mut m, &z, false);
+        }
+        assert_eq!(m.f[0].digital, 0, "back out");
+        assert!(m.events.iter().any(|e| matches!(e, Event::Hologram { out: true, .. })) || m.f[0].pos.x > 200.0);
+        assert!((m.f[0].pos.x - m.f[1].hand().x).abs() < 3.0, "came out where the phone was: {}", m.f[0].pos.x);
+        let k = phone(&m);
+        assert_eq!(m.items[k].carries, None, "the phone stays, an ordinary item");
+        m.damage(1, 0, 10.0, Vec2::ZERO, 0, 1.0, Source::Fist, false);
+        assert_eq!(m.f[0].hp, MAX_HP - 10.0, "and he can be hurt again");
     }
 }

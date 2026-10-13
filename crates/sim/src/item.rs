@@ -16,6 +16,8 @@ crate::enum_all! {
         Grenade,
         /// Justin's sushi: only ever served on his table, thrown like a rock, and gone in a splat.
         Sushi,
+        /// Jake's phone: he hides in it for a while, and it stays behind as something to throw.
+        Phone,
     }
 }
 
@@ -132,6 +134,21 @@ const SUSHI: ItemDef = ItemDef {
     splats: Some(secs(15)),
 };
 
+const PHONE: ItemDef = ItemDef {
+    sensed_as: Sensed::Rock,
+    throw_speed: 230.0,
+    flight_gravity: 0.8,
+    bounce: 0.3,
+    thrown: Some(Hit { damage: 10.0, headshot_mult: 3.0, source: Source::Rock }),
+    melee: None,
+    fuse: None,
+    blast: None,
+    // Never spawns on its own: Jake drops it.
+    spawn_chance: 0.0,
+    max_alive: None,
+    splats: None,
+};
+
 /// Fists, when not holding something with its own melee: (reach, hit).
 pub const FISTS: (f32, Hit) = (9.0, Hit { damage: 8.0, headshot_mult: HEADSHOT_MULT, source: Source::Fist });
 
@@ -151,6 +168,7 @@ impl ItemKind {
             ItemKind::Rock => &ROCK,
             ItemKind::Grenade => &GRENADE,
             ItemKind::Sushi => &SUSHI,
+            ItemKind::Phone => &PHONE,
         }
     }
 }
