@@ -64,9 +64,14 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
         let name = seat_name(&seat.name, f.character, seat.player.is_none());
         let name = if you { tf("hud.you", &[("name", &name)]) } else { name };
         ui.text(&name, x, ui.px(28.0), 20.0, color);
-        let bw = colw - ui.px(24.0);
+        let bw = colw - ui.px(48.0);
         draw_rectangle(x, ui.px(36.0), bw, ui.px(6.0), Color::new(0.0, 0.0, 0.0, 0.6));
         draw_rectangle(x, ui.px(36.0), bw * (f.hp.max(0.0) / go_box_sim::sim::MAX_HP), ui.px(6.0), color);
+        // Their special: a little clock filling up as it recharges, solid when it's ready.
+        if let Some(sp) = f.character.special().filter(|_| f.alive()) {
+            let ready = 1.0 - f.special_cd as f32 / sp.cooldown() as f32;
+            special_pie(vec2(x + bw + ui.px(14.0), ui.px(39.0)), ui.px(8.0), ready, render::character_color(f.character));
+        }
     }
     // Whole seconds left, counted in ticks (float maths made 45s show as 0:46).
     let left = m.config.max_ticks.saturating_sub(m.play_ticks()).div_ceil(TICK_RATE);
@@ -116,6 +121,27 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
             }
         }
     }
+}
+
+/// A recharge clock: an outlined circle filling clockwise from 12 o'clock with `ready` (0..1), and
+/// a solid disc (with a soft halo) once it's full.
+fn special_pie(c: Vec2, r: f32, ready: f32, color: Color) {
+    if ready >= 1.0 {
+        draw_circle(c.x, c.y, r + 2.0, Color::new(color.r, color.g, color.b, 0.25));
+        draw_circle(c.x, c.y, r, color);
+        draw_circle_lines(c.x, c.y, r, 1.5, Color::new(1.0, 1.0, 1.0, 0.8));
+        return;
+    }
+    draw_circle(c.x, c.y, r, Color::new(0.0, 0.0, 0.0, 0.5));
+    let fill = Color::new(color.r * 0.8, color.g * 0.8, color.b * 0.8, 0.9);
+    let steps = 32;
+    let end = ready.clamp(0.0, 1.0) * std::f32::consts::TAU;
+    let at = |a: f32| c + vec2(a.sin(), -a.cos()) * r;
+    for k in 0..steps {
+        let (a0, a1) = (end * k as f32 / steps as f32, end * (k + 1) as f32 / steps as f32);
+        draw_triangle(c, at(a0), at(a1), fill);
+    }
+    draw_circle_lines(c.x, c.y, r, 1.5, color);
 }
 
 /// Everyone's name over their head. Others' are small and faded so they don't pull the eye;
