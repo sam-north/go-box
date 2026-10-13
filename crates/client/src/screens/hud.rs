@@ -126,13 +126,16 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
 /// A recharge clock: an outlined circle filling clockwise from 12 o'clock with `ready` (0..1), and
 /// a solid disc (with a soft halo) once it's full.
 fn special_pie(c: Vec2, r: f32, ready: f32, color: Color) {
+    // Outline and glow scale with the size (a tiny clock shouldn't be all border).
+    let line = (r * 0.18).clamp(1.0, 2.0);
+    let halo = (r * 0.2).max(1.0);
     if ready >= 1.0 {
-        draw_circle(c.x, c.y, r + 2.0, Color::new(color.r, color.g, color.b, 0.25));
+        draw_circle(c.x, c.y, r + halo, Color::new(color.r, color.g, color.b, 0.25));
         draw_circle(c.x, c.y, r, color);
-        draw_circle_lines(c.x, c.y, r, 1.5, Color::new(1.0, 1.0, 1.0, 0.8));
+        draw_circle_lines(c.x, c.y, r, line * 0.75, Color::new(1.0, 1.0, 1.0, 0.8));
         return;
     }
-    draw_circle(c.x, c.y, r + 1.5, Color::new(0.0, 0.0, 0.0, 0.75));
+    draw_circle(c.x, c.y, r + halo * 0.75, Color::new(0.0, 0.0, 0.0, 0.75));
     draw_circle(c.x, c.y, r, Color::new(0.10, 0.10, 0.12, 0.9));
     let fill = Color::new(color.r * 0.85, color.g * 0.85, color.b * 0.85, 1.0);
     let steps = 32;
@@ -142,7 +145,7 @@ fn special_pie(c: Vec2, r: f32, ready: f32, color: Color) {
         let (a0, a1) = (end * k as f32 / steps as f32, end * (k + 1) as f32 / steps as f32);
         draw_triangle(c, at(a0), at(a1), fill);
     }
-    draw_circle_lines(c.x, c.y, r, 2.0, color);
+    draw_circle_lines(c.x, c.y, r, line, color);
 }
 
 /// Everyone's name over their head. Others' are small and faded so they don't pull the eye;
@@ -160,7 +163,7 @@ fn names_over_heads(ui: &Ui, app: &App, m: &Match) {
         // A small recharge clock just right of the health bar floating over them.
         if let Some(sp) = f.character.special().filter(|_| f.present()) {
             let ready = 1.0 - f.special_cd as f32 / sp.cooldown() as f32;
-            special_pie(to_screen(f.pos + vec2(9.5, -21.5)), ui.px(5.0), ready, render::character_color(f.character));
+            special_pie(to_screen(f.pos + vec2(8.5, -21.5)), ui.px(3.5), ready, render::character_color(f.character));
         }
         let seat = &g.start.seats[i];
         let name = seat_name(&seat.name, f.character, seat.player.is_none());
