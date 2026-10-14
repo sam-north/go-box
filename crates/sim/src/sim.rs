@@ -742,6 +742,12 @@ impl Match {
         self.config.arena.def()
     }
 
+    /// True with probability `p`, from the match's own random stream (so it plays out the same
+    /// everywhere).
+    pub(crate) fn chance(&mut self, p: f64) -> bool {
+        self.rng.gen_bool(p)
+    }
+
     pub(crate) fn random_surface_spot_between(&mut self, lo: f32, hi: f32) -> Option<Vec2> {
         random_surface_spot_between(&mut self.rng, self.config.arena.def(), lo, hi)
     }

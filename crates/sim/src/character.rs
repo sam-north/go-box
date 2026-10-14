@@ -65,6 +65,12 @@ const SCRATCH_DAMAGE: f32 = 2.0;
 const SCRATCH_EVERY: u32 = SECOND;
 /// How far (sideways) a cat can smell sushi from.
 const CAT_SNIFF: f32 = 100.0;
+/// A dog or cat on the ground with a ledge just above and ahead of it leaps up onto it now and then
+/// (this chance a tick), so they don't all just run the floor.
+const PET_HOP_CHANCE: f64 = 0.04;
+/// How high a ledge they'll leap for, and how far ahead they look for one.
+const PET_HOP_HEIGHT: f32 = 44.0;
+const PET_HOP_AHEAD: f32 = 36.0;
 
 // Justin — Sushi Table: a table drops in front of him (onto him, if he's facing a wall) and
 // serves sushi to throw. It's solid from the sides and on top, never from below (see
@@ -995,7 +1001,8 @@ impl Match {
                 .map(|it| vec2(it.pos.x + ((k % 7) as f32 - 3.0) * 1.5, it.pos.y + crate::sim::ITEM_R)),
             Breed::Hound => None,
         };
-        run_pet(pet, self.arena(), &props(&self.effects), goal);
+        let hop = goal.is_none() && pet.vy == 0.0 && self.chance(PET_HOP_CHANCE);
+        run_pet(pet, self.arena(), &props(&self.effects), goal, hop);
         if goal.is_some() {
             pet.bite_cd.iter_mut().for_each(|t| *t = t.saturating_sub(1));
             pet.ticks -= 1;
@@ -1361,12 +1368,24 @@ impl Effect {
     }
 }
 
-/// One tick of a pet running the floors (and landing on tables). With a `goal` (a cat after sushi)
-/// it heads there instead, hops up to it if it's on a table, and sits once it's arrived.
-fn run_pet(dog: &mut Pet, arena: &Arena, props: &[Aabb], goal: Option<Vec2>) {
+/// One tick of a pet running the floors (landing on ledges and tables). With `hop` it leaps for a
+/// ledge just above and ahead, if there is one. With a `goal` (a cat after sushi) it heads there
+/// instead, hops up to it if it's on a table, and sits once it's arrived.
+fn run_pet(dog: &mut Pet, arena: &Arena, props: &[Aabb], goal: Option<Vec2>, hop: bool) {
     let (half_w, h) = dog.breed.size();
     let grounded = dog.vy == 0.0;
     dog.eating = false;
+    // A leap up onto the nearest ledge just above and ahead (if there is one in reach).
+    if hop && grounded {
+        let ahead = |p: &&Aabb| {
+            let (near, far) = if dog.dir > 0.0 { (dog.pos.x, dog.pos.x + PET_HOP_AHEAD) } else { (dog.pos.x - PET_HOP_AHEAD, dog.pos.x) };
+            p.x < far && p.x + p.w > near
+        };
+        let above = |p: &&Aabb| p.y < dog.pos.y - 4.0 && dog.pos.y - p.y <= PET_HOP_HEIGHT;
+        if let Some(p) = arena.platforms.iter().chain(props).filter(ahead).filter(above).max_by(|a, b| a.y.total_cmp(&b.y)) {
+            dog.vy = -libm::sqrtf(2.0 * 640.0 * (dog.pos.y - p.y + 6.0));
+        }
+    }
     let step = match goal {
         None => dog.dir * dog.speed * DT,
         Some(g) => {
@@ -1995,5 +2014,21 @@ mod tests {
         assert!(m.f[0].present() && m.f[0].host.is_none() && m.f[2].ridden == 0, "out again");
         let gap = (m.f[0].pos.x - m.f[2].pos.x).abs();
         assert!(gap > 5.0 && gap < 15.0, "beside them: {gap}");
+    }
+
+    #[test]
+    fn dogs_and_cats_leap_up_onto_ledges_now_and_then() {
+        let z = zero_brain();
+        for who in [Character::Tyler, Character::Corwin] {
+            let mut m = staged([who, Character::Classic, Character::Classic, Character::Classic], [60.0, 300.0, 380.0, 440.0]);
+            m.f[0].facing = 1.0;
+            step_idle(&mut m, &z, true);
+            let mut up = false;
+            for _ in 0..HOUND_TICKS.min(CAT_TICKS) - 1 {
+                step_idle(&mut m, &z, false);
+                up |= m.effects.iter().any(|e| matches!(e, Effect::Pet(p) if p.vy == 0.0 && p.pos.y < crate::sim::FLOOR_Y - 10.0));
+            }
+            assert!(up, "{who:?}'s pets never got up onto a ledge");
+        }
     }
 }

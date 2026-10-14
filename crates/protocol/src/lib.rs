@@ -377,7 +377,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (23, 0x9b9b_85cc_47ab_c31e);
+    const WIRE: (u16, u64) = (23, 0x87d9_c973_c4a7_c3b4);
 
     #[test]
     fn every_sample_round_trips() {
