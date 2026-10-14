@@ -28,7 +28,7 @@ use go_box_sim::sim::{Action, ArenaId, Event, MatchConfig, MatchView, N_FIGHTERS
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 19;
+pub const PROTOCOL_VERSION: u16 = 20;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -278,7 +278,12 @@ mod tests {
             }
         }
         let first = Snapshot { ack: 0, view: Match::new(1, &MatchConfig::default()).view(), events: Vec::new() };
-        std::iter::once(first).chain(found.into_iter().zip(wanted).map(|(s, (name, _))| s.unwrap_or_else(|| panic!("no {name} in the sample matches")))).collect()
+        // Rocket launchers are rare, so one is set up by hand: one lying around, a rocket in flight.
+        let mut m = Match::new(2, &MatchConfig::default());
+        m.items.push(go_box_sim::sim::Item::new(ItemKind::RocketLauncher, glam_vec(200.0, 250.0)));
+        m.effects.push(Effect::Rocket(go_box_sim::character::Rocket::new(glam_vec(100.0, 200.0), glam_vec(1.0, 0.0), 0)));
+        let rocket = Snapshot { ack: 3, view: m.view(), events: vec![go_box_sim::sim::Event::RocketLaunch { pos: glam_vec(100.0, 200.0) }] };
+        std::iter::once(first).chain(std::iter::once(rocket)).chain(found.into_iter().zip(wanted).map(|(s, (name, _))| s.unwrap_or_else(|| panic!("no {name} in the sample matches")))).collect()
     }
 
     /// One of every message, with fixed contents. The `match`es have no wildcard arm, so a new
@@ -358,7 +363,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (19, 0xaf61_88f0_c76f_dd35);
+    const WIRE: (u16, u64) = (20, 0x4368_416f_088c_6454);
 
     #[test]
     fn every_sample_round_trips() {

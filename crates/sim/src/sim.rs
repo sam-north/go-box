@@ -86,9 +86,9 @@ const OWN_GRACE: u32 = 15;
 // Items lying around.
 const START_SPEARS: usize = 2;
 const START_ROCKS: usize = 2;
-const START_GRENADES: usize = 3;
-const ITEM_SPAWN_EVERY: Range<u32> = secs(5)..secs(8);
-const MAX_LOOSE_ITEMS: usize = 10;
+const START_GRENADES: usize = 4;
+const ITEM_SPAWN_EVERY: Range<u32> = secs(4)..secs(7);
+const MAX_LOOSE_ITEMS: usize = 12;
 
 // Health pickups: restore half your health; rare and on a reachable surface.
 pub const HEAL_AMOUNT: f32 = 50.0;
@@ -364,7 +364,7 @@ pub struct Item {
 }
 
 impl Item {
-    pub(crate) fn new(kind: ItemKind, pos: Vec2) -> Self {
+    pub fn new(kind: ItemKind, pos: Vec2) -> Self {
         Self { kind, pos, vel: Vec2::ZERO, held_by: None, owner: None, lethal: false, fuse: None, carries: None, age: 0 }
     }
     /// On the ground and safe to pick up.
@@ -400,6 +400,8 @@ pub enum Event {
     Splat { pos: Vec2 },
     /// Ryan's chain hooking someone.
     Hook { pos: Vec2 },
+    /// A rocket fired from a rocket launcher.
+    RocketLaunch { pos: Vec2 },
     /// Jake going into his phone (`out`: false) or coming back out of it, at his middle.
     Hologram { pos: Vec2, out: bool },
     /// Robert's lightning striking someone.
@@ -591,6 +593,8 @@ pub struct Match {
     /// Remaining heal spawn times this round, latest first.
     heal_schedule: Vec<u32>,
     next_item: u32,
+    /// How many of each kind of item have spawned this match (some are limited per match).
+    spawned: [u32; ItemKind::ALL.len()],
     rng: SimRng,
     pub tick: u32,
     pub over: bool,
@@ -631,6 +635,7 @@ impl Match {
             heals: Vec::new(),
             heal_schedule,
             next_item,
+            spawned: [0; ItemKind::ALL.len()],
             rng: SimRng::seed_from_u64(rng.r#gen()),
             tick: 0,
             over: false,
@@ -945,6 +950,14 @@ impl Match {
             };
             f.holding = None;
             f.hand_cd = THROW_COOLDOWN;
+            // A rocket launcher fires its rocket that way instead, and is used up.
+            if self.items[k].kind.def().launches {
+                let from = f.hand();
+                self.items.swap_remove(k);
+                self.effects.push(Effect::Rocket(crate::character::Rocket::new(from, dir, i)));
+                self.events.push(Event::RocketLaunch { pos: from });
+                return;
+            }
             let it = &mut self.items[k];
             it.held_by = None;
             it.owner = Some(i);
@@ -1037,7 +1050,7 @@ impl Match {
         }
     }
 
-    fn explode(&mut self, pos: Vec2, owner: Option<usize>, blast: Blast) {
+    pub(crate) fn explode(&mut self, pos: Vec2, owner: Option<usize>, blast: Blast) {
         self.events.push(Event::Explosion { pos });
         for j in 0..N_BODIES {
             let d = self.f[j].center().distance(pos);
@@ -1100,7 +1113,8 @@ impl Match {
         let mut kind = SPAWN_ORDER[SPAWN_ORDER.len() - 1];
         for k in SPAWN_ORDER {
             total += k.def().spawn_chance;
-            let room = k.def().max_alive.is_none_or(|max| self.items.iter().filter(|it| it.kind == k).count() < max);
+            let room = k.def().max_alive.is_none_or(|max| self.items.iter().filter(|it| it.kind == k).count() < max)
+                && k.def().per_match.is_none_or(|max| self.spawned[k as usize] < max);
             if roll < total && room {
                 kind = k;
                 break;
@@ -1108,6 +1122,7 @@ impl Match {
         }
         let pos = random_surface_spot(&mut self.rng, self.config.arena.def()) - vec2(0.0, ITEM_R);
         self.items.push(Item::new(kind, pos));
+        self.spawned[kind as usize] += 1;
         self.events.push(Event::Spawn { pos });
     }
 
@@ -1195,6 +1210,7 @@ impl Match {
             heals: v.heals,
             heal_schedule: Vec::new(),
             next_item: u32::MAX,
+            spawned: [0; ItemKind::ALL.len()],
             rng: SimRng::seed_from_u64(0),
             tick: v.tick,
             over: v.over,
@@ -1440,9 +1456,9 @@ mod tests {
         }
         assert_eq!(h, CLASSIC_HASH, "classic match fingerprint changed: {h:#018x}");
     }
-    // Last deliberately changed by more grenades (3 to start, 55% of spawns, up to 6). It must
+    // Last deliberately changed by more grenades and the rocket launcher. It must
     // come out the same on 32-bit targets too: `cargo test -p go-box-sim --target i686-pc-windows-msvc`.
-    const CLASSIC_HASH: u64 = 0x95fd_8e3f_440e_8269;
+    const CLASSIC_HASH: u64 = 0x9be8_7e50_1f8f_a1e3;
 
     /// Everyone on the floor, nothing lying around, nobody thinking (all-zero brains stand still).
     fn quiet_match() -> (Match, Brain) {
@@ -1543,6 +1559,38 @@ mod tests {
         let v = m.items[0].vel;
         assert!(v.x < 0.0 && v.y < 0.0, "flew {v}");
         assert_eq!(m.f[0].facing, -1.0, "turned to face the throw");
+    }
+
+    #[test]
+    fn a_rocket_homes_in_and_hits_hard() {
+        let (mut m, z) = quiet_match();
+        m.items.push(Item { held_by: Some(0), ..Item::new(ItemKind::RocketLauncher, m.f[0].hand()) });
+        m.f[0].holding = Some(ItemKind::RocketLauncher);
+        // Fired well above the fighter 140px away: it curves down onto them.
+        let a = Action { throw: true, target: Some(vec2(1.0, -0.6)), ..Action::default() };
+        m.step_with([&z; N_FIGHTERS], Some((0, a)));
+        assert!(m.items.is_empty(), "the launcher is used up");
+        let mut boom = false;
+        for _ in 0..secs(3) {
+            m.step([&z; N_FIGHTERS]);
+            boom |= m.events.iter().any(|e| matches!(e, Event::Explosion { .. }));
+        }
+        assert!(boom && m.effects.is_empty());
+        assert!(m.f[1].hp < MAX_HP - 40.0, "a big hit: {} left", m.f[1].hp);
+        assert_eq!(m.f[0].hp, MAX_HP, "the shooter is well clear");
+    }
+
+    #[test]
+    fn at_most_two_rocket_launchers_a_match() {
+        let (mut m, _) = quiet_match();
+        let mut launchers = 0;
+        for _ in 0..2000 {
+            m.next_item = m.tick;
+            m.spawn_items();
+            launchers += m.items.iter().filter(|it| it.kind == ItemKind::RocketLauncher).count();
+            m.items.clear();
+        }
+        assert!(launchers > 0 && launchers <= 2, "{launchers}");
     }
 
     #[test]

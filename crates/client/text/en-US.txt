@@ -59,6 +59,7 @@ seat.bot = {character} (bot)
 hud.you = {name} (you)
 hud.joining = Joining...
 hud.go = GO!
+hud.invulnerable = Invulnerable
 hud.watching = Watching - you'll play in the next match
 hud.down = You're down - watch the rest
 hud.special_ready = [{key}] {special} - ready

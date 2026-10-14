@@ -116,14 +116,17 @@ picking up is a deliberate **grab**.
 | Spear throw | 28, flies flat and fast | ×2 |
 | Rock throw | 10 | **×3** — a rock in the right spot is devastating |
 | Grenade | up to 85 in a 34px radius (30 at the edge), hurts everyone including the thrower | — |
+| Rocket | up to 60 in a 26px radius (24 at the edge), homing; hurts everyone including the shooter | — |
 
 A **headshot** is a hit on the top of the body. For melee that means striking from above — out of
 a jump or down from a ledge. Thrown items land where they stop and can be picked up again. A
 grenade's fuse (1s) lights when thrown; a live one can be grabbed and thrown back. A fighter who dies
 holding a grenade drops it armed: it goes off half a second later.
 
-Items: 2 spears and 4 rocks at the start; a new item appears every 5-8s (half the time a
-grenade, while there are fewer than four; else a spear or a rock). **Health pickups** (glowing blue bulbs) restore 50 HP
+Items: 4 grenades, 2 spears and 2 rocks at the start; a new item appears every 4-7s (62% a grenade,
+while there are fewer than eight; else mostly spears and rocks, and rarely a rocket launcher, at most
+two a match). A **rocket launcher** fires one homing rocket (it curves toward the nearest opponent
+and explodes for up to 60), then it's spent. **Health pickups** (glowing blue bulbs) restore 50 HP
 and are taken by touch when hurt; 1-2 appear per match.
 
 A match ends with the **last one standing**, or after 45s, when the fighter with the most health

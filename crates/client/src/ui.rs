@@ -248,6 +248,15 @@ impl Ui {
         self.text(t, cx - self.text_width(t, size) / 2.0, y, size, c);
     }
 
+    /// Centred text drawn at `size` then scaled by `scale`, for text that grows and shrinks (a
+    /// pulsing clock). Drawing at a new font size each frame instead makes every glyph get
+    /// rasterised again at each size, which stutters on slower machines.
+    pub fn text_centered_scaled(&self, t: &str, cx: f32, y: f32, size: f32, scale: f32, c: Color) {
+        let w = self.text_width(t, size) * scale;
+        let params = TextParams { font_size: self.px(size) as u16, font_scale: scale, color: c, ..Default::default() };
+        draw_text_ex(t, (cx - w / 2.0).round(), y.round(), params);
+    }
+
     pub fn panel(&self, r: Rect) {
         draw_rectangle(r.x, r.y, r.w, r.h, PANEL);
         draw_rectangle_lines(r.x, r.y, r.w, r.h, 2.0, EDGE);

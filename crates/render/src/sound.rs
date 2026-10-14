@@ -51,6 +51,7 @@ go_box_sim::enum_all! {
         Thunder,
         Zap,
         Organize,
+        RocketLaunch,
         Start,
         Win,
         Lose,
@@ -230,6 +231,12 @@ impl Sfx {
                 s.tone(0.0, 0.1, 140.0, 90.0, Wave::Square, 0.001, 25.0, 0.3);
                 s.tone(0.08, 0.4, 1318.0, 1318.0, Wave::Sine, 0.002, 9.0, 0.22);
                 s.tone(0.14, 0.4, 1976.0, 1976.0, Wave::Sine, 0.002, 9.0, 0.16);
+            }
+            // A rocket: a hard thump of ignition and a hissing roar.
+            Sfx::RocketLaunch => {
+                s.tone(0.0, 0.12, 110.0, 50.0, Wave::Sine, 0.002, 18.0, 0.6);
+                s.noise(0.0, 0.5, 2500.0, 900.0, 0.01, 5.0, 0.4);
+                s.swell(0.0, 0.4, 600.0, 3000.0, 0.15);
             }
             Sfx::Start => {
                 s.tone(0.0, 0.12, 440.0, 440.0, Wave::Square, 0.003, 10.0, 0.14);
@@ -493,6 +500,7 @@ impl Sounds {
                 Event::Scratch { pos } => self.at(Sfx::Scratch, pos, ear, 0.6),
                 Event::Splat { pos } => self.at(Sfx::Splat, pos, ear, 1.0),
                 Event::Hook { pos } => self.at(Sfx::Hook, pos, ear, 1.0),
+                Event::RocketLaunch { pos } => self.at(Sfx::RocketLaunch, pos, ear, 1.0),
                 Event::Zap { pos } => self.at(Sfx::Zap, pos, ear, 0.8),
                 Event::Hologram { pos, out } => self.at(if out { Sfx::Materialize } else { Sfx::Digitize }, pos, ear, 1.0),
                 Event::Clatter { pos, kind } => {
@@ -502,6 +510,7 @@ impl Sounds {
                         ItemKind::Grenade => Sfx::ClatterGrenade,
                         ItemKind::Sushi => Sfx::Splat,
                         ItemKind::Phone => Sfx::ClatterGrenade,
+                        ItemKind::RocketLauncher => Sfx::ClatterSpear,
                     };
                     self.at(s, pos, ear, 0.7);
                 }

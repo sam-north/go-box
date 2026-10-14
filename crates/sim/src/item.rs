@@ -18,6 +18,8 @@ crate::enum_all! {
         Sushi,
         /// Jake's phone: he hides in it for a while, and it stays behind as something to throw.
         Phone,
+        /// Fires one homing rocket, then it's spent. Rare: at most a couple a match.
+        RocketLauncher,
     }
 }
 
@@ -70,6 +72,10 @@ pub struct ItemDef {
     /// Thrown, it's used up when it hits anyone or anything (a splat), and left lying around
     /// it spoils after this many ticks.
     pub splats: Option<u32>,
+    /// At most this many spawn in a whole match.
+    pub per_match: Option<u32>,
+    /// "Throwing" it fires a homing rocket instead, and the launcher is used up.
+    pub launches: bool,
 }
 
 // Headshots multiply damage: rocks "hitting the right spot" are devastating.
@@ -85,9 +91,11 @@ const SPEAR: ItemDef = ItemDef {
     melee: Some((14.0, Hit { damage: 16.0, headshot_mult: HEADSHOT_MULT, source: Source::Stab })),
     fuse: None,
     blast: None,
-    spawn_chance: 0.25,
+    spawn_chance: 0.18,
     max_alive: None,
     splats: None,
+    per_match: None,
+    launches: false,
 };
 
 const ROCK: ItemDef = ItemDef {
@@ -100,9 +108,11 @@ const ROCK: ItemDef = ItemDef {
     fuse: None,
     blast: None,
     // Whatever's left over.
-    spawn_chance: 0.20,
+    spawn_chance: 0.14,
     max_alive: None,
     splats: None,
+    per_match: None,
+    launches: false,
 };
 
 const GRENADE: ItemDef = ItemDef {
@@ -114,9 +124,11 @@ const GRENADE: ItemDef = ItemDef {
     melee: None,
     fuse: Some(secs(1)),
     blast: Some(Blast { radius: 34.0, damage: 85.0, edge: 0.35 }),
-    spawn_chance: 0.55,
-    max_alive: Some(6),
+    spawn_chance: 0.62,
+    max_alive: Some(8),
     splats: None,
+    per_match: None,
+    launches: false,
 };
 
 const SUSHI: ItemDef = ItemDef {
@@ -132,6 +144,8 @@ const SUSHI: ItemDef = ItemDef {
     spawn_chance: 0.0,
     max_alive: None,
     splats: Some(secs(15)),
+    per_match: None,
+    launches: false,
 };
 
 const PHONE: ItemDef = ItemDef {
@@ -147,7 +161,29 @@ const PHONE: ItemDef = ItemDef {
     spawn_chance: 0.0,
     max_alive: None,
     splats: None,
+    per_match: None,
+    launches: false,
 };
+
+const ROCKET_LAUNCHER: ItemDef = ItemDef {
+    // To the bots it's something to throw at people, which is what firing it amounts to.
+    sensed_as: Sensed::Spear,
+    throw_speed: 0.0,
+    flight_gravity: 0.8,
+    bounce: 0.2,
+    thrown: None,
+    melee: None,
+    fuse: None,
+    blast: None,
+    spawn_chance: 0.06,
+    max_alive: Some(1),
+    splats: None,
+    per_match: Some(2),
+    launches: true,
+};
+
+/// A rocket's explosion.
+pub const ROCKET_BLAST: Blast = Blast { radius: 26.0, damage: 60.0, edge: 0.4 };
 
 /// Fists, when not holding something with its own melee: (reach, hit).
 pub const FISTS: (f32, Hit) = (9.0, Hit { damage: 8.0, headshot_mult: HEADSHOT_MULT, source: Source::Fist });
@@ -159,7 +195,7 @@ pub const DROPPED_FUSE: u32 = 30;
 /// The order spawn chances are rolled in: a random number in 0..1 picks the first kind whose
 /// running total of chances it falls under (skipping kinds already at their limit). The chances
 /// add up to 1.
-pub const SPAWN_ORDER: [ItemKind; 3] = [ItemKind::Grenade, ItemKind::Spear, ItemKind::Rock];
+pub const SPAWN_ORDER: [ItemKind; 4] = [ItemKind::Grenade, ItemKind::RocketLauncher, ItemKind::Spear, ItemKind::Rock];
 
 impl ItemKind {
     pub const fn def(self) -> &'static ItemDef {
@@ -169,6 +205,7 @@ impl ItemKind {
             ItemKind::Grenade => &GRENADE,
             ItemKind::Sushi => &SUSHI,
             ItemKind::Phone => &PHONE,
+            ItemKind::RocketLauncher => &ROCKET_LAUNCHER,
         }
     }
 }

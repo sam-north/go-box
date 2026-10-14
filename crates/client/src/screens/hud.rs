@@ -82,9 +82,22 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
         let rest = ((ticks_left + TICK_RATE - 1) % TICK_RATE) as f32 / TICK_RATE as f32;
         let pulse = ((rest - 0.67) / 0.33).max(0.0);
         let color = Color::new(1.0, 0.35 + 0.4 * (1.0 - pulse), 0.30 + 0.4 * (1.0 - pulse), 1.0);
-        ui.text_centered(&mmss(left as f32), sw / 2.0, ui.px(72.0 + 10.0 * pulse), 34.0 + 26.0 * pulse, color);
+        ui.text_centered_scaled(&mmss(left as f32), sw / 2.0, ui.px(72.0 + 10.0 * pulse), 34.0, 1.0 + 26.0 / 34.0 * pulse, color);
     } else {
         ui.text_centered(&mmss(left as f32), sw / 2.0, ui.px(70.0), 28.0, INK);
+    }
+
+    // The protected start: "Invulnerable" under the clock, with a pie running down until it ends.
+    if !m.counting_down() && m.protected() {
+        let left = (m.config.countdown + m.config.spawn_grace - m.tick) as f32 / m.config.spawn_grace.max(1) as f32;
+        let shield = Color::new(0.55, 0.85, 1.0, 1.0);
+        let label = t("hud.invulnerable");
+        let lw = ui.text_width(label, 20.0);
+        let r = ui.px(8.0);
+        let x0 = sw / 2.0 - (lw + r * 2.0 + ui.px(8.0)) / 2.0;
+        let y = ui.px(100.0);
+        ui.text(label, x0, y, 20.0, shield);
+        special_pie(vec2(x0 + lw + ui.px(8.0) + r, y - ui.px(6.0)), r, left.min(0.999), shield);
     }
 
     // 3, 2, 1 in the middle of the screen, then GO! for a moment.
@@ -92,7 +105,7 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
     if m.counting_down() {
         let n = (m.config.countdown - m.tick).div_ceil(TICK_RATE);
         let pulse = ((m.config.countdown - m.tick) % TICK_RATE) as f32 / TICK_RATE as f32;
-        ui.text_centered(&n.to_string(), sw / 2.0, sh * 0.45, 90.0 + 40.0 * pulse, ACCENT);
+        ui.text_centered_scaled(&n.to_string(), sw / 2.0, sh * 0.45, 90.0, 1.0 + 40.0 / 90.0 * pulse, ACCENT);
     } else if m.play_ticks() < TICK_RATE * 2 / 3 {
         ui.text_centered(t("hud.go"), sw / 2.0, sh * 0.45, 100.0, ACCENT);
     }

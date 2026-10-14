@@ -609,6 +609,27 @@ pub fn chain_anchor(f: &Fighter) -> Vec2 {
     vec2(f.pos.x + f.facing * 2.0, f.pos.y - 9.0 * f.scale)
 }
 
+// Rockets (from the rocket launcher item): steady speed, turning toward the nearest foe.
+const ROCKET_SPEED: f32 = 200.0;
+/// How fast it can turn (radians a second): enough to curve onto someone, not to loop back.
+const ROCKET_TURN: f32 = 3.2;
+const ROCKET_TICKS: u32 = 3 * SECOND;
+
+/// A homing rocket.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Rocket {
+    pub pos: Vec2,
+    pub vel: Vec2,
+    pub owner: usize,
+    pub ticks: u32,
+}
+
+impl Rocket {
+    pub fn new(pos: Vec2, dir: Vec2, owner: usize) -> Self {
+        Self { pos, vel: dir.normalize_or(vec2(1.0, 0.0)) * ROCKET_SPEED, owner, ticks: ROCKET_TICKS }
+    }
+}
+
 /// The solid things specials have put in the arena (Justin's tables), for `sim::collide`.
 pub fn props(effects: &[Effect]) -> Vec<Aabb> {
     effects.iter().filter_map(|e| if let Effect::Table(t) = e { Some(t.body()) } else { None }).collect()
@@ -742,6 +763,7 @@ impl Match {
                 Effect::Chain(c) => self.step_chain(c),
                 Effect::Lightning(l) => l.ticks = l.ticks.saturating_sub(1),
                 Effect::Order(o) => o.ticks = o.ticks.saturating_sub(1),
+                Effect::Rocket(r) => self.step_rocket(r),
             }
             self.effects[e] = effect;
         }
@@ -833,6 +855,33 @@ impl Match {
                     c.back = true;
                 }
             }
+        }
+    }
+
+    /// A rocket curves toward the nearest foe and blows up on whoever it touches, on a wall (or a
+    /// table), or when its fuel runs out. (It flies over the one-way ledges.)
+    fn step_rocket(&mut self, r: &mut Rocket) {
+        r.ticks = r.ticks.saturating_sub(1);
+        let target = (0..N_BODIES).filter(|&j| self.foes(r.owner, j)).map(|j| self.f[j].center()).min_by(|a, b| a.distance(r.pos).total_cmp(&b.distance(r.pos)));
+        if let Some(t) = target {
+            let (have, want) = (r.vel.to_angle(), (t - r.pos).to_angle());
+            let mut turn = want - have;
+            while turn > std::f32::consts::PI {
+                turn -= std::f32::consts::TAU;
+            }
+            while turn < -std::f32::consts::PI {
+                turn += std::f32::consts::TAU;
+            }
+            let a = have + turn.clamp(-ROCKET_TURN * DT, ROCKET_TURN * DT);
+            r.vel = Vec2::from_angle(a) * ROCKET_SPEED;
+        }
+        r.pos += r.vel * DT;
+        let hit = Aabb::around(r.pos, 2.0);
+        let struck = (0..N_BODIES).any(|j| self.foes(r.owner, j) && hit.overlaps(&self.f[j].body()));
+        let walled = SOLIDS.iter().chain(props(&self.effects).iter()).any(|s| s.contains(r.pos));
+        if struck || walled || r.ticks == 0 {
+            r.ticks = 0;
+            self.explode(r.pos, Some(r.owner), crate::item::ROCKET_BLAST);
         }
     }
 
@@ -955,6 +1004,8 @@ pub enum Effect {
     Lightning(Lightning),
     /// Kyle's organize, while it holds (drawn on him, so it's clear who did it).
     Order(Order),
+    /// A homing rocket (from a rocket launcher, not a special).
+    Rocket(Rocket),
 }
 
 impl Effect {
@@ -967,6 +1018,7 @@ impl Effect {
             Effect::Chain(c) => c.owner,
             Effect::Lightning(l) => l.owner,
             Effect::Order(o) => o.owner,
+            Effect::Rocket(r) => r.owner,
         }
     }
 
@@ -979,6 +1031,7 @@ impl Effect {
             Effect::Chain(c) => Some(c.tip),
             Effect::Lightning(_) => None,
             Effect::Order(_) => None,
+            Effect::Rocket(r) => Some(r.pos),
         }
     }
 
@@ -991,6 +1044,7 @@ impl Effect {
             Effect::Chain(c) => c.tip,
             Effect::Lightning(l) => l.from,
             Effect::Order(o) => o.at,
+            Effect::Rocket(r) => r.pos,
         }
     }
 
@@ -1003,6 +1057,7 @@ impl Effect {
             Effect::Chain(c) => &mut c.tip,
             Effect::Lightning(l) => &mut l.from,
             Effect::Order(o) => &mut o.at,
+            Effect::Rocket(r) => &mut r.pos,
         }
     }
 
@@ -1014,6 +1069,7 @@ impl Effect {
             Effect::Chain(c) => c.ticks == 0,
             Effect::Lightning(l) => l.ticks == 0,
             Effect::Order(o) => o.ticks == 0,
+            Effect::Rocket(r) => r.ticks == 0,
         }
     }
 }

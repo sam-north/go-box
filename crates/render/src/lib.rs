@@ -677,6 +677,9 @@ impl Art {
                 Event::Zap { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 10, BOLT, false, 90.0, 0.2, 0.0);
                 }
+                Event::RocketLaunch { pos } => {
+                    self.burst(pos, vec2(0.0, -1.0), 6.3, 14, SMOKE, false, 40.0, 0.5, -20.0);
+                }
                 Event::Hook { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 8, Color::new(1.0, 0.95, 0.8, 1.0), false, 90.0, 0.2, 0.0);
                 }
@@ -709,6 +712,13 @@ impl Art {
             h.1 += dt;
         }
         self.holos.retain(|h| h.1 < HOLO_SECS);
+        // Rockets leave a smoke trail.
+        for e in &m.effects {
+            if let Effect::Rocket(r) = e {
+                let back = r.pos - r.vel.normalize_or_zero() * 5.0;
+                self.particles.push(Particle { pos: back, vel: vec2(0.0, -6.0), color: Color::new(0.62, 0.62, 0.60, 0.5), life: 0.6, stick: false, gravity: -10.0 });
+            }
+        }
         // Lit grenade fuses throw off sparks.
         for it in m.items.iter().filter(|it| it.fuse.is_some()) {
             if hash((self.time * 977.0) as i32, it.pos.x as i32, 41) < dt * 30.0 {
@@ -808,6 +818,7 @@ impl Art {
                 // (Drawn over the fighters, below.)
                 Effect::Lightning(_) => {}
                 Effect::Order(_) => {}
+                Effect::Rocket(r) => draw_rocket(r, self.time),
             }
         }
         // Loose and flying items (held spears are drawn with their holder).
@@ -957,6 +968,13 @@ fn draw_item(it: &Item, time: f32) {
                 Color::new(0.25, 0.32, 0.45, 1.0)
             };
             draw_rectangle(x + 1.0, y, 1.0, 2.0, screen);
+        }
+        ItemKind::RocketLauncher => {
+            // A battered olive tube with a dark muzzle and a grip underneath.
+            draw_rectangle(x - 3.0, y, 8.0, 2.0, Color::new(0.30, 0.33, 0.24, 1.0));
+            draw_rectangle(x - 3.0, y, 8.0, 1.0, Color::new(0.40, 0.43, 0.32, 1.0));
+            draw_rectangle(x + 4.0, y, 1.0, 2.0, Color::new(0.08, 0.08, 0.08, 1.0));
+            draw_rectangle(x, y + 2.0, 1.0, 1.0, Color::new(0.20, 0.18, 0.15, 1.0));
         }
         ItemKind::Sushi => {
             // A piece of salmon nigiri: rice, fish on top, a band of nori.
@@ -1231,6 +1249,18 @@ fn draw_hologram(c: Vec2, t: f32, out: bool) {
         draw_rectangle((c.x - w).round(), y.round(), (w * 2.0).round().max(1.0), 1.0, Color::new(col.r, col.g, col.b, 0.85 * flicker * fade));
     }
     draw_circle(c.x, c.y, 10.0 * open + 2.0, Color::new(HOLO.r, HOLO.g, HOLO.b, 0.12 * fade));
+}
+
+/// A rocket: a dull grey body with a rust-red nose, pointing where it's going, a flickering flame
+/// behind. (Its smoke trail is particles, from `update`.)
+fn draw_rocket(r: &Rocket, time: f32) {
+    let d = r.vel.normalize_or(vec2(1.0, 0.0));
+    let back = r.pos - d * 4.0;
+    line(back, r.pos, 2.0, Color::new(0.45, 0.46, 0.44, 1.0));
+    line(r.pos, r.pos + d * 1.5, 2.0, Color::new(0.62, 0.24, 0.16, 1.0));
+    let flick = 1.5 + ((time * 50.0).sin() * 0.5 + 0.5) * 2.0;
+    line(back, back - d * flick, 2.0, Color::new(1.0, 0.62, 0.18, 0.9));
+    draw_circle(back.x, back.y, 2.5, Color::new(1.0, 0.6, 0.2, 0.2));
 }
 
 /// Ryan's chain: steel links from his chest to the hook.
