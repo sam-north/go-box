@@ -158,7 +158,7 @@ async fn main() {
                     // then, so predicting movement would only snap back).
                     Action::default()
                 } else {
-                    app.controls.take(&app.settings.bindings, &me, mouse_arena, mouse_free)
+                    app.controls.take(&app.settings.bindings, &me, mouse_arena, mouse_free, app.settings.melee_aim)
                 };
                 let seq = app.seq;
                 app.send(ClientMsg::Input { seq, action });

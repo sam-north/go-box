@@ -24,7 +24,7 @@ page shows every binding and lets you change it, separately for keyboard/mouse a
 PS5 or Xbox pads in Chrome, Edge or Firefox). By default: `A`/`D` move, `W`/`Space` jump, the mouse
 aims, left click grabs (empty-handed) or throws (holding something), right click attacks toward the
 cursor, `Shift` uses your special, `Q`/`E` dash left/right (`C` the way you're going), holding `S` (or
-Down) drops through ledges, `M` mutes. Settings are saved in the browser. In the air against a
+Down) drops through ledges, `M` mutes. Melee swings toward your aim; a setting on the Controls page makes it swing the way you face instead. Settings are saved in the browser. In the air against a
 wall, press jump to kick off it (and hold toward a wall to slide down it slowly).
 
 The browser only reports a controller after you press a button on it. In menus (lobby, scoreboard,
@@ -60,7 +60,7 @@ Everyone has the same body; each character adds one special on a cooldown.
 | Carrie | **Bug Report**: opens her laptop and fourteen bugs pour out of it in a ring, every direction at once: spiders that run the floors at 105px/s (leaping up to 64px after you) and horseflies that fly at 85px/s, both slower than a full run so you can outrun them. After a moment's scatter each one hunts down the nearest foe and bites twice (3 a bite, at most every 0.5s), then it's done; any left vanish after 7s. Always in a Buc-ee's beaver suit | 30s |
 | Matt | **Skate Strike**: drops a skateboard and shoots off along it the way he faces (about 200px in 0.4s; he can't turn), hitting everyone he goes through for 14 once each. He can use it pinned by Kyle, ridden by Vid or carried up one of Zack's tornadoes, and it frees him (only him); tornadoes don't pull at him while he's on the board | 8s |
 | Zack | **Twin Tornadoes**: two tornadoes, each a column from the floor to the ceiling, spin up either side of him and wander outward for 5s. Each pulls everyone, Zack included, toward it from up to 80px either side, at any height, up to 125px/s whatever you're doing (a full run just gets you away); anyone who gets into the column is carried slowly up it (90px/s; they can't steer, jump or dash, but can still grab, throw, swing and use their special) and flung out near the top the way it spins. Loose items within 100px of a vortex low in the column are pulled in and orbit it; rocks, spears and swords spun fast hurt whoever they hit (half their thrown damage, never Zack's side) | 25s |
-| Kaleb | **Yaka Arrow**: a golden arrow appears over his head for 5s (whistling, like Yondu's). Press special again and it flies off at 520px/s and keeps chasing where he aims (the cursor; a pad's aim; for bots the nearest foe) for the rest of its time, going through every foe it meets for 8 (each at most every 0.75s). Press again to call it back over his head, and again to send it off once more | 18s |
+| Kaleb | **Golden Arrow**: a golden arrow appears over his head for 5s (whistling, like Yondu's). Press special again and it flies off at 520px/s and keeps chasing where he aims (the cursor; a pad's aim; for bots the nearest foe) for the rest of its time, going through every foe it meets for 8 (each at most every 0.75s). Press again to call it back over his head, and again to send it off once more | 18s |
 
 Bots playing a character use its special by a simple rule (the brains never trained with
 specials), and never during the protected start: Sam fires the glue at someone ahead of him, near his level; Austin pops away from incoming projectiles, grenades
@@ -79,8 +79,11 @@ variant of `Mode`.
 **Adding a character** (the goal is 20+): a variant in `Character` and its row in
 `Character::def` (`crates/sim/src/character.rs`, with a new `Special` if it has one), its row in
 `art` (`crates/render/src/lib.rs`: colours, hair, special sound), and its name in
-`crates/client/text/en-US.txt`. If its special leaves something in the arena, that's a variant of
-`Effect`; the compiler then lists what to fill in (how it steps, is drawn and is seen by bots).
+`crates/client/text/en-US.txt`. If its special leaves something in the arena that matters to play, that's a variant of
+`Effect`; the compiler then lists what to fill in (how it steps, is drawn, is seen by bots, and
+whether clients are sent it). Something only for looks (a flash, a ring, a bolt) isn't an effect:
+the special pushes an `Event`, and the client draws it as a render `Visual`, so the server never
+keeps or sends it.
 
 ### Debug mode
 

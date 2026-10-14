@@ -113,13 +113,14 @@ impl Controls {
     }
 
     /// This tick's action for fighter `me`. `mouse_arena` is the mouse in arena coordinates.
-    pub fn take(&mut self, b: &Bindings, me: &Fighter, mouse_arena: Vec2, mouse_free: bool) -> Action {
+    /// `melee_aim`: a swing goes toward your aim; off, the way you face.
+    pub fn take(&mut self, b: &Bindings, me: &Fighter, mouse_arena: Vec2, mouse_free: bool, melee_aim: bool) -> Action {
         let down = |act| b.down(act, &self.pad, mouse_free);
         let mut mv = down(Act::Right) as i32 as f32 - down(Act::Left) as i32 as f32;
         if mv == 0.0 && self.pad.connected && self.pad.left.x.abs() > STICK_DEADZONE {
             mv = self.pad.left.x.signum();
         }
-        let a = Action {
+        let mut a = Action {
             mv,
             run: true,
             jump: down(Act::Jump),
@@ -134,6 +135,11 @@ impl Controls {
             // (Austin teleports to the cursor; with a gamepad there isn't one.)
             cursor: (!self.using_pad).then_some(mouse_arena),
         };
+        // Swinging without aiming it: no aim this tick (the sim then swings the way you face), unless
+        // a throw or special that wants it goes off too.
+        if !melee_aim && a.attack && !a.throw && !a.special {
+            a.target = None;
+        }
         self.throw = false;
         self.special = false;
         self.dash = None;

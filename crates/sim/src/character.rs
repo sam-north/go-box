@@ -139,7 +139,7 @@ const ITEM_WHIRL_MAX: f32 = 230.0;
 /// What something whipped round by a tornado does, compared with being thrown.
 pub const WHIRLED_HIT: f32 = 0.5;
 
-// Kaleb — Yaka Arrow: a golden arrow appears over his head for a few seconds. Press again and it
+// Kaleb — Golden Arrow: a golden arrow appears over his head for a few seconds. Press again and it
 // flies off after wherever he aims, and keeps chasing his aim (the cursor) for as long as it
 // lasts, going through every foe it meets. Press again to call it back over his head (and again
 // to send it off once more).
@@ -200,7 +200,7 @@ const LIGHTNING_MIN: f32 = 5.0;
 /// From LIGHTNING_MAX at point blank down to LIGHTNING_MIN at this distance and beyond.
 const LIGHTNING_REACH: f32 = 300.0;
 /// How long the bolts stay on screen.
-const LIGHTNING_TICKS: u32 = 20;
+pub const LIGHTNING_TICKS: u32 = 20;
 
 // Kyle — Organize: pins every foe exactly where they are for a few seconds.
 const ORGANIZE_COOLDOWN: u32 = 20 * SECOND;
@@ -306,7 +306,7 @@ impl Character {
             Character::Carrie => &CharacterDef { id: "carrie", special: Some(&BugReport) },
             Character::Matt => &CharacterDef { id: "matt", special: Some(&SkateStrike) },
             Character::Zack => &CharacterDef { id: "zack", special: Some(&TwinTornadoes) },
-            Character::Kaleb => &CharacterDef { id: "kaleb", special: Some(&YakaArrow) },
+            Character::Kaleb => &CharacterDef { id: "kaleb", special: Some(&GoldenArrow) },
         }
     }
 
@@ -367,7 +367,7 @@ impl Special for GlueGun {
             f.facing = dir.x.signum();
         }
         let glob = Glue { pos: f.hand(), vel: dir * GLUE_SPEED + f.vel * 0.3, owner: who, stuck: false, held: Vec::new(), ticks: GLUE_FLIGHT };
-        m.effects.push(Effect::Glue(glob));
+        m.add_effect(Effect::Glue(glob));
     }
     /// Someone ahead of him, near his level, in range.
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
@@ -536,9 +536,9 @@ impl Special for Hounds {
         HOUNDS_COOLDOWN
     }
     fn activate(&self, m: &mut Match, who: usize) {
-        let f = &m.f[who];
+        let (pos, facing) = (m.f[who].pos, m.f[who].facing);
         for (k, &speed) in HOUNDS.iter().enumerate() {
-            m.effects.push(Effect::Pet(Pet::new(Breed::Hound, f.pos + vec2(f.facing * (2.0 + 4.0 * k as f32), 0.0), f.facing, speed, who, HOUND_TICKS)));
+            m.add_effect(Effect::Pet(Pet::new(Breed::Hound, pos + vec2(facing * (2.0 + 4.0 * k as f32), 0.0), facing, speed, who, HOUND_TICKS)));
         }
         // And Tyler runs with them: faster for as long as they're out.
         m.f[who].haste = HOUND_TICKS;
@@ -560,13 +560,13 @@ impl Special for CatHerder {
         CATS_COOLDOWN
     }
     fn activate(&self, m: &mut Match, who: usize) {
-        let f = &m.f[who];
+        let (pos, facing) = (m.f[who].pos, m.f[who].facing);
         for k in 0..CATS {
             // Speeds shuffled across the pack (k * 7 mod 20), so neighbours don't run in step.
             let t = ((k * 7) % CATS) as f32 / (CATS - 1) as f32;
             let speed = CAT_SPEEDS.0 + (CAT_SPEEDS.1 - CAT_SPEEDS.0) * t;
-            let x = (f.pos.x + f.facing * (1.0 + 0.6 * k as f32)).clamp(12.0, W - 12.0);
-            m.effects.push(Effect::Pet(Pet::new(Breed::Cat(k as u8), vec2(x, f.pos.y), f.facing, speed, who, CAT_TICKS)));
+            let x = (pos.x + facing * (1.0 + 0.6 * k as f32)).clamp(12.0, W - 12.0);
+            m.add_effect(Effect::Pet(Pet::new(Breed::Cat(k as u8), vec2(x, pos.y), facing, speed, who, CAT_TICKS)));
         }
     }
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
@@ -592,7 +592,7 @@ impl Special for SushiTable {
             let old = old.clone();
             m.clear_table(&old);
         }
-        m.effects.retain(|e| !mine(e));
+        m.retain_effects(|e| !mine(e));
         let f = &m.f[who];
         let half = TABLE_W / 2.0;
         let ahead = f.pos.x + f.facing * (f.half_w() + 3.0 + half);
@@ -608,7 +608,7 @@ impl Special for SushiTable {
             let dx = (k as f32 - (SUSHI_PER_TABLE - 1) as f32 / 2.0) * 7.0;
             m.items.push(crate::sim::Item::new(crate::sim::ItemKind::Sushi, vec2(x + dx, top)));
         }
-        m.effects.push(Effect::Table(t));
+        m.add_effect(Effect::Table(t));
     }
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
         // When empty-handed with nothing lying close by to throw, and someone to throw it at.
@@ -654,7 +654,7 @@ impl Special for YankChain {
             f.facing = dir.x.signum();
         }
         let tip = chain_anchor(f);
-        m.effects.push(Effect::Chain(Chain { tip, dir, owner: who, out: 0.0, hooked: None, back: false, ticks: CHAIN_TICKS }));
+        m.add_effect(Effect::Chain(Chain { tip, dir, owner: who, out: 0.0, hooked: None, back: false, ticks: CHAIN_TICKS }));
     }
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
         let me = &m.f[who];
@@ -678,16 +678,14 @@ impl Special for ForkedLightning {
     fn activate(&self, m: &mut Match, who: usize) {
         let from = m.f[who].hand();
         let targets: Vec<usize> = (0..N_BODIES).filter(|&j| m.foes(who, j)).collect();
-        let mut to = Vec::new();
         for j in targets {
             let c = m.f[j].center();
             let d = c.distance(from);
             let away = (c - from).normalize_or(vec2(0.0, -1.0));
-            to.push(c);
-            m.events.push(Event::Zap { pos: c });
+            // (The bolt is drawn by the client, from this: nothing about it stays in the match.)
+            m.events.push(Event::Zap { from, pos: c });
             m.damage(who, j, lightning_damage(d), vec2(away.x * 70.0, -70.0), 8, if away.x < 0.0 { -1.0 } else { 1.0 }, Source::Special, false);
         }
-        m.effects.push(Effect::Lightning(Lightning { from, to, owner: who, seed: m.tick, ticks: LIGHTNING_TICKS }));
     }
     /// When it would do 30 or more all told, or finish someone off.
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
@@ -699,26 +697,6 @@ impl Special for ForkedLightning {
 
 fn lightning_damage(d: f32) -> f32 {
     LIGHTNING_MIN + (LIGHTNING_MAX - LIGHTNING_MIN) * (1.0 - d / LIGHTNING_REACH).max(0.0)
-}
-
-/// Robert's bolts, from his hand to where each foe was when it struck (for drawing; the damage
-/// is done the moment it's cast).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Lightning {
-    pub from: Vec2,
-    pub to: Vec<Vec2>,
-    pub owner: usize,
-    /// Shapes the forks.
-    pub seed: u32,
-    pub ticks: u32,
-}
-
-/// Kyle's organize while it lasts: where he cast it (the shockwave starts there) and for how long.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Order {
-    pub at: Vec2,
-    pub owner: usize,
-    pub ticks: u32,
 }
 
 struct Organize;
@@ -737,8 +715,9 @@ impl Special for Organize {
             m.f[j].pinned = PIN_TICKS;
             m.f[j].vel = Vec2::ZERO;
         }
+        // (Its shockwave and glow are drawn by the client, from this.)
         let at = m.f[who].center();
-        m.effects.push(Effect::Order(Order { at, owner: who, ticks: PIN_TICKS }));
+        m.events.push(Event::Organize { who, at });
     }
     /// Someone close enough to hit while they're stuck.
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
@@ -848,14 +827,15 @@ fn judo_throw(m: &mut Match, who: usize, j: usize) {
     v.vel = vec2(dir * JUDO_THROW.x, JUDO_THROW.y);
     v.grounded = false;
     v.hitstun = 2;
-    m.effects.push(Effect::Judo(Judo { at: v.center(), owner: who, victim: j, dir, flown: 0, down: 0, ticks: JUDO_MAX_FLIGHT + JUDO_DOWN, damage: JUDO_DAMAGE, bowls: true, bowled: 1 << j }));
+    let at = v.center();
+    m.add_effect(Effect::Judo(Judo { at, owner: who, victim: j, dir, flown: 0, down: 0, ticks: JUDO_MAX_FLIGHT + JUDO_DOWN, damage: JUDO_DAMAGE, bowls: true, bowled: 1 << j }));
 }
 
-struct YakaArrow;
+struct GoldenArrow;
 
-impl Special for YakaArrow {
+impl Special for GoldenArrow {
     fn id(&self) -> &'static str {
-        "yaka_arrow"
+        "golden_arrow"
     }
     fn cooldown(&self) -> u32 {
         ARROW_COOLDOWN
@@ -863,7 +843,7 @@ impl Special for YakaArrow {
     fn activate(&self, m: &mut Match, who: usize) {
         let pos = arrow_hover(&m.f[who]);
         m.events.push(Event::ArrowCall { pos });
-        m.effects.push(Effect::Arrow(Arrow { pos, dir: vec2(m.f[who].facing, 0.0), owner: who, state: ArrowState::Hover, hit_cd: [0; N_BODIES], ticks: ARROW_TICKS }));
+        m.add_effect(Effect::Arrow(Arrow { pos, dir: vec2(m.f[who].facing, 0.0), owner: who, state: ArrowState::Hover, hit_cd: [0; N_BODIES], ticks: ARROW_TICKS }));
     }
     /// Someone in range to fire it at.
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
@@ -924,13 +904,13 @@ impl Special for TwinTornadoes {
         TORNADO_COOLDOWN
     }
     fn activate(&self, m: &mut Match, who: usize) {
-        let f = &m.f[who];
+        let x0 = m.f[who].pos.x;
         // One each side, wandering off outward, each spinning so it flings people further out.
         for side in [-1.0, 1.0] {
-            let x = (f.pos.x + side * TORNADO_SPAWN).clamp(crate::sim::WALL + 12.0, W - crate::sim::WALL - 12.0);
+            let x = (x0 + side * TORNADO_SPAWN).clamp(crate::sim::WALL + 12.0, W - crate::sim::WALL - 12.0);
             let t = Tornado { at: vec2(x, crate::sim::FLOOR_Y), dir: side, spin: side, owner: who, ticks: TORNADO_TICKS };
             m.events.push(Event::Poof { pos: t.core() });
-            m.effects.push(Effect::Tornado(t));
+            m.add_effect(Effect::Tornado(t));
         }
     }
     /// Anyone (at any height) within a tornado's reach of where they'd start.
@@ -1028,9 +1008,10 @@ impl Special for BugReport {
                 b
             };
             bug.bites = Some(BUG_BITES);
-            m.effects.push(Effect::Pet(bug));
+            m.add_effect(Effect::Pet(bug));
         }
-        m.effects.push(Effect::Laptop(Laptop { at, owner: who, ticks: LAPTOP_TICKS }));
+        // (The laptop in her hands is drawn by the client, from this.)
+        m.events.push(Event::LaptopOpen { who });
     }
     /// Someone close enough for the swarm to reach.
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
@@ -1042,14 +1023,6 @@ impl Special for BugReport {
 /// Where Carrie holds her laptop: out in front of her, at chest height (the bottom of it).
 pub fn laptop_at(f: &Fighter) -> Vec2 {
     vec2(f.pos.x + f.facing * 5.0 * f.scale, f.pos.y - 6.0 * f.scale)
-}
-
-/// Carrie's laptop, open in her hands for a moment.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Laptop {
-    pub at: Vec2,
-    pub owner: usize,
-    pub ticks: u32,
 }
 
 /// Doug lunging into a grab: the first foe in his hands while it lasts is thrown.
@@ -1084,7 +1057,7 @@ impl Special for JudoThrow {
         f.dash_t = LUNGE_TICKS;
         let (at, pos) = (f.center(), f.pos);
         m.events.push(Event::Dash { who, pos });
-        m.effects.push(Effect::Lunge(Lunge { at, owner: who, ticks: LUNGE_TICKS + 1 }));
+        m.add_effect(Effect::Lunge(Lunge { at, owner: who, ticks: LUNGE_TICKS + 1 }));
     }
     /// Someone within a lunge.
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
@@ -1150,17 +1123,6 @@ impl Special for LegDay {
         let me = &m.f[who];
         me.grounded && foes(m, who).any(|f| (f.pos.y - me.pos.y).abs() < 10.0 && (f.pos.x - me.pos.x).abs() < 90.0)
     }
-}
-
-/// One of Travis's steps rippling out along the ground (for drawing; the damage is done the
-/// moment he steps).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Quake {
-    /// At his feet.
-    pub at: Vec2,
-    pub owner: usize,
-    pub radius: f32,
-    pub ticks: u32,
 }
 
 /// Ryan's chain: flying out, reeling back after a miss, or hauling in whoever it hooked.
@@ -1487,18 +1449,14 @@ impl Match {
                 Effect::Pet(p) => self.step_pet(p),
                 Effect::Table(t) => self.step_table(t),
                 Effect::Chain(c) => self.step_chain(c),
-                Effect::Lightning(l) => l.ticks = l.ticks.saturating_sub(1),
-                Effect::Order(o) => o.ticks = o.ticks.saturating_sub(1),
                 Effect::Rocket(r) => self.step_rocket(r),
                 Effect::Fire(f) => self.step_fire(f),
                 Effect::Plane(p) => self.step_plane(p),
                 Effect::AirBomb(b) => self.step_air_bomb(b),
                 Effect::Judo(j) => self.step_judo(j),
                 Effect::Lunge(l) => self.step_lunge(l),
-                Effect::Laptop(l) => self.step_laptop(l),
                 Effect::Tornado(t) => self.step_tornado(t),
                 Effect::Arrow(a) => self.step_arrow(a),
-                Effect::Quake(q) => q.ticks = q.ticks.saturating_sub(1),
             }
             self.effects[e] = effect;
         }
@@ -1506,7 +1464,7 @@ impl Match {
         for t in &finished {
             self.clear_table(t);
         }
-        self.effects.retain(|e| !e.done());
+        self.retain_effects(|e| !e.done());
     }
 
     fn step_pet(&mut self, pet: &mut Pet) {
@@ -1774,16 +1732,6 @@ impl Match {
         }
     }
 
-    /// Carrie's laptop stays in her hands (wherever she goes) for a moment, then she puts it away.
-    fn step_laptop(&mut self, l: &mut Laptop) {
-        l.ticks = l.ticks.saturating_sub(1);
-        let f = &self.f[l.owner];
-        if !f.present() {
-            l.ticks = 0;
-        }
-        l.at = laptop_at(f);
-    }
-
     /// Doug mid-lunge: grabs (and throws) the first foe he reaches. Reaching nobody, or knocked
     /// out of it, the lunge was a miss and he's soon ready to try again.
     fn step_lunge(&mut self, l: &mut Lunge) {
@@ -1831,7 +1779,7 @@ impl Match {
             f.hitstun = 2;
             let at = f.center();
             self.events.push(Event::Slam { pos: at });
-            self.effects.push(Effect::Judo(Judo { at, owner: judo.owner, victim: k, dir: judo.dir, flown: 0, down: 0, ticks: JUDO_MAX_FLIGHT + JUDO_DOWN, damage: JUDO_BOWL_DAMAGE, bowls: false, bowled: 0 }));
+            self.add_effect(Effect::Judo(Judo { at, owner: judo.owner, victim: k, dir: judo.dir, flown: 0, down: 0, ticks: JUDO_MAX_FLIGHT + JUDO_DOWN, damage: JUDO_BOWL_DAMAGE, bowls: false, bowled: 0 }));
         }
     }
 
@@ -1910,7 +1858,7 @@ impl Match {
         let (radius, dmg) = if big { (QUAKE_BIG_R, QUAKE_BIG_DAMAGE) } else { (QUAKE_R, QUAKE_DAMAGE) };
         let at = self.f[who].pos;
         self.events.push(Event::Quake { pos: at, big });
-        self.effects.push(Effect::Quake(Quake { at, owner: who, radius, ticks: QUAKE_TICKS }));
+        // (The ring it sends out is drawn by the client, from that event.)
         for j in 0..N_BODIES {
             let f = &self.f[j];
             let d = f.pos - at;
@@ -1957,7 +1905,7 @@ impl Match {
             p.drops.remove(0);
             let pos = p.pos + vec2(0.0, 4.0);
             self.events.push(Event::BombDrop { pos });
-            self.effects.push(Effect::AirBomb(AirBomb { pos, vel: vec2(p.dir * PLANE_SPEED * 0.3, 0.0), owner: p.owner, ticks: 10 * SECOND }));
+            self.add_effect(Effect::AirBomb(AirBomb { pos, vel: vec2(p.dir * PLANE_SPEED * 0.3, 0.0), owner: p.owner, ticks: 10 * SECOND }));
         }
         let gone = if p.dir > 0.0 { p.pos.x > W + 40.0 } else { p.pos.x < -40.0 };
         if gone {
@@ -2095,9 +2043,14 @@ impl Match {
     }
 }
 
-/// Something a special leaves in the arena. Each kind is a variant: its step (in
-/// `step_effects`), how the bots perceive it (`threat_pos`), and how it's drawn (the render
-/// crate) are all exhaustive matches, so the compiler lists what a new one needs.
+/// Something a special leaves in the arena that matters to play. Each kind is a variant: its step
+/// (in `step_effects`), how the bots perceive it (`threat_pos`), whether clients are sent it
+/// (`on_wire`) and how it's drawn (the render crate) are all exhaustive matches, so the compiler
+/// lists what a new one needs.
+///
+/// Something that's only for looks (a flash, a ring, a bolt) isn't an effect: the special pushes
+/// an `Event` and the client draws it from that (see render's `Visual`), so the server neither
+/// keeps nor sends it.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Effect {
     /// Sam's glue: a glob in flight, or stuck somewhere holding people.
@@ -2108,10 +2061,6 @@ pub enum Effect {
     Table(Table),
     /// Ryan's chain.
     Chain(Chain),
-    /// Robert's lightning.
-    Lightning(Lightning),
-    /// Kyle's organize, while it holds (drawn on him, so it's clear who did it).
-    Order(Order),
     /// A homing rocket (from a rocket launcher, not a special).
     Rocket(Rocket),
     /// Burning ground, from a Molotov.
@@ -2123,14 +2072,10 @@ pub enum Effect {
     Judo(Judo),
     /// Doug lunging into a grab.
     Lunge(Lunge),
-    /// Carrie's laptop, open in her hands (her bugs are `Pet`s).
-    Laptop(Laptop),
     /// One of Zack's tornadoes.
     Tornado(Tornado),
     /// Kaleb's arrow.
     Arrow(Arrow),
-    /// One of Travis's steps shaking the ground.
-    Quake(Quake),
 }
 
 impl Effect {
@@ -2141,18 +2086,14 @@ impl Effect {
             Effect::Pet(p) => p.owner,
             Effect::Table(t) => t.owner,
             Effect::Chain(c) => c.owner,
-            Effect::Lightning(l) => l.owner,
-            Effect::Order(o) => o.owner,
             Effect::Rocket(r) => r.owner,
             Effect::Fire(f) => f.owner,
             Effect::Plane(p) => p.owner,
             Effect::AirBomb(b) => b.owner,
             Effect::Judo(j) => j.owner,
             Effect::Lunge(l) => l.owner,
-            Effect::Laptop(l) => l.owner,
             Effect::Tornado(t) => t.owner,
             Effect::Arrow(a) => a.owner,
-            Effect::Quake(q) => q.owner,
         }
     }
 
@@ -2163,18 +2104,14 @@ impl Effect {
             Effect::Pet(p) => Some(p.center()),
             Effect::Table(_) => None,
             Effect::Chain(c) => Some(c.tip),
-            Effect::Lightning(_) => None,
-            Effect::Order(_) => None,
             Effect::Rocket(r) => Some(r.pos),
             Effect::Fire(f) => Some(f.at),
             Effect::Plane(_) => None,
             Effect::AirBomb(b) => Some(b.pos),
             Effect::Judo(_) => None,
             Effect::Lunge(_) => None,
-            Effect::Laptop(_) => None,
             Effect::Tornado(t) => Some(t.core()),
             Effect::Arrow(a) => (a.state != ArrowState::Hover).then_some(a.pos),
-            Effect::Quake(_) => None,
         }
     }
 
@@ -2185,18 +2122,14 @@ impl Effect {
             Effect::Pet(p) => p.pos,
             Effect::Table(t) => t.pos,
             Effect::Chain(c) => c.tip,
-            Effect::Lightning(l) => l.from,
-            Effect::Order(o) => o.at,
             Effect::Rocket(r) => r.pos,
             Effect::Fire(f) => f.at,
             Effect::Plane(p) => p.pos,
             Effect::AirBomb(b) => b.pos,
             Effect::Judo(j) => j.at,
             Effect::Lunge(l) => l.at,
-            Effect::Laptop(l) => l.at,
             Effect::Tornado(t) => t.at,
             Effect::Arrow(a) => a.pos,
-            Effect::Quake(q) => q.at,
         }
     }
 
@@ -2207,18 +2140,14 @@ impl Effect {
             Effect::Pet(p) => &mut p.pos,
             Effect::Table(t) => &mut t.pos,
             Effect::Chain(c) => &mut c.tip,
-            Effect::Lightning(l) => &mut l.from,
-            Effect::Order(o) => &mut o.at,
             Effect::Rocket(r) => &mut r.pos,
             Effect::Fire(f) => &mut f.at,
             Effect::Plane(p) => &mut p.pos,
             Effect::AirBomb(b) => &mut b.pos,
             Effect::Judo(j) => &mut j.at,
             Effect::Lunge(l) => &mut l.at,
-            Effect::Laptop(l) => &mut l.at,
             Effect::Tornado(t) => &mut t.at,
             Effect::Arrow(a) => &mut a.pos,
-            Effect::Quake(q) => &mut q.at,
         }
     }
 
@@ -2228,18 +2157,24 @@ impl Effect {
             Effect::Pet(p) => p.ticks == 0,
             Effect::Table(t) => t.ticks == 0,
             Effect::Chain(c) => c.ticks == 0,
-            Effect::Lightning(l) => l.ticks == 0,
-            Effect::Order(o) => o.ticks == 0,
             Effect::Rocket(r) => r.ticks == 0,
             Effect::Fire(f) => f.ticks == 0,
             Effect::Plane(p) => p.ticks == 0,
             Effect::AirBomb(b) => b.ticks == 0,
             Effect::Judo(j) => j.ticks == 0,
             Effect::Lunge(l) => l.ticks == 0,
-            Effect::Laptop(l) => l.ticks == 0,
             Effect::Tornado(t) => t.ticks == 0,
             Effect::Arrow(a) => a.ticks == 0,
-            Effect::Quake(q) => q.ticks == 0,
+        }
+    }
+
+    /// Whether clients are sent it. Only what they draw, or predict with: something the server
+    /// needs but nobody sees (Doug's lunge) stays off the wire.
+    pub fn on_wire(&self) -> bool {
+        match self {
+            Effect::Glue(_) | Effect::Pet(_) | Effect::Table(_) | Effect::Chain(_) | Effect::Rocket(_) | Effect::Fire(_) => true,
+            Effect::Plane(_) | Effect::AirBomb(_) | Effect::Judo(_) | Effect::Tornado(_) | Effect::Arrow(_) => true,
+            Effect::Lunge(_) => false,
         }
     }
 }
@@ -2745,7 +2680,8 @@ mod tests {
         assert!(lost[0] > lost[1] && lost[1] > lost[2], "closer hurts more: {lost:?}");
         assert!(lost[0] > 25.0 && lost[2] >= LIGHTNING_MIN, "{lost:?}");
         assert_eq!(m.f[0].hp, MAX_HP);
-        assert!(matches!(m.effects.as_slice(), [Effect::Lightning(l)] if l.to.len() == 3), "a bolt to each");
+        assert_eq!(m.events.iter().filter(|e| matches!(e, Event::Zap { .. })).count(), 3, "a bolt to each");
+        assert!(m.effects.is_empty(), "nothing left in the arena: the bolts are drawn from those events");
     }
 
     #[test]
@@ -2839,7 +2775,7 @@ mod tests {
     fn glue_on_the_floor_catches_whoever_runs_into_it_and_a_hard_pull_snaps_it() {
         let z = zero_brain();
         let mut m = staged([Character::Sam, Character::Classic, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
-        m.effects.push(Effect::Glue(Glue { pos: vec2(200.0, crate::sim::FLOOR_Y), vel: Vec2::ZERO, owner: 0, stuck: true, held: Vec::new(), ticks: GLUE_HOLD }));
+        m.add_effect(Effect::Glue(Glue { pos: vec2(200.0, crate::sim::FLOOR_Y), vel: Vec2::ZERO, owner: 0, stuck: true, held: Vec::new(), ticks: GLUE_HOLD }));
         let left = Action { mv: -1.0, run: true, ..Action::default() };
         for _ in 0..90 {
             m.step_with([&z; N_FIGHTERS], Some((1, left)));
@@ -3386,7 +3322,7 @@ mod tests {
         let out = bugs(&m);
         assert_eq!(out.len(), BUGS);
         assert_eq!(out.iter().filter(|b| matches!(b.breed, Breed::Spider(_))).count(), BUGS / 2);
-        assert!(m.effects.iter().any(|e| matches!(e, Effect::Laptop(_))));
+        assert!(m.events.iter().any(|e| matches!(e, Event::LaptopOpen { who: 0 })), "the laptop came out");
         for _ in 0..10 {
             step_idle(&mut m, &z, false);
         }

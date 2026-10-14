@@ -762,6 +762,69 @@ fn make_vignette() -> Image {
 }
 
 
+/// Something drawn only for looks, made from an event: the server neither keeps nor sends it.
+/// (A new special's flash or ring goes here: an `Event` from the sim, a variant here made in
+/// `handle_events`, drawn in `draw`.)
+enum Visual {
+    /// Robert's bolts, from his hand to each foe they struck.
+    Bolts(Lightning),
+    /// Kyle's organize, and whose (his glow is drawn on him).
+    Order(Order, usize),
+    /// Carrie's laptop, and whose (it's drawn in her hands).
+    Laptop(Laptop, usize),
+    /// One of Travis's steps, rippling out.
+    Quake(Quake),
+}
+
+impl Visual {
+    /// How long it lasts (sim ticks).
+    fn lifetime(&self) -> f32 {
+        (match self {
+            Visual::Bolts(_) => LIGHTNING_TICKS,
+            Visual::Order(..) => PIN_TICKS,
+            Visual::Laptop(..) => LAPTOP_TICKS,
+            Visual::Quake(_) => QUAKE_TICKS,
+        }) as f32
+    }
+
+    fn set_ticks(&mut self, t: u32) {
+        match self {
+            Visual::Bolts(l) => l.ticks = t,
+            Visual::Order(o, _) => o.ticks = t,
+            Visual::Laptop(l, _) => l.ticks = t,
+            Visual::Quake(q) => q.ticks = t,
+        }
+    }
+}
+
+/// Robert's bolts: from his hand to where each foe was when it struck.
+struct Lightning {
+    from: Vec2,
+    to: Vec<Vec2>,
+    /// Shapes the forks.
+    seed: u32,
+    ticks: u32,
+}
+
+/// Kyle's organize: where he cast it (the shockwave starts there).
+struct Order {
+    at: Vec2,
+    ticks: u32,
+}
+
+/// Carrie's laptop, in her hands.
+struct Laptop {
+    at: Vec2,
+    ticks: u32,
+}
+
+/// One of Travis's steps, rippling out to its reach.
+struct Quake {
+    at: Vec2,
+    radius: f32,
+    ticks: u32,
+}
+
 struct Particle {
     pos: Vec2,
     vel: Vec2,
@@ -814,6 +877,9 @@ pub struct Art {
     holos: Vec<(Vec2, f32, bool, bool)>,
     /// A flag in their colour where each fighter went down (ground position, colour).
     flags: Vec<(Vec2, Color)>,
+    /// What's drawn only for looks, from events (the server doesn't keep it), and how long each
+    /// has left (in sim ticks).
+    visuals: Vec<(Visual, f32)>,
     time: f32,
 }
 
@@ -859,6 +925,7 @@ impl Art {
             blasts: Vec::new(),
             holos: Vec::new(),
             flags: Vec::new(),
+            visuals: Vec::new(),
             time: 0.0,
         }
     }
@@ -878,6 +945,7 @@ impl Art {
         self.particles.clear();
         self.blasts.clear();
         self.flags.clear();
+        self.visuals.clear();
         self.holos.clear();
         self.vis = Default::default();
     }
@@ -978,12 +1046,33 @@ impl Art {
                         self.burst(pos + vec2(side * 2.0, -1.0), vec2(side, -0.35).normalize(), 0.6, n, DUST, false, if big { 110.0 } else { 70.0 }, 0.4, 200.0);
                     }
                     self.burst(pos + vec2(0.0, -1.0), vec2(0.0, -1.0), 1.2, n / 2, Color::new(0.40, 0.36, 0.30, 1.0), false, if big { 110.0 } else { 60.0 }, 0.5, 420.0);
+                    let radius = if big { QUAKE_BIG_R } else { QUAKE_R };
+                    self.visuals.push((Visual::Quake(Quake { at: pos, radius, ticks: QUAKE_TICKS }), QUAKE_TICKS as f32));
                 }
                 Event::ArrowCall { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 8, ARROW_GOLD, false, 40.0, 0.3, 0.0);
                 }
-                Event::Zap { pos } => {
+                Event::Zap { from, pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 10, BOLT, false, 90.0, 0.2, 0.0);
+                    // One bolt per foe struck, all from one cast: grouped into one set of forks.
+                    let fresh = LIGHTNING_TICKS as f32;
+                    match self.visuals.last_mut() {
+                        Some((Visual::Bolts(l), left)) if l.from == from && *left == fresh => l.to.push(pos),
+                        _ => {
+                            let seed = (from.x as u32).wrapping_mul(73_856_093) ^ (from.y as u32).wrapping_mul(19_349_663) ^ (self.time * 1000.0) as u32;
+                            self.visuals.push((Visual::Bolts(Lightning { from, to: vec![pos], seed, ticks: LIGHTNING_TICKS }), fresh));
+                        }
+                    }
+                }
+                Event::Organize { who, at } => {
+                    let v = Visual::Order(Order { at, ticks: PIN_TICKS }, who);
+                    let left = v.lifetime();
+                    self.visuals.push((v, left));
+                }
+                Event::LaptopOpen { who } => {
+                    let v = Visual::Laptop(Laptop { at: laptop_at(&m.f[who]), ticks: LAPTOP_TICKS }, who);
+                    let left = v.lifetime();
+                    self.visuals.push((v, left));
                 }
                 Event::Ignite { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 2.5, 24, FLAME, false, 90.0, 0.5, 120.0);
@@ -1026,6 +1115,18 @@ impl Art {
             b.1 += dt;
         }
         self.blasts.retain(|b| b.1 < 0.25);
+        // Look-only visuals count down on their own clock; Carrie's laptop stays in her hands.
+        for (v, left) in self.visuals.iter_mut() {
+            *left -= dt * TICK_RATE as f32;
+            v.set_ticks(left.max(0.0).ceil() as u32);
+            if let Visual::Laptop(l, who) = v {
+                l.at = laptop_at(&m.f[*who]);
+                if !m.f[*who].present() {
+                    *left = 0.0;
+                }
+            }
+        }
+        self.visuals.retain(|(_, left)| *left > 0.0);
         for h in self.holos.iter_mut() {
             h.1 += dt;
         }
@@ -1203,22 +1304,23 @@ impl Art {
                 },
                 Effect::Table(t) => draw_table(t),
                 Effect::Chain(c) => draw_chain(c, chain_anchor(&m.f[c.owner])),
-                // (Drawn over the fighters, below.)
-                Effect::Lightning(_) => {}
-                Effect::Order(_) => {}
                 Effect::Rocket(r) => draw_rocket(r, self.time),
                 Effect::Fire(fire) => draw_fire(fire, self.time),
                 Effect::Plane(p) => draw_plane(p, self.time),
                 Effect::AirBomb(b) => draw_air_bomb(b),
                 // (Drawn as the thrown fighter tumbling.)
                 Effect::Judo(_) => {}
+                // (Never sent: see `Effect::on_wire`.)
                 Effect::Lunge(_) => {}
-                // (Drawn in her hands, over the fighters, below.)
-                Effect::Laptop(_) => {}
                 Effect::Tornado(t) => draw_tornado(t, self.time),
                 // (Drawn over the fighters, below.)
                 Effect::Arrow(_) => {}
-                Effect::Quake(q) => draw_quake(q, self.time),
+            }
+        }
+        // Travis's quake rings, on the ground under everyone.
+        for (v, _) in &self.visuals {
+            if let Visual::Quake(q) = v {
+                draw_quake(q, self.time);
             }
         }
         // Loose and flying items (held spears and swords are drawn with their holder).
@@ -1245,10 +1347,10 @@ impl Art {
                 let pulse = 0.5 + 0.5 * (self.time * 8.0).sin();
                 let fade = (f.pinned as f32 / 20.0).min(1.0);
                 let w = 9.0 * f.scale + pulse;
-                draw_ellipse(f.pos.x, f.pos.y - 0.5, w + 3.0, 4.0, 0.0, Color::new(PIN.r, PIN.g, PIN.b, 0.15 * fade));
-                draw_ellipse(f.pos.x, f.pos.y - 0.5, w, 3.0, 0.0, Color::new(PIN.r, PIN.g, PIN.b, 0.4 * fade));
-                draw_ellipse_lines(f.pos.x, f.pos.y - 0.5, w, 3.0, 0.0, 1.0, Color::new(PIN.r, PIN.g, PIN.b, fade));
-                draw_ellipse_lines(f.pos.x, f.pos.y - 0.5, w + 3.0, 4.0, 0.0, 1.0, Color::new(PIN.r, PIN.g, PIN.b, 0.5 * pulse * fade));
+                fill_ellipse(f.pos.x, f.pos.y - 0.5, w + 3.0, 4.0, Color::new(PIN.r, PIN.g, PIN.b, 0.15 * fade));
+                fill_ellipse(f.pos.x, f.pos.y - 0.5, w, 3.0, Color::new(PIN.r, PIN.g, PIN.b, 0.4 * fade));
+                ellipse_outline(f.pos.x, f.pos.y - 0.5, w, 3.0, 1.0, Color::new(PIN.r, PIN.g, PIN.b, fade));
+                ellipse_outline(f.pos.x, f.pos.y - 0.5, w + 3.0, 4.0, 1.0, Color::new(PIN.r, PIN.g, PIN.b, 0.5 * pulse * fade));
                 for k in 0..3 {
                     let x = f.pos.x + (k as f32 - 1.0) * 5.0 * f.scale;
                     let h = 3.0 + 3.0 * ((self.time * 6.0 + k as f32 * 2.1).sin() * 0.5 + 0.5);
@@ -1288,17 +1390,17 @@ impl Art {
             }
         }
         for e in &m.effects {
-            if let Effect::Lightning(l) = e {
-                draw_lightning(l, self.time);
-            }
-            if let Effect::Order(o) = e {
-                draw_order(o, &m.f[o.owner], self.time);
-            }
-            if let Effect::Laptop(l) = e {
-                draw_laptop(l, &m.f[l.owner], self.time);
-            }
             if let Effect::Arrow(a) = e {
                 draw_arrow(a, self.time);
+            }
+        }
+        for (v, _) in &self.visuals {
+            match v {
+                Visual::Bolts(l) => draw_lightning(l, self.time),
+                Visual::Order(o, who) => draw_order(o, &m.f[*who], self.time),
+                Visual::Laptop(l, who) => draw_laptop(l, &m.f[*who], self.time),
+                // (Under the fighters, above.)
+                Visual::Quake(_) => {}
             }
         }
         // The protected start: a pulsing shield around everyone, fading out as it ends.
@@ -1514,9 +1616,9 @@ fn draw_quake(q: &Quake, time: f32) {
     let (x, y) = (q.at.x, q.at.y - 0.5);
     let reach = q.radius * (0.35 + 0.65 * t.sqrt());
     let tall = 2.5 + q.radius * 0.05;
-    draw_ellipse(x, y, reach, tall, 0.0, Color::new(QUAKE_MOSS.r, QUAKE_MOSS.g, QUAKE_MOSS.b, 0.16 * fade));
-    draw_ellipse_lines(x, y, reach, tall, 0.0, 1.0, Color::new(QUAKE_MOSS.r, QUAKE_MOSS.g, QUAKE_MOSS.b, 0.75 * fade));
-    draw_ellipse_lines(x, y, reach * 0.7, tall * 0.7, 0.0, 1.0, Color::new(QUAKE_EARTH.r, QUAKE_EARTH.g, QUAKE_EARTH.b, 0.55 * fade));
+    fill_ellipse(x, y, reach, tall, Color::new(QUAKE_MOSS.r, QUAKE_MOSS.g, QUAKE_MOSS.b, 0.16 * fade));
+    ellipse_outline(x, y, reach, tall, 1.0, Color::new(QUAKE_MOSS.r, QUAKE_MOSS.g, QUAKE_MOSS.b, 0.75 * fade));
+    ellipse_outline(x, y, reach * 0.7, tall * 0.7, 1.0, Color::new(QUAKE_EARTH.r, QUAKE_EARTH.g, QUAKE_EARTH.b, 0.55 * fade));
     // Tufts thrown up at the edge of the ring, both ways.
     for side in [-1.0, 1.0] {
         for k in 0..2 {
@@ -1534,8 +1636,8 @@ fn draw_bulk_reach(f: &Fighter, time: f32) {
     let fade = (f.bulked as f32 / 20.0).min(1.0);
     let (x, y) = (f.pos.x, f.pos.y - 0.5);
     let tall = 2.5 + QUAKE_R * 0.05;
-    draw_ellipse(x, y, QUAKE_R, tall, 0.0, Color::new(QUAKE_MOSS.r, QUAKE_MOSS.g, QUAKE_MOSS.b, (0.05 + 0.03 * pulse) * fade));
-    draw_ellipse_lines(x, y, QUAKE_R, tall, 0.0, 1.0, Color::new(QUAKE_EARTH.r, QUAKE_EARTH.g, QUAKE_EARTH.b, (0.22 + 0.12 * pulse) * fade));
+    fill_ellipse(x, y, QUAKE_R, tall, Color::new(QUAKE_MOSS.r, QUAKE_MOSS.g, QUAKE_MOSS.b, (0.05 + 0.03 * pulse) * fade));
+    ellipse_outline(x, y, QUAKE_R, tall, 1.0, Color::new(QUAKE_EARTH.r, QUAKE_EARTH.g, QUAKE_EARTH.b, (0.22 + 0.12 * pulse) * fade));
 }
 
 fn init_vis(v: &mut FighterVis, f: &Fighter) {
@@ -1579,6 +1681,41 @@ fn ik(a: Vec2, b: Vec2, l1: f32, l2: f32, bend: f32) -> Vec2 {
 
 fn line(a: Vec2, b: Vec2, t: f32, c: Color) {
     draw_line(a.x, a.y, b.x, b.y, t, c);
+}
+
+/// Points round a unit circle, worked out once: ellipses are drawn from these rather than with
+/// macroquad's own (which allocates and does its trig afresh every call, and a tornado draws
+/// over a hundred a frame).
+static UNIT_RING: std::sync::LazyLock<[Vec2; 20]> = std::sync::LazyLock::new(|| {
+    std::array::from_fn(|k| {
+        let a = k as f32 / 20.0 * std::f32::consts::TAU;
+        vec2(a.cos(), a.sin())
+    })
+});
+
+/// The ring's points for an ellipse this wide: every other one for a small one.
+fn ring(x: f32, y: f32, w: f32, h: f32) -> impl Iterator<Item = (Vec2, Vec2)> {
+    let step = if w < 8.0 { 2 } else { 1 };
+    let at = move |k: usize| {
+        let u = UNIT_RING[k % 20];
+        vec2(x + u.x * w, y + u.y * h)
+    };
+    (0..20).step_by(step).map(move |k| (at(k), at(k + step)))
+}
+
+/// A filled ellipse (centre, half width, half height).
+fn fill_ellipse(x: f32, y: f32, w: f32, h: f32, c: Color) {
+    let mid = vec2(x, y);
+    for (a, b) in ring(x, y, w, h) {
+        draw_triangle(mid, a, b, c);
+    }
+}
+
+/// An ellipse's outline (centre, half width, half height).
+fn ellipse_outline(x: f32, y: f32, w: f32, h: f32, thickness: f32, c: Color) {
+    for (a, b) in ring(x, y, w, h) {
+        draw_line(a.x, a.y, b.x, b.y, thickness, c);
+    }
 }
 
 /// `a`, `t` of the way to `b`.
@@ -1840,8 +1977,8 @@ fn draw_tornado(t: &Tornado, time: f32) {
         let y = bottom - h * (bottom - top);
         let w = 2.5 + h * 4.0 + h * h * 12.0;
         let cx = t.at.x + (time * 2.5 + k as f32 * 0.25).sin() * (1.0 + h * 5.0);
-        draw_ellipse(cx, y, w, 1.8, 0.0, Color::new(TORNADO_GREY.r, TORNADO_GREY.g, TORNADO_GREY.b, 0.16 * fade));
-        draw_ellipse_lines(cx, y, w, 1.8, 0.0, 1.0, Color::new(TORNADO_GREY.r, TORNADO_GREY.g, TORNADO_GREY.b, 0.45 * fade));
+        fill_ellipse(cx, y, w, 1.8, Color::new(TORNADO_GREY.r, TORNADO_GREY.g, TORNADO_GREY.b, 0.16 * fade));
+        ellipse_outline(cx, y, w, 1.8, 1.0, Color::new(TORNADO_GREY.r, TORNADO_GREY.g, TORNADO_GREY.b, 0.45 * fade));
         // A streak whipping round this ring (only on the front half, so it reads as turning).
         let a = time * 9.0 * t.spin + k as f32 * 0.9;
         if a.sin() > 0.0 {
@@ -2185,7 +2322,7 @@ fn draw_fire(fire: &Fire, time: f32) {
     let x0 = (fire.at.x - fire.half_w).round();
     let y = fire.at.y.round();
     draw_rectangle(x0, y - 1.0, (fire.half_w * 2.0).round(), 1.0, Color::new(EMBER_BASE.r, EMBER_BASE.g, EMBER_BASE.b, fade));
-    draw_ellipse(fire.at.x, y - 3.0, fire.half_w + 4.0, 6.0, 0.0, Color::new(FLAME.r, FLAME.g, FLAME.b, 0.10 * fade));
+    fill_ellipse(fire.at.x, y - 3.0, fire.half_w + 4.0, 6.0, Color::new(FLAME.r, FLAME.g, FLAME.b, 0.10 * fade));
     let n = (fire.half_w * 2.0 / 2.0) as i32;
     let frame = (time * 14.0) as i32;
     for k in 0..n {

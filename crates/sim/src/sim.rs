@@ -517,8 +517,13 @@ pub enum Event {
     Hologram { pos: Vec2, out: bool },
     /// Vid going into someone (`out`: false) or stepping back out of them, at his middle.
     Matrix { pos: Vec2, out: bool },
-    /// Robert's lightning striking someone.
-    Zap { pos: Vec2 },
+    /// Robert's lightning striking someone (`pos`) from his hand (`from`): the client draws the
+    /// bolt from this (one per foe it strikes).
+    Zap { from: Vec2, pos: Vec2 },
+    /// Kyle organizing, from where he stands (`at`): the client draws the shockwave and his glow.
+    Organize { who: usize, at: Vec2 },
+    /// Carrie opening her laptop: the client draws it in her hands for a moment.
+    LaptopOpen { who: usize },
     /// Someone Doug threw hitting the ground.
     Slam { pos: Vec2 },
     /// Kaleb whistling his arrow up, out or back (at the arrow).
@@ -731,8 +736,12 @@ pub struct Match {
     pub over: bool,
     pub winner: Option<usize>,
     pub events: Vec<Event>,
-    /// What specials have left in the arena (Sam's glue, Tyler's dogs...).
+    /// What specials have left in the arena (Sam's glue, Tyler's dogs...). Add one with
+    /// `add_effect` and remove them with `retain_effects`, never directly: each has an id (in
+    /// `effect_ids`, kept in step) that clients follow it by.
     pub effects: Vec<Effect>,
+    pub effect_ids: Vec<u16>,
+    next_effect_id: u16,
     pub config: MatchConfig,
 }
 
@@ -773,6 +782,8 @@ impl Match {
             winner: None,
             events: Vec::new(),
             effects: Vec::new(),
+            effect_ids: Vec::new(),
+            next_effect_id: 0,
             config: config.clone(),
         }
     }
@@ -1197,7 +1208,7 @@ impl Match {
                 OnThrow::Rocket => {
                     let from = f.hand();
                     self.items.swap_remove(k);
-                    self.effects.push(Effect::Rocket(crate::character::Rocket::new(from, dir, i)));
+                    self.add_effect(Effect::Rocket(crate::character::Rocket::new(from, dir, i)));
                     self.events.push(Event::RocketLaunch { pos: from });
                     return;
                 }
@@ -1205,7 +1216,7 @@ impl Match {
                     let from = f.hand();
                     self.items.swap_remove(k);
                     let plane = crate::character::Plane::new(&mut self.rng, i);
-                    self.effects.push(Effect::Plane(plane));
+                    self.add_effect(Effect::Plane(plane));
                     self.events.push(Event::RadioCall { pos: from });
                     return;
                 }
@@ -1247,7 +1258,7 @@ impl Match {
                         let (pos, owner) = (it.pos, it.owner.unwrap_or(0));
                         let fire = crate::character::Fire::at(self.arena(), &props, pos, owner);
                         self.events.push(Event::Ignite { pos });
-                        self.effects.push(Effect::Fire(fire));
+                        self.add_effect(Effect::Fire(fire));
                         gone.push((k, false));
                         continue;
                     }
@@ -1443,28 +1454,78 @@ impl Match {
 
 }
 
+/// `MatchView::f` on the wire: each body, or nothing for an empty slot (which comes back as
+/// `Fighter::empty`). Half the slots are empty most of the time (the mini slots), and a whole
+/// empty fighter is over 50 bytes.
+mod present_bodies {
+    use super::{Fighter, N_BODIES};
+    use serde::{Deserialize, Deserializer, Serializer, ser::SerializeTuple};
+
+    pub fn serialize<S: Serializer>(f: &[Fighter; N_BODIES], s: S) -> Result<S::Ok, S::Error> {
+        let mut t = s.serialize_tuple(N_BODIES)?;
+        for body in f {
+            t.serialize_element(&(!body.absent).then_some(body))?;
+        }
+        t.end()
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[Fighter; N_BODIES], D::Error> {
+        let bodies = <[Option<Fighter>; N_BODIES]>::deserialize(d)?;
+        Ok(bodies.map(|b| b.unwrap_or_else(Fighter::empty)))
+    }
+}
+
 /// Everything a viewer needs to draw a match (and the scoreboard): what the server sends
 /// clients. The hidden parts of `Match` (RNG, spawn schedule) stay on the server.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MatchView {
     pub tick: u32,
+    /// Every body; an empty slot (a mini slot nobody's in, an empty seat) goes over the wire as
+    /// a single byte.
+    #[serde(with = "present_bodies")]
     pub f: [Fighter; N_BODIES],
     pub items: Vec<Item>,
     pub heals: Vec<Vec2>,
-    /// What specials have left in the arena (Sam's glue, Tyler's dogs...).
+    /// What specials have left in the arena (Sam's glue, Tyler's dogs...) that clients draw
+    /// (see `Effect::on_wire`), and each one's id: the same effect keeps its id from one
+    /// snapshot to the next, so a client can follow it (and smooth its movement) however many
+    /// others come and go.
     pub effects: Vec<Effect>,
+    pub effect_ids: Vec<u16>,
     pub over: bool,
     pub winner: Option<usize>,
 }
 
 impl Match {
+    /// Puts an effect in the arena, with a fresh id.
+    pub fn add_effect(&mut self, e: Effect) {
+        self.effects.push(e);
+        self.effect_ids.push(self.next_effect_id);
+        self.next_effect_id = self.next_effect_id.wrapping_add(1);
+    }
+
+    /// Clears out every effect for which `keep` is false (and its id with it).
+    pub(crate) fn retain_effects(&mut self, keep: impl Fn(&Effect) -> bool) {
+        let mut k = 0;
+        while k < self.effects.len() {
+            if keep(&self.effects[k]) {
+                k += 1;
+            } else {
+                self.effects.remove(k);
+                self.effect_ids.remove(k);
+            }
+        }
+    }
+
     pub fn view(&self) -> MatchView {
+        debug_assert_eq!(self.effects.len(), self.effect_ids.len(), "an effect was added without `add_effect`");
         MatchView {
             tick: self.tick,
             f: self.f.clone(),
             items: self.items.clone(),
             heals: self.heals.clone(),
-            effects: self.effects.clone(),
+            effects: self.effects.iter().filter(|e| e.on_wire()).cloned().collect(),
+            effect_ids: self.effects.iter().zip(&self.effect_ids).filter(|(e, _)| e.on_wire()).map(|(_, &id)| id).collect(),
             over: self.over,
             winner: self.winner,
         }
@@ -1486,6 +1547,8 @@ impl Match {
             winner: v.winner,
             events,
             effects: v.effects,
+            effect_ids: v.effect_ids,
+            next_effect_id: 0,
             config: config.clone(),
         }
     }

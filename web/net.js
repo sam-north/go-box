@@ -46,7 +46,17 @@
         ws.onopen = () => { state = 1; };
         ws.onerror = () => { state = 2; };
         ws.onclose = (e) => { state = 2; closeCode = e.code; };
-        ws.onmessage = (e) => { if (e.data instanceof ArrayBuffer) inbox.push(new Uint8Array(e.data)); };
+        ws.onmessage = (e) => {
+          if (!(e.data instanceof ArrayBuffer)) return;
+          const msg = new Uint8Array(e.data);
+          // A hidden tab runs no frames, so nothing takes these: keep only the newest snapshot
+          // (all a returning tab needs), not minutes of them to churn through at once.
+          // SNAPSHOT_TAG in crates/protocol: a snapshot's first byte.
+          if (document.hidden && msg[0] === 5) {
+            for (let i = inbox.length - 1; i >= 0; i--) if (inbox[i][0] === 5) inbox.splice(i, 1);
+          }
+          inbox.push(msg);
+        };
       };
       env.go_ws_state = () => state;
       env.go_ws_close_code = () => closeCode;

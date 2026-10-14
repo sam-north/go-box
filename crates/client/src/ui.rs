@@ -222,15 +222,19 @@ impl Ui {
         }
         self.warmed = (self.s, dpi);
         let ascii: String = (32u8..127).map(char::from).collect();
-        // Every size the UI uses; the huge ones (the countdown, GO!) only for what they show.
-        // (Buttons and text boxes size their text from their height: 17-24.)
+        // Every glyph size text is drawn from (see `glyphs`), for every size the UI uses; the
+        // huge ones (the countdown, GO!) only for what they show. (Buttons and text boxes size
+        // their text from their height: 17-24.)
         let sizes = [12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 26.0, 28.0, 30.0, 32.0, 34.0, 36.0, 64.0];
         let big = [(90.0, "0123456789"), (100.0, "GO!0123456789")];
-        let glyphs = sizes.iter().map(|&s| (s, ascii.as_str())).chain(big);
-        for (size, text) in glyphs {
-            // Drawing scales the size by the DPI, so warm that size.
-            let px = (self.px(size) * dpi).ceil() as u16;
-            measure_text(text, None, px, 1.0);
+        let mut warmed: Vec<(u16, bool)> = Vec::new();
+        for (size, text) in sizes.iter().map(|&s| (s, ascii.as_str())).chain(big) {
+            let (font_size, _) = self.glyphs(size);
+            let key = (font_size, text.len() == ascii.len());
+            if !warmed.contains(&key) {
+                warmed.push(key);
+                measure_text(text, None, font_size, 1.0);
+            }
         }
     }
 
@@ -238,12 +242,30 @@ impl Ui {
         (v * self.s).round()
     }
 
+    /// How text of `size` is drawn: the glyph size (as macroquad takes it) and how much to scale
+    /// those glyphs. The font is a 13px pixel font, so glyphs are only ever made at whole
+    /// multiples of that on the actual screen (up to 8x), and scaled from the nearest: a handful
+    /// of glyph sizes in all, rather than one per size the UI uses. (One per size, on a
+    /// high-density screen, made a glyph texture big enough that Firefox wouldn't take it, and
+    /// every letter drew as a black box.)
+    fn glyphs(&self, size: f32) -> (u16, f32) {
+        let dpi = macroquad::miniquad::window::dpi_scale();
+        let want = self.px(size) * dpi;
+        let n = (want / 13.0).round().clamp(1.0, 8.0);
+        let font_size = (13.0 * n / dpi).round().max(1.0) as u16;
+        // (macroquad makes glyphs at font_size * dpi, rounded up.)
+        let made = (font_size as f32 * dpi).ceil();
+        (font_size, want / made)
+    }
+
     pub fn text(&self, t: &str, x: f32, y: f32, size: f32, c: Color) {
-        draw_text(t, x.round(), y.round(), self.px(size), c);
+        let (font_size, font_scale) = self.glyphs(size);
+        draw_text_ex(t, x.round(), y.round(), TextParams { font_size, font_scale, color: c, ..Default::default() });
     }
 
     pub fn text_width(&self, t: &str, size: f32) -> f32 {
-        measure_text(t, None, self.px(size) as u16, 1.0).width
+        let (font_size, font_scale) = self.glyphs(size);
+        measure_text(t, None, font_size, font_scale).width
     }
 
     /// Splits `t` into lines no wider than `width` (breaking at spaces).
@@ -282,7 +304,8 @@ impl Ui {
     /// rasterised again at each size, which stutters on slower machines.
     pub fn text_centered_scaled(&self, t: &str, cx: f32, y: f32, size: f32, scale: f32, c: Color) {
         let w = self.text_width(t, size) * scale;
-        let params = TextParams { font_size: self.px(size) as u16, font_scale: scale, color: c, ..Default::default() };
+        let (font_size, font_scale) = self.glyphs(size);
+        let params = TextParams { font_size, font_scale: font_scale * scale, color: c, ..Default::default() };
         draw_text_ex(t, (cx - w / 2.0).round(), y.round(), params);
     }
 

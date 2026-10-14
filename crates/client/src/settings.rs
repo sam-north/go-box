@@ -27,6 +27,8 @@ pub struct Settings {
     /// Music, under `master` (there's no music yet).
     pub music: f32,
     pub muted: bool,
+    /// Melee swings toward your aim (the cursor, or the right stick); off, the way you face.
+    pub melee_aim: bool,
     /// A language code from the text files, e.g. "en-US".
     pub language: String,
     pub bindings: Bindings,
@@ -37,7 +39,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { master: 0.8, effects: 1.0, music: 0.7, muted: false, language: "en-US".into(), bindings: Bindings::default(), bindings_version: BINDINGS_VERSION }
+        Self { master: 0.8, effects: 1.0, music: 0.7, muted: false, melee_aim: true, language: "en-US".into(), bindings: Bindings::default(), bindings_version: BINDINGS_VERSION }
     }
 }
 

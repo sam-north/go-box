@@ -103,7 +103,7 @@ special.leg_day = Leg Day
 special.bug_report = Bug Report
 special.skate_strike = Skate Strike
 special.twin_tornadoes = Twin Tornadoes
-special.yaka_arrow = Yaka Arrow
+special.golden_arrow = Golden Arrow
 
 # Maps (by id)
 arena.tiers = Tiers
@@ -143,6 +143,8 @@ settings.pad_missing = none found: press a button on it
 settings.change = Change
 settings.press_key = press a key...
 settings.reset_controls = Reset controls
+settings.melee_aim = Melee: toward your aim
+settings.melee_facing = Melee: the way you face
 settings.fixed_controls = Also: left stick moves, right stick or mouse aims; d-pad and Cross work the menus.
 
 # What you can bind (by id)

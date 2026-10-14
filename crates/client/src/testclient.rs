@@ -167,17 +167,13 @@ fn effect_kind(e: &go_box_sim::character::Effect) -> &'static str {
         Effect::Pet(_) => "pet",
         Effect::Table(_) => "table",
         Effect::Chain(_) => "chain",
-        Effect::Lightning(_) => "lightning",
-        Effect::Order(_) => "order",
         Effect::Rocket(_) => "rocket",
         Effect::Fire(_) => "fire",
         Effect::Plane(_) => "plane",
         Effect::AirBomb(_) => "plane",
         Effect::Judo(_) => "judo",
         Effect::Lunge(_) => "judo",
-        Effect::Laptop(_) => "laptop",
         Effect::Tornado(_) => "tornado",
         Effect::Arrow(_) => "arrow",
-        Effect::Quake(_) => "quake",
     }
 }

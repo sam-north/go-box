@@ -7,7 +7,7 @@
 //! applied yet are replayed on top. Small corrections are smoothed out rather than snapped.
 
 use go_box_protocol::{MatchStart, Snapshot};
-use go_box_sim::character::{Effect, props};
+use go_box_sim::character::props;
 use go_box_sim::sim::{Action, Event, Fighter, Match, MatchView, N_BODIES, TICK_RATE, predict, predict_ridden};
 use macroquad::math::Vec2;
 use std::collections::VecDeque;
@@ -174,10 +174,15 @@ impl Game {
                     it.pos = sa.items[k].pos.lerp(sb.items[k].pos, t);
                 }
             }
-            let same = |x: &Effect, y: &Effect| std::mem::discriminant(x) == std::mem::discriminant(y);
-            if sa.effects.len() == sb.effects.len() && sa.effects.iter().zip(&sb.effects).all(|(x, y)| same(x, y)) {
-                for (k, e) in view.effects.iter_mut().enumerate() {
-                    *e.pos_mut() = sa.effects[k].pos().lerp(sb.effects[k].pos(), t);
+            // Each effect follows itself by its id, whatever else came and went in between (both
+            // lists are in the order the effects were made, so one pass pairs them up).
+            let mut k = 0;
+            for (e, id) in view.effects.iter_mut().zip(&sa.effect_ids) {
+                while k < sb.effect_ids.len() && sb.effect_ids[k] < *id {
+                    k += 1;
+                }
+                if sb.effect_ids.get(k) == Some(id) && std::mem::discriminant(e) == std::mem::discriminant(&sb.effects[k]) {
+                    *e.pos_mut() = e.pos().lerp(sb.effects[k].pos(), t);
                 }
             }
         }
@@ -226,6 +231,31 @@ mod tests {
     }
 
     const RIGHT: Action = Action { mv: 1.0, run: true, jump: false, attack: false, throw: false, aim: 0.3, grab: false, special: false, target: None, dash: None, down: false, cursor: None };
+
+    #[test]
+    fn an_effect_is_smoothed_even_when_another_appears_between_snapshots() {
+        use go_box_sim::character::{Effect, Rocket, Tornado};
+        let (mut m, z) = server();
+        m.add_effect(Effect::Tornado(Tornado { at: go_box_sim::glam::vec2(100.0, 254.0), dir: 1.0, spin: 1.0, owner: 1, ticks: 600 }));
+        let mut g = game();
+        let mut xs = Vec::new();
+        for k in 0..7 {
+            // A rocket shows up in snapshot 4.
+            if k == 4 {
+                m.add_effect(Effect::Rocket(Rocket::new(go_box_sim::glam::vec2(300.0, 100.0), go_box_sim::glam::vec2(0.0, -1.0), 2)));
+            }
+            g.on_snapshot(snapshot(&m, 0, Vec::new()));
+            xs.push(m.effects[0].pos().x);
+            m.step([&z; N_FIGHTERS]);
+            m.step([&z; N_FIGHTERS]);
+        }
+        // Drawn a little behind the newest (see INTERP_TICKS): between snapshots 3 and 4.
+        g.frame(1.0);
+        let shown = g.frame(1.0 / 60.0).unwrap();
+        let x = shown.effects[0].pos().x;
+        let (before, after) = (xs[3], xs[4]);
+        assert!(x > before + 0.01 && x < after - 0.01, "tornado drawn between {before} and {after}: {x}");
+    }
 
     #[test]
     fn as_vid_inside_someone_their_body_moves_the_moment_you_press() {

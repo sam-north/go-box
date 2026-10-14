@@ -28,7 +28,7 @@ use go_box_sim::sim::{Action, ArenaId, Event, MatchConfig, MatchView, N_FIGHTERS
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 26;
+pub const PROTOCOL_VERSION: u16 = 27;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -53,6 +53,10 @@ pub const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ";
 
 /// The server sends a snapshot every this many sim ticks (TICK_RATE / 2 = 30 per second).
 pub const SNAPSHOT_EVERY: u32 = 2;
+
+/// The first byte of every encoded `ServerMsg::Snapshot` (its variant number). `web/net.js` reads
+/// it to drop stale snapshots piling up in a hidden tab, so it's pinned by a test.
+pub const SNAPSHOT_TAG: u8 = 5;
 
 pub type PlayerId = u32;
 
@@ -258,12 +262,12 @@ mod tests {
             ("sushi", |m| m.items.iter().any(|it| it.kind == ItemKind::Sushi)),
             ("chain", |m| m.effects.iter().any(|e| matches!(e, Effect::Chain(_)))),
             ("phone", |m| m.items.iter().any(|it| it.carries.is_some())),
-            ("lightning", |m| m.effects.iter().any(|e| matches!(e, Effect::Lightning(_)))),
+            ("lightning", |m| m.events.iter().any(|e| matches!(e, go_box_sim::sim::Event::Zap { .. }))),
             ("pinned", |m| m.f.iter().any(|f| f.pinned > 0)),
             ("ridden", |m| m.f.iter().any(|f| f.ridden > 0)),
             ("thrown", |m| m.effects.iter().any(|e| matches!(e, Effect::Judo(_)))),
-            ("quake", |m| m.effects.iter().any(|e| matches!(e, Effect::Quake(_))) && m.f.iter().any(|f| f.bulked > 0)),
-            ("bugs", |m| m.effects.iter().any(|e| matches!(e, Effect::Pet(p) if matches!(p.breed, Breed::Fly(_)))) && m.effects.iter().any(|e| matches!(e, Effect::Laptop(_)))),
+            ("quake", |m| m.events.iter().any(|e| matches!(e, go_box_sim::sim::Event::Quake { .. })) && m.f.iter().any(|f| f.bulked > 0)),
+            ("bugs", |m| m.effects.iter().any(|e| matches!(e, Effect::Pet(p) if matches!(p.breed, Breed::Fly(_))))),
             ("tornado", |m| m.effects.iter().any(|e| matches!(e, Effect::Tornado(_)))),
             ("arrow", |m| m.effects.iter().any(|e| matches!(e, Effect::Arrow(a) if a.state != go_box_sim::character::ArrowState::Hover))),
         ];
@@ -295,16 +299,16 @@ mod tests {
         // Rocket launchers are rare, so one is set up by hand: one lying around, a rocket in flight.
         let mut m = Match::new(2, &MatchConfig::default());
         m.items.push(go_box_sim::sim::Item::new(ItemKind::RocketLauncher, glam_vec(200.0, 250.0)));
-        m.effects.push(Effect::Rocket(go_box_sim::character::Rocket::new(glam_vec(100.0, 200.0), glam_vec(1.0, 0.0), 0)));
+        m.add_effect(Effect::Rocket(go_box_sim::character::Rocket::new(glam_vec(100.0, 200.0), glam_vec(1.0, 0.0), 0)));
         // And the rarer items and what they leave: a sword, a Molotov and a radio lying about, fire,
         // a jet and one of its bombs.
         for (k, kind) in [ItemKind::Sword, ItemKind::Molotov, ItemKind::AirStrike].into_iter().enumerate() {
             m.items.push(go_box_sim::sim::Item::new(kind, glam_vec(260.0 + 20.0 * k as f32, 250.0)));
         }
-        m.effects.push(Effect::Fire(go_box_sim::character::Fire::at(m.arena(), &[], glam_vec(300.0, 240.0), 1)));
+        m.add_effect(Effect::Fire(go_box_sim::character::Fire::at(m.arena(), &[], glam_vec(300.0, 240.0), 1)));
         let mut rng = <go_box_sim::sim::SimRng as rand::SeedableRng>::seed_from_u64(4);
-        m.effects.push(Effect::Plane(go_box_sim::character::Plane::new(&mut rng, 2)));
-        m.effects.push(Effect::AirBomb(go_box_sim::character::AirBomb { pos: glam_vec(150.0, 60.0), vel: glam_vec(40.0, 90.0), owner: 2, ticks: 300 }));
+        m.add_effect(Effect::Plane(go_box_sim::character::Plane::new(&mut rng, 2)));
+        m.add_effect(Effect::AirBomb(go_box_sim::character::AirBomb { pos: glam_vec(150.0, 60.0), vel: glam_vec(40.0, 90.0), owner: 2, ticks: 300 }));
         let rocket = Snapshot { ack: 3, view: m.view(), events: vec![go_box_sim::sim::Event::RocketLaunch { pos: glam_vec(100.0, 200.0) }] };
         std::iter::once(first).chain(std::iter::once(rocket)).chain(found.into_iter().zip(wanted).map(|(s, (name, _))| s.unwrap_or_else(|| panic!("no {name} in the sample matches")))).collect()
     }
@@ -386,7 +390,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (26, 0x5e8f_bca2_bda1_2615);
+    const WIRE: (u16, u64) = (27, 0x0c78_00a9_8427_476a);
 
     #[test]
     fn every_sample_round_trips() {
@@ -397,6 +401,15 @@ mod tests {
         for bytes in &samples[11..] {
             assert_eq!(encode(&decode::<ServerMsg>(bytes).unwrap()), *bytes);
         }
+    }
+
+    #[test]
+    fn a_snapshot_starts_with_its_tag() {
+        let m = Match::new(1, &MatchConfig::default());
+        let bytes = encode(&ServerMsg::Snapshot(Snapshot { ack: 0, view: m.view(), events: Vec::new() }));
+        assert_eq!(bytes[0], SNAPSHOT_TAG, "web/net.js relies on this");
+        let room = encode(&ServerMsg::LeftRoom);
+        assert_ne!(room[0], SNAPSHOT_TAG);
     }
 
     #[test]

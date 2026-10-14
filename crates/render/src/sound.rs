@@ -70,7 +70,7 @@ go_box_sim::enum_all! {
         Bugs,
         Skate,
         Tornado,
-        YakaWhistle,
+        ArrowWhistle,
         Start,
         Win,
         Lose,
@@ -375,7 +375,7 @@ impl Sfx {
                 s.tone(0.1, 0.9, 180.0, 320.0, Wave::Saw, 0.2, 2.5, 0.05);
             }
             // Kaleb whistling his arrow: a quick rising slide and a high note, like Yondu.
-            Sfx::YakaWhistle => {
+            Sfx::ArrowWhistle => {
                 s.tone(0.0, 0.16, 900.0, 2100.0, Wave::Sine, 0.01, 6.0, 0.22);
                 s.tone(0.16, 0.14, 2100.0, 2050.0, Wave::Sine, 0.005, 9.0, 0.2);
                 s.noise(0.0, 0.3, 4000.0, 3000.0, 0.02, 8.0, 0.03);
@@ -657,8 +657,10 @@ impl Sounds {
                 Event::RadioCall { pos } => self.at(Sfx::Radio, pos, ear, 1.0),
                 Event::JetPass { .. } => self.play(Sfx::Jet, 0.9),
                 Event::BombDrop { pos } => self.at(Sfx::Whistle, pos, ear, 0.8),
-                Event::Zap { pos } => self.at(Sfx::Zap, pos, ear, 0.8),
-                Event::ArrowCall { pos } => self.at(Sfx::YakaWhistle, pos, ear, 0.9),
+                Event::Zap { pos, .. } => self.at(Sfx::Zap, pos, ear, 0.8),
+                // (Their special's own sound covers these.)
+                Event::Organize { .. } | Event::LaptopOpen { .. } => {}
+                Event::ArrowCall { pos } => self.at(Sfx::ArrowWhistle, pos, ear, 0.9),
                 Event::Slam { pos } => self.at(Sfx::Slam, pos, ear, 1.0),
                 Event::Quake { pos, big } => self.at(if big { Sfx::BigStomp } else { Sfx::Stomp }, pos, ear, if big { 1.0 } else { 0.7 }),
                 Event::Hologram { pos, out } => self.at(if out { Sfx::Materialize } else { Sfx::Digitize }, pos, ear, 1.0),
