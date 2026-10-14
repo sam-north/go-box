@@ -139,6 +139,23 @@ const ITEM_WHIRL_MAX: f32 = 230.0;
 /// What something whipped round by a tornado does, compared with being thrown.
 pub const WHIRLED_HIT: f32 = 0.5;
 
+// Kaleb — Yaka Arrow: a golden arrow appears over his head for a few seconds. Press again and it
+// flies off after wherever he aims, and keeps chasing his aim (the cursor) for as long as it
+// lasts, going through every foe it meets. Press again to call it back over his head (and again
+// to send it off once more).
+const ARROW_COOLDOWN: u32 = 18 * SECOND;
+pub const ARROW_TICKS: u32 = 5 * SECOND;
+const ARROW_SPEED: f32 = 520.0;
+const ARROW_DAMAGE: f32 = 8.0;
+/// It hits the same person at most this often (it can be held on someone).
+const ARROW_HIT_EVERY: u32 = SECOND * 3 / 4;
+/// Where it hovers: this far above his feet.
+const ARROW_HOVER: f32 = 22.0;
+/// How close it has to pass to hit someone (half-size of its hit box).
+const ARROW_REACH: f32 = 3.0;
+/// A bot fires it at someone within this.
+const ARROW_BOT_RANGE: f32 = 220.0;
+
 // Justin — Sushi Table: a table drops in front of him (onto him, if he's facing a wall) and
 // serves sushi to throw. It's solid from the sides and on top, never from below (see
 // `sim::collide`), so it can't pin anyone.
@@ -253,6 +270,7 @@ crate::enum_all! {
         Carrie,
         Matt,
         Zack,
+        Kaleb,
     }
 }
 
@@ -288,6 +306,7 @@ impl Character {
             Character::Carrie => &CharacterDef { id: "carrie", special: Some(&BugReport) },
             Character::Matt => &CharacterDef { id: "matt", special: Some(&SkateStrike) },
             Character::Zack => &CharacterDef { id: "zack", special: Some(&TwinTornadoes) },
+            Character::Kaleb => &CharacterDef { id: "kaleb", special: Some(&YakaArrow) },
         }
     }
 
@@ -312,6 +331,13 @@ pub trait Special: Sync {
     /// It can be used while pinned by Kyle, ridden by Vid or carried up a tornado, and frees you
     /// (Matt's).
     fn breaks_free(&self) -> bool {
+        false
+    }
+    /// Pressed again while it's cooling down: for a special that leaves something to steer
+    /// (Kaleb's arrow). Most do nothing.
+    fn press_again(&self, _m: &mut Match, _who: usize) {}
+    /// When a bot presses it again while it's cooling down (see `press_again`).
+    fn bot_presses_again(&self, _m: &Match, _who: usize) -> bool {
         false
     }
 }
@@ -825,6 +851,69 @@ fn judo_throw(m: &mut Match, who: usize, j: usize) {
     m.effects.push(Effect::Judo(Judo { at: v.center(), owner: who, victim: j, dir, flown: 0, down: 0, ticks: JUDO_MAX_FLIGHT + JUDO_DOWN, damage: JUDO_DAMAGE, bowls: true, bowled: 1 << j }));
 }
 
+struct YakaArrow;
+
+impl Special for YakaArrow {
+    fn id(&self) -> &'static str {
+        "yaka_arrow"
+    }
+    fn cooldown(&self) -> u32 {
+        ARROW_COOLDOWN
+    }
+    fn activate(&self, m: &mut Match, who: usize) {
+        let pos = arrow_hover(&m.f[who]);
+        m.events.push(Event::ArrowCall { pos });
+        m.effects.push(Effect::Arrow(Arrow { pos, dir: vec2(m.f[who].facing, 0.0), owner: who, state: ArrowState::Hover, hit_cd: [0; N_BODIES], ticks: ARROW_TICKS }));
+    }
+    /// Someone in range to fire it at.
+    fn bot_wants(&self, m: &Match, who: usize) -> bool {
+        let me = m.f[who].center();
+        foes(m, who).any(|f| f.center().distance(me) < ARROW_BOT_RANGE)
+    }
+    /// Over his head (or on its way back): send it off after his aim. Out chasing it: call it back.
+    fn press_again(&self, m: &mut Match, who: usize) {
+        let Some(Effect::Arrow(a)) = m.effects.iter_mut().find(|e| matches!(e, Effect::Arrow(a) if a.owner == who)) else { return };
+        a.state = if a.state == ArrowState::Out { ArrowState::Back } else { ArrowState::Out };
+        let pos = a.pos;
+        m.events.push(Event::ArrowCall { pos });
+    }
+    /// Send it off when it's over his head and someone's in range (it then chases the nearest).
+    fn bot_presses_again(&self, m: &Match, who: usize) -> bool {
+        m.effects.iter().any(|e| matches!(e, Effect::Arrow(a) if a.owner == who && a.state == ArrowState::Hover)) && self.bot_wants(m, who)
+    }
+}
+
+/// Where Kaleb's arrow hovers: over his head.
+pub fn arrow_hover(f: &Fighter) -> Vec2 {
+    vec2(f.pos.x, f.pos.y - ARROW_HOVER * f.scale)
+}
+
+/// What Kaleb's arrow is doing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum ArrowState {
+    /// Over his head, ready to send off.
+    Hover,
+    /// Out, chasing wherever he aims.
+    Out,
+    /// Called back, on its way to him.
+    Back,
+}
+
+/// Kaleb's arrow.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Arrow {
+    /// Its tip.
+    pub pos: Vec2,
+    /// Which way it points.
+    pub dir: Vec2,
+    pub owner: usize,
+    pub state: ArrowState,
+    /// Per body: ticks before it can hit them again.
+    #[serde(skip)]
+    pub hit_cd: [u32; N_BODIES],
+    pub ticks: u32,
+}
+
 struct TwinTornadoes;
 
 impl Special for TwinTornadoes {
@@ -1270,12 +1359,19 @@ impl Match {
         // Seats only: minis have no specials.
         for i in 0..N_FIGHTERS {
             let Some(special) = self.f[i].character.special() else { continue };
+            let able = self.f[i].present() && self.f[i].hitstun == 0;
             let f = &mut self.f[i];
             if f.special_cd > 0 {
                 f.special_cd -= 1;
+                // On cooldown, a press can still steer what the special left in play (Kaleb's
+                // arrow: fire it, call it back).
+                if wants[i] && able {
+                    special.press_again(self, i);
+                }
                 continue;
             }
-            if wants[i] && f.present() && f.hitstun == 0 {
+            if wants[i] && able {
+                let f = &mut self.f[i];
                 f.special_cd = special.cooldown();
                 self.events.push(Event::Special { who: i });
                 special.activate(self, i);
@@ -1401,6 +1497,7 @@ impl Match {
                 Effect::Lunge(l) => self.step_lunge(l),
                 Effect::Laptop(l) => self.step_laptop(l),
                 Effect::Tornado(t) => self.step_tornado(t),
+                Effect::Arrow(a) => self.step_arrow(a),
                 Effect::Quake(q) => q.ticks = q.ticks.saturating_sub(1),
             }
             self.effects[e] = effect;
@@ -1602,6 +1699,60 @@ impl Match {
                 it.whirled = true;
                 it.owner = Some(t.owner);
             }
+        }
+    }
+
+    /// Kaleb's arrow: hovers over his head (following him), or chases wherever he aims (a mouse
+    /// player's cursor, a pad's aim, a bot's nearest foe), or flies back to him. In flight it
+    /// goes through every foe it meets, hitting each at most every so often. It's gone when its
+    /// time's up, or he is.
+    fn step_arrow(&mut self, a: &mut Arrow) {
+        a.ticks = a.ticks.saturating_sub(1);
+        a.hit_cd.iter_mut().for_each(|t| *t = t.saturating_sub(1));
+        let who = a.owner;
+        if !self.f[who].present() {
+            a.ticks = 0;
+            return;
+        }
+        let home = arrow_hover(&self.f[who]);
+        let goal = match a.state {
+            ArrowState::Hover => {
+                a.pos = home;
+                a.dir = vec2(self.f[who].facing, 0.0);
+                return;
+            }
+            ArrowState::Back => home,
+            ArrowState::Out => {
+                let f = &self.f[who];
+                let goal = match (f.action.cursor, f.action.target) {
+                    (Some(c), _) => c,
+                    // (A pad's aim: keep going that way.)
+                    (None, Some(t)) => a.pos + t.normalize_or(a.dir) * 100.0,
+                    (None, None) => foes(self, who).map(|g| g.center()).min_by(|x, y| x.distance(a.pos).total_cmp(&y.distance(a.pos))).unwrap_or(a.pos),
+                };
+                let (lo, hi) = (crate::sim::WALL + 2.0, vec2(W - crate::sim::WALL - 2.0, crate::sim::FLOOR_Y - 2.0));
+                vec2(goal.x.clamp(lo, hi.x), goal.y.clamp(lo, hi.y))
+            }
+        };
+        let to = goal - a.pos;
+        let step = ARROW_SPEED * DT;
+        if to.length() <= step {
+            a.pos = goal;
+            if a.state == ArrowState::Back {
+                a.state = ArrowState::Hover;
+            }
+        } else {
+            a.dir = to / to.length();
+            a.pos += a.dir * step;
+        }
+        let tip = Aabb::around(a.pos, ARROW_REACH);
+        for j in 0..N_BODIES {
+            if !self.foes(who, j) || a.hit_cd[j] > 0 || !tip.overlaps(&self.f[j].body()) {
+                continue;
+            }
+            a.hit_cd[j] = ARROW_HIT_EVERY;
+            let dir = if a.dir.x < 0.0 { -1.0 } else { 1.0 };
+            self.damage(who, j, ARROW_DAMAGE, vec2(a.dir.x * 140.0, -90.0), 8, dir, Source::Special, false);
         }
     }
 
@@ -1976,6 +2127,8 @@ pub enum Effect {
     Laptop(Laptop),
     /// One of Zack's tornadoes.
     Tornado(Tornado),
+    /// Kaleb's arrow.
+    Arrow(Arrow),
     /// One of Travis's steps shaking the ground.
     Quake(Quake),
 }
@@ -1998,6 +2151,7 @@ impl Effect {
             Effect::Lunge(l) => l.owner,
             Effect::Laptop(l) => l.owner,
             Effect::Tornado(t) => t.owner,
+            Effect::Arrow(a) => a.owner,
             Effect::Quake(q) => q.owner,
         }
     }
@@ -2019,6 +2173,7 @@ impl Effect {
             Effect::Lunge(_) => None,
             Effect::Laptop(_) => None,
             Effect::Tornado(t) => Some(t.core()),
+            Effect::Arrow(a) => (a.state != ArrowState::Hover).then_some(a.pos),
             Effect::Quake(_) => None,
         }
     }
@@ -2040,6 +2195,7 @@ impl Effect {
             Effect::Lunge(l) => l.at,
             Effect::Laptop(l) => l.at,
             Effect::Tornado(t) => t.at,
+            Effect::Arrow(a) => a.pos,
             Effect::Quake(q) => q.at,
         }
     }
@@ -2061,6 +2217,7 @@ impl Effect {
             Effect::Lunge(l) => &mut l.at,
             Effect::Laptop(l) => &mut l.at,
             Effect::Tornado(t) => &mut t.at,
+            Effect::Arrow(a) => &mut a.pos,
             Effect::Quake(q) => &mut q.at,
         }
     }
@@ -2081,6 +2238,7 @@ impl Effect {
             Effect::Lunge(l) => l.ticks == 0,
             Effect::Laptop(l) => l.ticks == 0,
             Effect::Tornado(t) => t.ticks == 0,
+            Effect::Arrow(a) => a.ticks == 0,
             Effect::Quake(q) => q.ticks == 0,
         }
     }
@@ -3083,7 +3241,7 @@ mod tests {
         h[0] = Some(Action { special: true, ..Action::default() });
         h[1] = Some(Action::default());
         m.step_humans([&z; N_FIGHTERS], h);
-        let mut tyler = |m: &mut Match, a: Action| {
+        let tyler = |m: &mut Match, a: Action| {
             let mut h = [None; N_FIGHTERS];
             h[1] = Some(a);
             m.step_humans([&z; N_FIGHTERS], h);
@@ -3157,6 +3315,61 @@ mod tests {
         assert!(whirled, "the rocks were whipped up");
         assert!(m.f[1].hp < MAX_HP, "and someone took a hit");
         assert_eq!(m.f[0].hp, MAX_HP, "never Zack");
+    }
+
+    fn arrow_of(m: &Match) -> Option<Arrow> {
+        m.effects.iter().find_map(|e| if let Effect::Arrow(a) = e { Some(a.clone()) } else { None })
+    }
+
+    #[test]
+    fn kalebs_arrow_chases_his_cursor_through_foes() {
+        let z = zero_brain();
+        let mut m = staged([Character::Kaleb, Character::Classic, Character::Classic, Character::Classic], [100.0, 200.0, 380.0, 440.0]);
+        let kaleb = |m: &mut Match, a: Action| m.step_with([&z; N_FIGHTERS], Some((0, a)));
+        let aim = |at: Vec2, special: bool| Action { special, cursor: Some(at), ..Action::default() };
+        kaleb(&mut m, aim(vec2(0.0, 0.0), true));
+        let a = arrow_of(&m).expect("an arrow");
+        assert_eq!(a.state, ArrowState::Hover);
+        assert!(a.pos.y < m.f[0].pos.y - 15.0, "over his head");
+        // Sent off at a spot past the fighter at 200: it goes through them and waits at the cursor.
+        let spot = vec2(260.0, m.f[1].center().y);
+        kaleb(&mut m, aim(spot, true));
+        for _ in 0..SECOND / 2 {
+            kaleb(&mut m, aim(spot, false));
+        }
+        let a = arrow_of(&m).unwrap();
+        assert_eq!(a.state, ArrowState::Out);
+        assert!(a.pos.distance(spot) < 0.5, "at the cursor");
+        assert_eq!(m.f[1].hp, MAX_HP - ARROW_DAMAGE, "went through them");
+        // Moving the cursor, it follows: up and over to the left.
+        let up = vec2(150.0, 60.0);
+        for _ in 0..SECOND / 2 {
+            kaleb(&mut m, aim(up, false));
+        }
+        assert!(arrow_of(&m).unwrap().pos.distance(up) < 0.5, "followed the cursor");
+        // Held right on someone, it hits them only every so often.
+        let on = m.f[1].center();
+        let before = m.f[1].hp;
+        for _ in 0..SECOND {
+            let at = m.f[1].center();
+            kaleb(&mut m, aim(at, false));
+        }
+        let hits = ((before - m.f[1].hp) / ARROW_DAMAGE).round() as u32;
+        assert!((1..=2).contains(&hits), "{hits} hits in a second held on them (from {on})");
+        // Pressing again calls it back; again sends it off.
+        kaleb(&mut m, aim(spot, true));
+        assert_eq!(arrow_of(&m).unwrap().state, ArrowState::Back);
+        for _ in 0..SECOND / 2 {
+            kaleb(&mut m, aim(spot, false));
+        }
+        assert_eq!(arrow_of(&m).unwrap().state, ArrowState::Hover, "back over his head");
+        kaleb(&mut m, aim(spot, true));
+        assert_eq!(arrow_of(&m).unwrap().state, ArrowState::Out);
+        for _ in 0..ARROW_TICKS {
+            kaleb(&mut m, aim(spot, false));
+        }
+        assert!(arrow_of(&m).is_none(), "gone after 5s");
+        assert_eq!(m.f[0].hp, MAX_HP);
     }
 
     fn bugs(m: &Match) -> Vec<Pet> {

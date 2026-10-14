@@ -74,6 +74,9 @@ const VEST_POUCH: Color = Color::new(0.26, 0.28, 0.22, 1.0);
 const BELT: Color = Color::new(0.06, 0.06, 0.07, 1.0);
 /// Matt's skateboard deck and wheels.
 /// Zack's tornadoes.
+/// Kaleb's arrow: gold, with a red fin.
+const ARROW_GOLD: Color = Color::new(1.0, 0.80, 0.25, 1.0);
+const ARROW_FIN: Color = Color::new(0.85, 0.12, 0.10, 1.0);
 const TORNADO_GREY: Color = Color::new(0.62, 0.64, 0.66, 1.0);
 const DECK: Color = Color::new(0.20, 0.55, 0.85, 1.0);
 const WHEEL: Color = Color::new(0.92, 0.88, 0.70, 1.0);
@@ -533,6 +536,30 @@ pub fn art(c: Character) -> &'static CharacterArt {
             };
             &ART
         }
+        // Dirty-blond hair and stubble, a long red-brown leather coat; Ravager red. (His arrow is
+        // gold.)
+        Character::Kaleb => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(0.80, 0.16, 0.14, 1.0)),
+                body: rgb(112, 44, 36),
+                legs: [rgb(42, 34, 32), rgb(56, 46, 42)],
+                arms: rgb(98, 38, 32),
+                hair: Some(rgb(168, 130, 82)),
+                headband: false,
+                skin: SKIN,
+                hair_style: HairStyle::Short,
+                beard: false,
+                glasses: false,
+                goatee: false,
+                stubble: Some(rgb(140, 104, 64)),
+                belt: false,
+                beaver_suit: false,
+                mustache: false,
+                // (Each call of the arrow whistles; see `Event::ArrowCall`.)
+                special_sound: None,
+            };
+            &ART
+        }
     }
 }
 
@@ -952,6 +979,9 @@ impl Art {
                     }
                     self.burst(pos + vec2(0.0, -1.0), vec2(0.0, -1.0), 1.2, n / 2, Color::new(0.40, 0.36, 0.30, 1.0), false, if big { 110.0 } else { 60.0 }, 0.5, 420.0);
                 }
+                Event::ArrowCall { pos } => {
+                    self.burst(pos, vec2(0.0, -1.0), 6.3, 8, ARROW_GOLD, false, 40.0, 0.3, 0.0);
+                }
                 Event::Zap { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 10, BOLT, false, 90.0, 0.2, 0.0);
                 }
@@ -1020,6 +1050,15 @@ impl Art {
                     let vel = vec2(t.spin * 40.0 + side * 15.0, -30.0 - hash(seed, 3, 85) * 40.0);
                     self.particles.push(Particle { pos: t.at + vec2(side * 3.0, -1.0), vel, color: DUST, life: 0.6, stick: false, gravity: 60.0 });
                 }
+            }
+        }
+        // Kaleb's arrow leaves a trail of golden sparks in flight.
+        for e in &m.effects {
+            if let Effect::Arrow(a) = e
+                && matches!(a.state, ArrowState::Out | ArrowState::Back)
+            {
+                let back = a.pos - a.dir * 8.0;
+                self.particles.push(Particle { pos: back, vel: -a.dir * 20.0, color: ARROW_GOLD, life: 0.25, stick: false, gravity: 0.0 });
             }
         }
         // Rockets leave a smoke trail.
@@ -1177,6 +1216,8 @@ impl Art {
                 // (Drawn in her hands, over the fighters, below.)
                 Effect::Laptop(_) => {}
                 Effect::Tornado(t) => draw_tornado(t, self.time),
+                // (Drawn over the fighters, below.)
+                Effect::Arrow(_) => {}
                 Effect::Quake(q) => draw_quake(q, self.time),
             }
         }
@@ -1255,6 +1296,9 @@ impl Art {
             }
             if let Effect::Laptop(l) = e {
                 draw_laptop(l, &m.f[l.owner], self.time);
+            }
+            if let Effect::Arrow(a) = e {
+                draw_arrow(a, self.time);
             }
         }
         // The protected start: a pulsing shield around everyone, fading out as it ends.
@@ -1764,6 +1808,23 @@ fn draw_cat(c: &Pet, coat: u8) {
     draw_rectangle(hx + 1.0, y - 5.0, 1.0, 1.0, dark);
     let tx = if s > 0.0 { x - 3.0 } else { x + 2.0 };
     draw_rectangle(tx, y - 5.0 - stride, 1.0, 3.0, dark);
+}
+
+/// Kaleb's arrow: a slim golden shaft with a bright tip and a red fin, pointing the way it flies,
+/// glowing; bobbing gently while it hovers over his head. It flickers as its time runs out.
+fn draw_arrow(a: &Arrow, time: f32) {
+    if a.ticks < 40 && (a.ticks / 4) % 2 == 0 {
+        return;
+    }
+    let bob = if a.state == ArrowState::Hover { vec2(0.0, (time * 4.0).sin()) } else { Vec2::ZERO };
+    let tip = a.pos + bob;
+    let d = a.dir.normalize_or(vec2(1.0, 0.0));
+    draw_circle(tip.x - d.x * 4.0, tip.y - d.y * 4.0, 5.0, Color::new(ARROW_GOLD.r, ARROW_GOLD.g, ARROW_GOLD.b, 0.18));
+    line(tip - d * 9.0, tip - d * 1.0, 1.0, ARROW_GOLD);
+    line(tip - d * 1.5, tip, 1.0, Color::new(1.0, 0.97, 0.80, 1.0));
+    // The fin, across the tail.
+    let n = vec2(-d.y, d.x);
+    line(tip - d * 9.0 + n * 1.5, tip - d * 7.0 - n * 1.5, 1.0, ARROW_FIN);
 }
 
 /// One of Zack's tornadoes: a grey column from the floor to the ceiling, narrow at the bottom and

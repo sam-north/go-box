@@ -86,6 +86,7 @@ character.travis = Travis
 character.carrie = Carrie
 character.matt = Matt
 character.zack = Zack
+character.kaleb = Kaleb
 special.glue_gun = Glue Gun
 special.pop_up = Pop-Up
 special.hounds = Release the Hounds
@@ -102,6 +103,7 @@ special.leg_day = Leg Day
 special.bug_report = Bug Report
 special.skate_strike = Skate Strike
 special.twin_tornadoes = Twin Tornadoes
+special.yaka_arrow = Yaka Arrow
 
 # Maps (by id)
 arena.tiers = Tiers
@@ -226,3 +228,4 @@ about.travis = Straps on a weighted vest and bulks up for 5 seconds: every step 
 about.carrie = Opens her laptop and bugs pour out every which way: spiders that run the floors (leaping up after you) and horseflies that fly straight at you. Each one hunts down the nearest opponent and bites a couple of times (3 a bite).
 about.matt = Drops his skateboard and shoots off along it, fast and far, the way he's facing, hitting everyone he goes through (14). He can do it pinned by Kyle, ridden by Vid or caught in a tornado, and it frees him.
 about.zack = Two tornadoes, each reaching floor to ceiling, spin up either side of him for 5 seconds and pull everyone toward them, Zack too. Get caught in one and you're carried up and flung out. Rocks, spears and swords whipped round hurt (never Zack).
+about.kaleb = A golden arrow appears over his head for 5 seconds. Press again and it flies off and chases your cursor wherever you move it, going through everyone it meets (8 each). Press again to call it back.

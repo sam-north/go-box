@@ -521,6 +521,8 @@ pub enum Event {
     Zap { pos: Vec2 },
     /// Someone Doug threw hitting the ground.
     Slam { pos: Vec2 },
+    /// Kaleb whistling his arrow up, out or back (at the arrow).
+    ArrowCall { pos: Vec2 },
     /// One of Travis's steps shaking the ground, at his feet (`big`: landing from a jump).
     Quake { pos: Vec2, big: bool },
     /// A thrown item hitting terrain hard.
@@ -976,7 +978,9 @@ impl Match {
                 dash: None,
                 down: false,
                 cursor: None,
-                special: self.f[i].special_cd == 0 && !self.protected() && self.f[i].character.special().is_some_and(|s| s.bot_wants(self, i)),
+                // (On cooldown, a special may still have something in play to steer: Kaleb's arrow.)
+                special: !self.protected()
+                    && self.f[i].character.special().is_some_and(|s| if self.f[i].special_cd == 0 { s.bot_wants(self, i) } else { s.bot_presses_again(self, i) }),
                 target: None,
             };
             self.f[i].memory.copy_from_slice(&out[OUT_MEM..]);

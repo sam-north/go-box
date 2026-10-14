@@ -130,6 +130,8 @@ impl Automation {
                 self.code_written = true;
             }
             let leader = app.me == Some(r.leader);
+            // An autopilot that isn't leading readies up, so the leader can start.
+            let ready_up = opts.autopilot && !leader && r.phase == Phase::Lobby && !r.players.iter().any(|p| Some(p.id) == app.me && p.ready);
             if leader && r.phase == Phase::Lobby && r.last_results.is_none() && opts.start_when.is_some_and(|n| r.players.len() >= n) {
                 if opts.solo {
                     for seat in r.players.len()..go_box_sim::sim::N_FIGHTERS {
@@ -137,6 +139,9 @@ impl Automation {
                     }
                 }
                 app.send(ClientMsg::Start);
+            }
+            if ready_up {
+                app.send(ClientMsg::SetReady(true));
             }
         }
         let wanted = opts.shot_when.as_deref().is_none_or(|kind| {
@@ -172,6 +177,7 @@ fn effect_kind(e: &go_box_sim::character::Effect) -> &'static str {
         Effect::Lunge(_) => "judo",
         Effect::Laptop(_) => "laptop",
         Effect::Tornado(_) => "tornado",
+        Effect::Arrow(_) => "arrow",
         Effect::Quake(_) => "quake",
     }
 }
