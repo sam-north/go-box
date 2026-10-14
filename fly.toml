@@ -12,10 +12,11 @@ kill_signal = "SIGTERM"
 kill_timeout = "10s"
 
 [env]
-  # Room for 4 matches at once, 32 connections, 8 per address.
+  # Room for 4 matches at once (each up to 4 players and 8 spectators), 48 connections, 16 per
+  # address (a whole office shares one).
   GO_BOX_MAX_ROOMS = "4"
-  GO_BOX_MAX_CONNECTIONS = "32"
-  GO_BOX_MAX_PER_IP = "8"
+  GO_BOX_MAX_CONNECTIONS = "48"
+  GO_BOX_MAX_PER_IP = "16"
   # Fly's proxy is the only way in, so its client-address header can be trusted.
   GO_BOX_TRUST_PROXY = "1"
   # Only the game's own page may open game connections. Must match the app's address.

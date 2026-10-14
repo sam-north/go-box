@@ -42,6 +42,9 @@ pub const CLOSE_SERVER_FULL: u16 = 4002;
 
 /// Players per room (one per seat). Seats without a player hold a bot or nobody.
 pub const MAX_PLAYERS: usize = N_FIGHTERS;
+/// Everyone a room holds: the players in its seats (the first `MAX_PLAYERS` to join), and the rest
+/// spectating, next in line for a seat.
+pub const MAX_IN_ROOM: usize = 12;
 pub const MAX_NAME_LEN: usize = 16;
 /// Room codes are this many letters from `CODE_ALPHABET`.
 pub const CODE_LEN: usize = 4;
@@ -150,7 +153,7 @@ pub enum Phase {
 pub struct RoomInfo {
     pub code: String,
     pub leader: PlayerId,
-    /// In join order.
+    /// In join order: the first `MAX_PLAYERS` play, the rest spectate.
     pub players: Vec<PlayerInfo>,
     pub arena: ArenaId,
     /// Per seat: what fills it when no player is in it. Players take seats in join order.

@@ -52,7 +52,7 @@ impl Config {
             web: var("GO_BOX_WEB", "web").into(),
             max_rooms: num("GO_BOX_MAX_ROOMS", 16)?,
             max_connections: num("GO_BOX_MAX_CONNECTIONS", 64)?,
-            max_per_ip: num("GO_BOX_MAX_PER_IP", 8)?,
+            max_per_ip: num("GO_BOX_MAX_PER_IP", 16)?,
             origins: var("GO_BOX_ORIGINS", "").split(',').map(|o| o.trim().trim_end_matches('/').to_string()).filter(|o| !o.is_empty()).collect(),
             trust_proxy: var("GO_BOX_TRUST_PROXY", "") == "1",
             create_passphrase: Some(var("GO_BOX_CREATE_PASSPHRASE", "")).filter(|p| !p.is_empty()),

@@ -119,7 +119,13 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
     }
 
     match g.seat() {
-        None => ui.text_centered(t("hud.watching"), sw / 2.0, sh - ui.px(24.0), 24.0, ACCENT),
+        None => {
+            // Past the seats in the room: spectating, waiting for one to free up. Otherwise you just
+            // joined mid-match and play in the next.
+            let place = app.room.as_ref().and_then(|r| r.players.iter().position(|p| Some(p.id) == app.me));
+            let msg = if place.is_some_and(|k| k >= go_box_protocol::MAX_PLAYERS) { t("hud.spectating") } else { t("hud.watching") };
+            ui.text_centered(msg, sw / 2.0, sh - ui.px(24.0), 24.0, ACCENT)
+        }
         Some(s) => {
             let f = &m.f[s];
             if !f.alive() {

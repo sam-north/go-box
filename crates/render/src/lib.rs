@@ -294,14 +294,14 @@ pub fn art(c: Character) -> &'static CharacterArt {
             };
             &ART
         }
-        // Wild grey hair swept back (thin on top), a long goatee, a long black coat; matrix green.
+        // Wild red hair swept back (thin on top), a long goatee, a long black coat; matrix green.
         Character::Vid => {
             const ART: CharacterArt = CharacterArt {
                 color: Some(Color::new(0.30, 0.92, 0.45, 1.0)),
                 body: rgb(22, 24, 24),
                 legs: [rgb(16, 18, 18), rgb(28, 30, 30)],
                 arms: rgb(30, 32, 32),
-                hair: Some(rgb(196, 196, 190)),
+                hair: Some(rgb(178, 70, 38)),
                 headband: false,
                 skin: SKIN,
                 hair_style: HairStyle::Wild,

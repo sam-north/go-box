@@ -4,7 +4,7 @@
 use crate::Hub;
 use crate::conn::Outbox;
 use go_box_protocol::{
-    ClientMsg, MAX_PLAYERS, MatchStart, Phase, PlayerId, PlayerInfo, Refusal, Results, RoomInfo, SNAPSHOT_EVERY, Seat, SeatFill, SeatResult, ServerMsg,
+    ClientMsg, MAX_IN_ROOM, MAX_PLAYERS, MatchStart, Phase, PlayerId, PlayerInfo, Refusal, Results, RoomInfo, SNAPSHOT_EVERY, Seat, SeatFill, SeatResult, ServerMsg,
     Snapshot,
     encode,
 };
@@ -188,7 +188,8 @@ impl Room {
     fn handle(&mut self, cmd: RoomCmd) {
         match cmd {
             RoomCmd::Join(j) => {
-                if self.players.len() >= MAX_PLAYERS {
+                // Past the seats, newcomers spectate (next in line for a seat), up to a limit.
+                if self.players.len() >= MAX_IN_ROOM {
                     let _ = j.reply.send(Err(Refusal::RoomFull));
                     return;
                 }
@@ -490,6 +491,36 @@ mod tests {
         r.step();
         assert!(r.running.is_none(), "over");
         assert!(last_room(&mut a).last_results.is_some(), "with results");
+    }
+
+    #[test]
+    fn past_four_players_newcomers_spectate_and_move_up_when_a_seat_frees() {
+        let mut r = room();
+        let mut rx: Vec<_> = (1..=6).map(|id| join(&mut r, id)).collect();
+        assert_eq!(last_room(&mut rx[0]).players.len(), 6, "six in the room");
+        r.on_msg(1, ClientMsg::Start);
+        let seats = r.running.as_ref().unwrap().seats;
+        assert_eq!(seats, [Some(1), Some(2), Some(3), Some(4)], "the first four play");
+        let start = |rx: &mut mpsc::Receiver<Vec<u8>>| {
+            let mut s = None;
+            while let Ok(bytes) = rx.try_recv() {
+                if let Some(ServerMsg::MatchStart(m)) = decode(&bytes) {
+                    s = Some(m);
+                }
+            }
+            s.expect("a match start")
+        };
+        assert_eq!(start(&mut rx[4]).your_seat, None, "the fifth spectates");
+        r.running.as_mut().unwrap().m.end_now();
+        r.step();
+        // A seated player leaves: the first spectator plays the next match.
+        r.handle(RoomCmd::Leave { id: 2 });
+        r.on_msg(1, ClientMsg::Start);
+        assert!(r.running.as_ref().unwrap().seats.contains(&Some(5)), "the fifth moved up");
+        assert!(!r.running.as_ref().unwrap().seats.contains(&Some(6)));
+        // And the room has a limit.
+        let _more: Vec<_> = (7..=20).map(|id| join(&mut r, id)).collect();
+        assert_eq!(r.players.len(), MAX_IN_ROOM);
     }
 
     #[test]

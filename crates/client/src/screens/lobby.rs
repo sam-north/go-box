@@ -119,8 +119,10 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     ui.text(t("lobby.players"), r.x + pad, y, 20.0, DIM);
     let map_x = r.x + w * 0.55;
     ui.text(t("lobby.arena"), map_x, y, 20.0, DIM);
-    let lines: Vec<String> = room
-        .players
+    // The first MAX_PLAYERS have seats; anyone after them is spectating (listed by the map).
+    let seated = &room.players[..room.players.len().min(MAX_PLAYERS)];
+    let watching = &room.players[seated.len()..];
+    let lines: Vec<String> = seated
         .iter()
         .map(|p| {
             let mut line = p.name.clone();
@@ -136,7 +138,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     // The character column sits just past the longest name line.
     let char_x = r.x + pad + lines.iter().map(|l| ui.text_width(l, 22.0)).fold(ui.px(200.0), f32::max) + ui.px(24.0);
     let mut py = y;
-    for (i, (p, line)) in room.players.iter().zip(&lines).enumerate() {
+    for (i, (p, line)) in seated.iter().zip(&lines).enumerate() {
         py += ui.px(28.0);
         let color = render::look(p.character, i).accent;
         ui.text(line, r.x + pad, py, 22.0, color);
@@ -144,7 +146,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
         ui.text(&format!("{}  {status}", character_name(p.character)), char_x, py, 20.0, if p.ready { ACCENT } else { DIM });
     }
     // Seats without a player: a bot or nobody. The leader picks; down to just you.
-    for seat in room.players.len()..MAX_PLAYERS {
+    for seat in seated.len()..MAX_PLAYERS {
         py += ui.px(28.0);
         let fill = room.fills[seat];
         ui.text(&tf("lobby.seat", &[("n", &(seat + 1).to_string())]), r.x + pad, py, 20.0, DIM);
@@ -178,6 +180,17 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
             ui.text(name, dx, my + ui.px(36.0), 22.0, INK);
         }
         dx += bw + ui.px(8.0);
+    }
+    // Spectators: under the map, next in line for a seat.
+    if !watching.is_empty() {
+        let sy = my + ui.px(76.0);
+        ui.text(t("lobby.spectating"), map_x, sy, 20.0, DIM);
+        let names: Vec<String> = watching.iter().map(|p| if Some(p.id) == app.me { tf("lobby.you_spectating", &[("name", &p.name)]) } else { p.name.clone() }).collect();
+        let mut ly = sy + ui.px(24.0);
+        for line in ui.wrap(&names.join(", "), 18.0, r.x + w - pad - map_x) {
+            ui.text(&line, map_x, ly, 18.0, INK);
+            ly += ui.px(20.0);
+        }
     }
     y = py.max(my + ui.px(46.0)) + ui.px(20.0);
 
@@ -217,8 +230,8 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     let bh = ui.px(48.0);
     let bw = ui.px(220.0);
     let again = room.last_results.is_some();
-    let others = room.players.iter().filter(|p| p.id != room.leader).count();
-    let ready = room.players.iter().filter(|p| p.id != room.leader && p.ready).count();
+    let others = seated.iter().filter(|p| p.id != room.leader).count();
+    let ready = seated.iter().filter(|p| p.id != room.leader && p.ready).count();
     // Exit, quietly, on the left; play (or ready up) on the right, with who's ready beside it.
     let ew = ui.px(140.0);
     if ui.ghost_button(Rect::new(r.x + pad, y, ew, bh), t("lobby.exit"), BAD) {
@@ -235,6 +248,10 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
             let note = format!("{ready}/{others} ready");
             ui.text(&note, note_right - ui.text_width(&note, 20.0), y + bh * 0.62, 20.0, DIM);
         }
+    } else if watching.iter().any(|p| Some(p.id) == app.me) {
+        // Spectating: nothing to ready up for. A seat comes your way when someone leaves.
+        let note = t("lobby.spectator_note");
+        ui.text(note, r.x + w - pad - ui.text_width(note, 18.0), y + bh * 0.62, 18.0, DIM);
     } else {
         let me_ready = room.players.iter().any(|p| Some(p.id) == app.me && p.ready);
         let label = if me_ready { t("lobby.is_ready") } else if again { t("lobby.play_again") } else { t("lobby.ready") };

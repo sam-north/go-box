@@ -171,16 +171,18 @@ async fn refusals() {
 
     a.send(ClientMsg::CreateRoom { passphrase: String::new() }).await;
     let code = a.room().await.code;
+    // Past the four seats people spectate, up to MAX_IN_ROOM; the next is turned away.
     let mut others = Vec::new();
-    for n in 0..3 {
+    for n in 0..MAX_IN_ROOM - 1 {
         let mut c = Client::connect(&url, &format!("P{n}")).await;
         c.send(ClientMsg::JoinRoom { code: code.clone() }).await;
         c.room().await;
         others.push(c);
     }
-    let mut fifth = Client::connect(&url, "Five").await;
+    let mut fifth = Client::connect(&url, "One too many").await;
     fifth.send(ClientMsg::JoinRoom { code }).await;
     assert_eq!(fifth.error().await, Refusal::RoomFull);
+    drop(others);
 
     // Room cap is 2 in this config.
     fifth.send(ClientMsg::CreateRoom { passphrase: String::new() }).await;
