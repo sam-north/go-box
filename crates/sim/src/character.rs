@@ -97,6 +97,11 @@ const CHAIN_TICKS: u32 = 90;
 const PHONE_COOLDOWN: u32 = 20 * SECOND;
 pub const PHONE_TICKS: u32 = 5 * SECOND;
 
+// Vid — The Chosen One: he goes inside the opponent nearest the cursor and drives their body
+// for a few seconds (they're drawn as falling code), then steps back out.
+const CHOSEN_COOLDOWN: u32 = 20 * SECOND;
+pub const RIDE_TICKS: u32 = 3 * SECOND;
+
 // Robert — Forked Lightning: a bolt forks out to every foe in the arena at once (no need to see
 // them), hurting most up close and least far away.
 const LIGHTNING_COOLDOWN: u32 = 25 * SECOND;
@@ -128,6 +133,7 @@ crate::enum_all! {
         Jake,
         Robert,
         Kyle,
+        Vid,
     }
 }
 
@@ -157,6 +163,7 @@ impl Character {
             Character::Jake => &CharacterDef { id: "jake", special: Some(&IntoThePhone) },
             Character::Robert => &CharacterDef { id: "robert", special: Some(&ForkedLightning) },
             Character::Kyle => &CharacterDef { id: "kyle", special: Some(&Organize) },
+            Character::Vid => &CharacterDef { id: "vid", special: Some(&ChosenOne) },
         }
     }
 
@@ -585,6 +592,41 @@ impl Special for Organize {
     }
 }
 
+struct ChosenOne;
+
+impl Special for ChosenOne {
+    fn id(&self) -> &'static str {
+        "chosen_one"
+    }
+    fn cooldown(&self) -> u32 {
+        CHOSEN_COOLDOWN
+    }
+    fn activate(&self, m: &mut Match, who: usize) {
+        // The opponent nearest the cursor (or, without one, nearest him) who isn't already ridden.
+        let near = m.f[who].action.cursor.unwrap_or(m.f[who].center());
+        let target = (0..N_FIGHTERS).filter(|&j| m.foes(who, j) && m.f[j].ridden == 0).min_by(|&a, &b| m.f[a].center().distance(near).total_cmp(&m.f[b].center().distance(near)));
+        let Some(j) = target else { return };
+        if let Some(k) = m.held_item(who) {
+            m.items[k].held_by = None;
+            m.items[k].vel = Vec2::ZERO;
+        }
+        let from = m.f[who].center();
+        let f = &mut m.f[who];
+        f.holding = None;
+        f.atk_timer = 0;
+        f.vel = Vec2::ZERO;
+        f.digital = RIDE_TICKS;
+        f.host = Some(j as u8);
+        m.f[j].ridden = RIDE_TICKS;
+        m.events.push(Event::Matrix { pos: from, out: false });
+        m.events.push(Event::Matrix { pos: m.f[j].center(), out: false });
+    }
+    fn bot_wants(&self, m: &Match, who: usize) -> bool {
+        let me = m.f[who].center();
+        foes(m, who).any(|f| f.center().distance(me) < 180.0)
+    }
+}
+
 struct IntoThePhone;
 
 impl Special for IntoThePhone {
@@ -843,9 +885,40 @@ impl Match {
 
     /// Jake inside his phone goes wherever it goes; when his time's up he comes back out standing
     /// on it (and the phone stays, an ordinary item now).
+    /// Vid inside someone: he goes where their body goes, and when his time's up (or they go
+    /// down) he steps out beside them.
+    fn step_riding(&mut self, i: usize) {
+        let j = self.f[i].host.unwrap_or(0) as usize;
+        let host_ok = self.f[j].present();
+        let f = &mut self.f[i];
+        f.digital = if host_ok { f.digital - 1 } else { 0 };
+        f.vel = Vec2::ZERO;
+        let left = f.digital;
+        self.f[j].ridden = left;
+        let h = &self.f[j];
+        let (hx, hy) = (h.pos.x, h.pos.y);
+        if left > 0 {
+            self.f[i].pos = vec2(hx, hy);
+            return;
+        }
+        // Out beside them, on whichever side has more room.
+        let side = if hx < W / 2.0 { 1.0 } else { -1.0 };
+        let f = &mut self.f[i];
+        let hw = f.half_w();
+        f.pos = vec2((hx + side * 10.0).clamp(crate::sim::WALL + hw, W - crate::sim::WALL - hw), hy);
+        f.host = None;
+        f.grounded = false;
+        let pos = f.center();
+        self.events.push(Event::Matrix { pos, out: true });
+    }
+
     pub(crate) fn step_digital(&mut self) {
         for i in 0..N_FIGHTERS {
             if self.f[i].digital == 0 {
+                continue;
+            }
+            if self.f[i].host.is_some() {
+                self.step_riding(i);
                 continue;
             }
             // A fresh press of left or right hops to the next phone that way (wrapping round): any
@@ -1892,5 +1965,32 @@ mod tests {
         assert_eq!(m.f[0].digital, 0);
         assert!((m.f[0].pos.x - 50.0).abs() < 2.0, "came out of the phone he chose");
         assert_eq!(m.items.iter().filter(|it| it.kind == ItemKind::Phone).count(), 3, "every phone stays");
+    }
+
+    #[test]
+    fn vid_rides_the_opponent_nearest_the_cursor_then_steps_out() {
+        let z = zero_brain();
+        let mut m = staged([Character::Vid, Character::Classic, Character::Classic, Character::Classic], [100.0, 200.0, 300.0, 400.0]);
+        // The cursor is nearest the fighter at 300.
+        let a = Action { special: true, cursor: Some(vec2(290.0, 240.0)), ..Action::default() };
+        m.step_with([&z; N_FIGHTERS], Some((0, a)));
+        assert_eq!(m.f[0].host, Some(2));
+        assert!(m.f[2].ridden > 0 && !m.f[0].present());
+        // Inside, Vid can't be hurt; his input drives their body.
+        m.damage(1, 0, 50.0, Vec2::ZERO, 0, 1.0, Source::Fist, false);
+        assert_eq!(m.f[0].hp, MAX_HP);
+        let x2 = m.f[2].pos.x;
+        let left = Action { mv: -1.0, run: true, ..Action::default() };
+        for _ in 0..SECOND {
+            m.step_with([&z; N_FIGHTERS], Some((0, left)));
+        }
+        assert!(m.f[2].pos.x < x2 - 40.0, "Vid ran their body left: {}", m.f[2].pos.x);
+        assert!((m.f[0].pos.x - m.f[2].pos.x).abs() < 0.5, "he goes where it goes");
+        for _ in 0..RIDE_TICKS {
+            step_idle(&mut m, &z, false);
+        }
+        assert!(m.f[0].present() && m.f[0].host.is_none() && m.f[2].ridden == 0, "out again");
+        let gap = (m.f[0].pos.x - m.f[2].pos.x).abs();
+        assert!(gap > 5.0 && gap < 15.0, "beside them: {gap}");
     }
 }

@@ -40,6 +40,8 @@ const HOLO: Color = Color::new(0.35, 0.95, 1.0, 1.0);
 const PIN: Color = Color::new(0.55, 1.0, 0.75, 1.0);
 const BOLT: Color = Color::new(0.75, 0.85, 1.0, 1.0);
 const HOLO_PINK: Color = Color::new(1.0, 0.45, 0.85, 1.0);
+/// Vid's falling code.
+const CODE: Color = Color::new(0.30, 0.95, 0.42, 1.0);
 /// Fire: the base of the flames, and their tips.
 const FLAME: Color = Color::new(0.80, 0.36, 0.12, 1.0);
 const FLAME_TIP: Color = Color::new(0.95, 0.72, 0.32, 1.0);
@@ -86,6 +88,8 @@ pub struct Look {
     pub hair_style: HairStyle,
     pub beard: bool,
     pub glasses: bool,
+    /// A long goatee hanging off the chin (Vid).
+    pub goatee: bool,
 }
 
 /// How hair is cut (drawn over a bare head).
@@ -101,6 +105,8 @@ pub enum HairStyle {
     Emo,
     /// Shaved to stubble (Robert).
     Shaved,
+    /// Wild and swept back, thin on top (Vid).
+    Wild,
 }
 
 /// How a character looks and sounds: one row per character in `art`.
@@ -117,13 +123,15 @@ pub struct CharacterArt {
     pub hair_style: HairStyle,
     pub beard: bool,
     pub glasses: bool,
+    /// A long goatee hanging off the chin (Vid).
+    pub goatee: bool,
     /// Played when it uses its special (None: the special's own effects make the sound).
     pub special_sound: Option<Sfx>,
 }
 
 pub fn art(c: Character) -> &'static CharacterArt {
     match c {
-        Character::Classic => &CharacterArt { color: None, body: CLOAK, legs: [HOOD, CLOAK], arms: HOOD, hair: None, headband: false, skin: SKIN, hair_style: HairStyle::Short, beard: false, glasses: false, special_sound: None },
+        Character::Classic => &CharacterArt { color: None, body: CLOAK, legs: [HOOD, CLOAK], arms: HOOD, hair: None, headband: false, skin: SKIN, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false, special_sound: None },
         // Brown hair, green-grey jacket; forest green.
         Character::Sam => {
             const ART: CharacterArt = CharacterArt {
@@ -137,6 +145,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 hair_style: HairStyle::Short,
                 beard: false,
                 glasses: false,
+                goatee: false,
                 special_sound: Some(Sfx::GlueShot),
             };
             &ART
@@ -154,6 +163,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 hair_style: HairStyle::Short,
                 beard: false,
                 glasses: false,
+                goatee: false,
                 special_sound: None,
             };
             &ART
@@ -171,6 +181,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 hair_style: HairStyle::Short,
                 beard: false,
                 glasses: false,
+                goatee: false,
                 special_sound: Some(Sfx::Hounds),
             };
             &ART
@@ -188,6 +199,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 hair_style: HairStyle::Short,
                 beard: false,
                 glasses: false,
+                goatee: false,
                 special_sound: Some(Sfx::Split),
             };
             &ART
@@ -205,6 +217,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 hair_style: HairStyle::Long,
                 beard: true,
                 glasses: false,
+                goatee: false,
                 special_sound: Some(Sfx::Meow),
             };
             &ART
@@ -222,6 +235,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 hair_style: HairStyle::OverEars,
                 beard: false,
                 glasses: false,
+                goatee: false,
                 special_sound: Some(Sfx::Serve),
             };
             &ART
@@ -239,6 +253,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 hair_style: HairStyle::Short,
                 beard: false,
                 glasses: true,
+                goatee: false,
                 special_sound: Some(Sfx::ChainThrow),
             };
             &ART
@@ -256,6 +271,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 hair_style: HairStyle::Shaved,
                 beard: false,
                 glasses: false,
+                goatee: false,
                 special_sound: Some(Sfx::Thunder),
             };
             &ART
@@ -273,7 +289,26 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 hair_style: HairStyle::Short,
                 beard: false,
                 glasses: false,
+                goatee: false,
                 special_sound: Some(Sfx::Organize),
+            };
+            &ART
+        }
+        // Wild grey hair swept back (thin on top), a long goatee, a long black coat; matrix green.
+        Character::Vid => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(0.30, 0.92, 0.45, 1.0)),
+                body: rgb(22, 24, 24),
+                legs: [rgb(16, 18, 18), rgb(28, 30, 30)],
+                arms: rgb(30, 32, 32),
+                hair: Some(rgb(196, 196, 190)),
+                headband: false,
+                skin: SKIN,
+                hair_style: HairStyle::Wild,
+                beard: false,
+                glasses: false,
+                goatee: true,
+                special_sound: None,
             };
             &ART
         }
@@ -290,6 +325,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 hair_style: HairStyle::Emo,
                 beard: false,
                 glasses: false,
+                goatee: false,
                 special_sound: None,
             };
             &ART
@@ -305,7 +341,7 @@ pub fn character_color(c: Character) -> Color {
 
 pub fn look(c: Character, seat: usize) -> Look {
     let a = art(c);
-    Look { body: a.body, legs: a.legs, arms: a.arms, hair: a.hair, accent: a.color.unwrap_or(ACCENTS[seat]), headband: a.headband, skin: a.skin, hair_style: a.hair_style, beard: a.beard, glasses: a.glasses }
+    Look { body: a.body, legs: a.legs, arms: a.arms, hair: a.hair, accent: a.color.unwrap_or(ACCENTS[seat]), headband: a.headband, skin: a.skin, hair_style: a.hair_style, beard: a.beard, glasses: a.glasses, goatee: a.goatee }
 }
 
 const fn rgb(r: u8, g: u8, b: u8) -> Color {
@@ -537,8 +573,8 @@ pub struct Art {
     minis: Vec<RenderTarget>,
     /// Recent explosions (position, seconds since) for the flash.
     blasts: Vec<(Vec2, f32, f32)>,
-    /// Jake's hologram beams: (his middle, seconds since, coming out?).
-    holos: Vec<(Vec2, f32, bool)>,
+    /// Jake's hologram beams and Vid's code: (middle, seconds since, coming out?, Vid's code?).
+    holos: Vec<(Vec2, f32, bool, bool)>,
     /// A flag in their colour where each fighter went down (ground position, colour).
     flags: Vec<(Vec2, Color)>,
     time: f32,
@@ -676,8 +712,12 @@ impl Art {
                 Event::Scratch { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 2.0, 3, Color::new(0.95, 0.85, 0.80, 0.9), false, 40.0, 0.15, 200.0);
                 }
+                Event::Matrix { pos, out } => {
+                    self.holos.push((pos, 0.0, out, true));
+                    self.burst(pos, vec2(0.0, 1.0), 1.0, 20, CODE, false, 50.0, 0.5, 60.0);
+                }
                 Event::Hologram { pos, out } => {
-                    self.holos.push((pos, 0.0, out));
+                    self.holos.push((pos, 0.0, out, false));
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 18, HOLO, false, 40.0, 0.5, -20.0);
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 8, HOLO_PINK, false, 30.0, 0.4, -20.0);
                 }
@@ -909,7 +949,11 @@ impl Art {
                 continue;
             }
             let flash = f.hitstun > 0 && (f.hitstun / 2) % 2 == 0;
-            draw_human(&self.vis[i], f, &look(f.character, i), flash);
+            if f.ridden > 0 {
+                draw_ridden(&self.vis[i], f, self.time);
+            } else {
+                draw_human(&self.vis[i], f, &look(f.character, i), flash);
+            }
         }
         for e in &m.effects {
             if let Effect::Lightning(l) = e {
@@ -932,12 +976,16 @@ impl Art {
             }
         }
         // Held rocks/grenades sit in the hand, in front of the body.
-        for it in m.items.iter().filter(|it| it.held_by.is_some() && it.kind != ItemKind::Spear) {
+        for it in m.items.iter().filter(|it| it.held_by.is_some() && !matches!(it.kind, ItemKind::Spear | ItemKind::Sword)) {
             draw_item(it, self.time);
         }
 
-        for &(pos, t, out) in &self.holos {
-            draw_hologram(pos, t, out);
+        for &(pos, t, out, code) in &self.holos {
+            if code {
+                draw_code_burst(pos, t, out, self.time);
+            } else {
+                draw_hologram(pos, t, out);
+            }
         }
         for &(pos, t, r) in &self.blasts {
             let k = 1.0 - t / 0.25;
@@ -1201,7 +1249,12 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
             let px = |dx: f32, dy: f32, w: f32, h: f32, c: Color| draw_rectangle(if s > 0.0 { hx + dx } else { hx + 1.0 - dx - w }, hy + dy, w, h, c);
             draw_circle(head.x, head.y, 2.4, tint(look.skin, flash));
             // Over the top (just a shadow of stubble when shaved).
-            px(-2.0, -3.0, 5.0, if look.hair_style == HairStyle::Shaved { 1.0 } else { 2.0 }, hair);
+            match look.hair_style {
+                // Thin on top: just a wisp.
+                HairStyle::Wild => px(-2.0, -3.0, 3.0, 1.0, hair),
+                HairStyle::Shaved => px(-2.0, -3.0, 5.0, 1.0, hair),
+                _ => px(-2.0, -3.0, 5.0, 2.0, hair),
+            }
             match look.hair_style {
                 HairStyle::Short => px(-3.0, -2.0, 2.0, 3.0, hair),
                 HairStyle::Long => {
@@ -1214,6 +1267,13 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
                     px(2.0, -2.0, 1.0, 1.0, hair);
                 }
                 HairStyle::Shaved => {}
+                HairStyle::Wild => {
+                    px(-4.0, -3.0, 2.0, 3.0, hair);
+                    px(-5.0, -4.0, 2.0, 1.0, hair);
+                    px(-5.0, -1.0, 1.0, 2.0, hair);
+                    px(-3.0, 0.0, 2.0, 2.0, hair);
+                    px(1.0, -4.0, 1.0, 1.0, hair);
+                }
                 HairStyle::Emo => {
                     px(-3.0, -3.0, 6.0, 1.0, hair);
                     px(-3.0, -2.0, 2.0, 4.0, hair);
@@ -1221,6 +1281,10 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
                     px(-1.0, -2.0, 4.0, 2.0, hair);
                     px(2.0, 0.0, 1.0, 1.0, hair);
                 }
+            }
+            if look.goatee {
+                px(1.0, 2.0, 2.0, 2.0, hair);
+                px(1.0, 4.0, 1.0, 2.0, hair);
             }
             if look.beard {
                 px(-1.0, 1.0, 4.0, 2.0, hair);
@@ -1338,6 +1402,48 @@ fn draw_order(o: &Order, kyle: &Fighter, time: f32) {
         draw_rectangle((p.x - 1.0).round(), (p.y - 1.0).round(), 2.0, 2.0, Color::new(1.0, 1.0, 1.0, fade));
         draw_rectangle_lines((p.x - 2.0).round(), (p.y - 2.0).round(), 4.0, 4.0, 1.0, Color::new(PIN.r, PIN.g, PIN.b, fade));
     }
+}
+
+/// Someone Vid is riding: a black silhouette of them with green 0s and 1s raining down through
+/// it, bright at the head of each stream.
+fn draw_ridden(v: &FighterVis, f: &Fighter, time: f32) {
+    let black = Color::new(0.02, 0.03, 0.02, 1.0);
+    let dark = Look { body: black, legs: [black, black], arms: black, hair: Some(black), accent: Color::new(0.05, 0.25, 0.08, 1.0), headband: false, skin: black, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false };
+    draw_human(v, f, &dark, false);
+    let (x0, top, h) = (f.pos.x.round() - 3.0, (f.pos.y - f.height()).round() - 1.0, f.height() + 1.0);
+    for col in 0..4 {
+        let x = x0 + col as f32 * 2.0;
+        let head = (time * 18.0 + col as f32 * 5.3) % (h + 6.0);
+        for k in 0..5 {
+            let y = head - k as f32 * 3.0;
+            if y < 0.0 || y > h - 1.0 {
+                continue;
+            }
+            let c = if k == 0 { Color::new(0.75, 1.0, 0.80, 1.0) } else { Color::new(CODE.r, CODE.g, CODE.b, 1.0 - k as f32 * 0.18) };
+            // A "1" is a short stroke, a "0" a little block.
+            if hash(col, (time * 6.0) as i32 + k, 33) < 0.5 {
+                draw_rectangle(x, top + y, 1.0, 2.0, c);
+            } else {
+                draw_rectangle(x, top + y, 2.0, 2.0, c);
+            }
+        }
+    }
+}
+
+/// Vid going into (or out of) someone: a column of green code, collapsing in or opening out.
+fn draw_code_burst(c: Vec2, t: f32, out: bool, time: f32) {
+    let k = (t / HOLO_SECS).clamp(0.0, 1.0);
+    let open = if out { k } else { 1.0 - k };
+    let fade = if out { 1.0 - k } else { 1.0 };
+    for col in -3..=3 {
+        let x = c.x + col as f32 * 2.0 * open.max(0.15);
+        for row in 0..6 {
+            let y = c.y - 9.0 + ((row as f32 * 3.0 + time * 40.0 + col as f32 * 7.0) % 18.0);
+            let a = (0.9 - row as f32 * 0.12) * fade;
+            draw_rectangle(x.round(), y.round(), 1.0, 2.0, Color::new(CODE.r, CODE.g, CODE.b, a));
+        }
+    }
+    draw_circle(c.x, c.y, 10.0 * open + 2.0, Color::new(CODE.r, CODE.g, CODE.b, 0.12 * fade));
 }
 
 /// Jake breaking up into (or coming back out of) light: a stack of flickering scan lines the

@@ -60,6 +60,8 @@ go_box_sim::enum_all! {
         Radio,
         Jet,
         Whistle,
+        Possess,
+        Release,
         Start,
         Win,
         Lose,
@@ -296,6 +298,22 @@ impl Sfx {
             }
             // A bomb falling: the classic descending whistle.
             Sfx::Whistle => s.tone(0.0, 1.0, 1900.0, 650.0, Wave::Sine, 0.05, 1.2, 0.16),
+            // Vid diving into someone: a deep, warping bass drop under a rush of glitchy blips...
+            Sfx::Possess => {
+                s.tone(0.0, 0.45, 160.0, 45.0, Wave::Sine, 0.005, 5.0, 0.55);
+                s.swell(0.0, 0.3, 4000.0, 300.0, 0.25);
+                for (k, f) in [1760.0, 1320.0, 2093.0, 990.0, 1568.0].into_iter().enumerate() {
+                    s.tone(k as f32 * 0.035, 0.03, f, f, Wave::Square, 0.001, 50.0, 0.08);
+                }
+            }
+            // ...and stepping back out: the same, rising.
+            Sfx::Release => {
+                s.tone(0.0, 0.4, 50.0, 170.0, Wave::Sine, 0.01, 5.0, 0.45);
+                s.swell(0.0, 0.3, 300.0, 4000.0, 0.22);
+                for (k, f) in [990.0, 1568.0, 1320.0, 2093.0, 1760.0].into_iter().enumerate() {
+                    s.tone(0.1 + k as f32 * 0.035, 0.03, f, f, Wave::Square, 0.001, 50.0, 0.08);
+                }
+            }
             Sfx::Start => {
                 s.tone(0.0, 0.12, 440.0, 440.0, Wave::Square, 0.003, 10.0, 0.14);
                 s.tone(0.16, 0.3, 660.0, 660.0, Wave::Square, 0.003, 6.0, 0.16);
@@ -574,6 +592,7 @@ impl Sounds {
                 Event::BombDrop { pos } => self.at(Sfx::Whistle, pos, ear, 0.8),
                 Event::Zap { pos } => self.at(Sfx::Zap, pos, ear, 0.8),
                 Event::Hologram { pos, out } => self.at(if out { Sfx::Materialize } else { Sfx::Digitize }, pos, ear, 1.0),
+                Event::Matrix { pos, out } => self.at(if out { Sfx::Release } else { Sfx::Possess }, pos, ear, 1.0),
                 Event::Clatter { pos, kind } => {
                     let s = match kind {
                         ItemKind::Rock => Sfx::ClatterRock,

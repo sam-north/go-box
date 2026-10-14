@@ -96,9 +96,9 @@ const OWN_GRACE: u32 = 15;
 // Items lying around.
 const START_SPEARS: usize = 2;
 const START_ROCKS: usize = 1;
-const START_GRENADES: usize = 4;
-const ITEM_SPAWN_EVERY: Range<u32> = secs(4)..secs(7);
-const MAX_LOOSE_ITEMS: usize = 12;
+const START_GRENADES: usize = 5;
+const ITEM_SPAWN_EVERY: Range<u32> = secs(2)..secs(4);
+const MAX_LOOSE_ITEMS: usize = 18;
 
 // Health pickups: restore half your health; rare and on a reachable surface.
 pub const HEAL_AMOUNT: f32 = 50.0;
@@ -243,6 +243,10 @@ pub struct Fighter {
     /// Jake inside his phone: ticks until he comes back out (0 = he's here as normal). Meanwhile
     /// he can't act or be hurt, and his position follows the phone.
     pub digital: u32,
+    /// Vid inside someone: whose body he's riding (while `digital` counts down).
+    pub host: Option<u8>,
+    /// Ridden by Vid: ticks left (his input drives this body, and it's drawn as falling code).
+    pub ridden: u32,
     /// Pinned in place by Kyle: ticks left. Can't move or jump (can still swing and throw).
     pub pinned: u32,
     /// Running faster (Tyler, while his dogs are out): ticks left.
@@ -289,6 +293,8 @@ impl Fighter {
             owner: None,
             life: None,
             digital: 0,
+            host: None,
+            ridden: 0,
             pinned: 0,
             haste: 0,
             slowed: 0,
@@ -448,6 +454,8 @@ pub enum Event {
     BombDrop { pos: Vec2 },
     /// Jake going into his phone (`out`: false) or coming back out of it, at his middle.
     Hologram { pos: Vec2, out: bool },
+    /// Vid going into someone (`out`: false) or stepping back out of them, at his middle.
+    Matrix { pos: Vec2, out: bool },
     /// Robert's lightning striking someone.
     Zap { pos: Vec2 },
     /// A thrown item hitting terrain hard.
@@ -891,6 +899,20 @@ impl Match {
             self.f[i].action = actions[i];
         }
 
+        // 1b. Vid inside someone: his input drives their body (theirs is ignored). A bot Vid just
+        // walks them off in a line, hopping, throwing away whatever they hold.
+        for i in 0..N_FIGHTERS {
+            let Some(j) = self.f[i].host.map(|j| j as usize).filter(|_| self.f[i].digital > 0) else { continue };
+            let a = if humans.get(i).copied().flatten().is_some() {
+                actions[i]
+            } else {
+                Action { mv: self.f[j].facing, run: true, jump: self.tick % 30 < 3, throw: true, ..Action::default() }
+            };
+            actions[j] = a;
+            self.f[j].action = a;
+            actions[i] = Action::default();
+        }
+
         // 2. Move.
         let props = props(&self.effects);
         for i in 0..N_BODIES {
@@ -1303,7 +1325,8 @@ impl Match {
 /// immediately, and the server's snapshots correct it. Its jumps and swings go in `events`.
 /// `props` are the tables in the arena (`props(&view.effects)`).
 pub fn predict(arena: &Arena, props: &[Aabb], f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
-    if f.absent || f.digital > 0 {
+    // (Ridden by Vid, your body isn't yours to predict: the server's word goes.)
+    if f.absent || f.digital > 0 || f.ridden > 0 {
         return;
     }
     control(f, who, a, wall_side(f, props), events);
@@ -1586,9 +1609,9 @@ mod tests {
         }
         assert_eq!(h, CLASSIC_HASH, "classic match fingerprint changed: {h:#018x}");
     }
-    // Last deliberately changed by more Molotovs, launchers and air strikes. It must
+    // Last deliberately changed by items spawning twice as often. It must
     // come out the same on 32-bit targets too: `cargo test -p go-box-sim --target i686-pc-windows-msvc`.
-    const CLASSIC_HASH: u64 = 0xf5de_0d8d_a57a_c357;
+    const CLASSIC_HASH: u64 = 0x528f_7d0d_9533_0898;
 
     /// Everyone on the floor, nothing lying around, nobody thinking (all-zero brains stand still).
     fn quiet_match() -> (Match, Brain) {

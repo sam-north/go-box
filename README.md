@@ -53,6 +53,7 @@ Everyone has the same body; each character adds one special on a cooldown.
 | Jake | **Into the Phone**: turns into light and hides inside his phone for 5s, which drops from his head; meanwhile he can't act or be hurt, and anyone can grab and throw the phone (it hits like a rock). Then he pops back out standing on wherever it went, and the phone stays as an ordinary item. Every phone stays all match: while inside, left/right hops him to the next phone that way (any Jake's, if it's free), marked by a chevron, and he comes out of whichever he's in | 20s |
 | Robert | **Forked Lightning**: a forked bolt strikes every opponent in the arena at once (no line of sight needed): 30 up close, falling off to 5 at 300px and beyond | 25s |
 | Kyle | **Organize**: pins every opponent exactly where they are (even in mid-air) for 3s, with a glow at their feet; they can still swing and throw, just not move or jump | 20s |
+| Vid | **The Chosen One**: goes inside the opponent nearest the mouse cursor (for bots, nearest him) and drives their body for 3s, while it's drawn as a silhouette of falling green code; he can't be hurt meanwhile, then steps back out beside them | 20s |
 
 Bots playing a character use its special by a simple rule (the brains never trained with
 specials), and never during the protected start: Sam fires the glue at someone ahead of him, near his level; Austin pops away from incoming projectiles, grenades
@@ -124,10 +125,10 @@ a jump or down from a ledge. Thrown items land where they stop and can be picked
 grenade's fuse (1s) lights when thrown; a live one can be grabbed and thrown back. A fighter who dies
 holding a grenade drops it armed: it goes off half a second later.
 
-Items: 4 grenades, 2 spears and one rock at the start (the only rock all match, a nod to how the game
-began); a new item appears every 4-7s: a Molotov (26%), a grenade (24%, while there are fewer than
-eight), a rocket launcher (17%, at most six a match), an air-strike radio (13%, at most four), a
-giant sword (10%) or a spear (10%). A **rocket launcher** fires one homing rocket (it curves
+Items: 5 grenades, 2 spears and one rock at the start (the only rock all match, a nod to how the game
+began); a new item appears every 2-4s: a grenade (28%, while there are fewer than ten), a Molotov
+(27%), a rocket launcher (17%, at most eight a match), a giant sword (12%), a spear (9%) or an
+air-strike radio (7%, at most four). A **rocket launcher** fires one homing rocket (it curves
 toward the nearest opponent and explodes for up to 60), then it's spent. The **giant sword** slashes
 in a wide arc (22, reach 19) and flies tip first when thrown (32). A **Molotov** shatters on whatever
 it hits and sets the surface below burning for 4s (5 every half second to anyone standing in it, the
