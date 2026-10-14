@@ -39,12 +39,14 @@ const POPUP_DISTANCE: f32 = 160.0;
 const POPUP_MIN_AHEAD: f32 = 24.0;
 
 // Seth — Mini Me: summons smaller (70%) clones of himself that fight on his side with the bot brain,
-// pick things up and throw them like anyone, and go down to a single hit.
+// pick things up and throw them like anyone, and have 30% of a fighter's health.
 const MINI_COOLDOWN: u32 = 30 * SECOND;
 const MINIS_PER_USE: usize = 2;
 /// How long a mini lasts (if nothing hits it first; and it goes when Seth does).
 const MINI_LIFE: u32 = 15 * SECOND;
 pub const MINI_SCALE: f32 = 0.7;
+/// A mini's health (a full fighter has MAX_HP, 100).
+pub const MINI_HP: f32 = 30.0;
 
 // Tyler — Release the Hounds.
 const HOUNDS_COOLDOWN: u32 = 30 * SECOND;
@@ -71,6 +73,71 @@ const PET_HOP_CHANCE: f64 = 0.04;
 /// How high a ledge they'll leap for, and how far ahead they look for one.
 const PET_HOP_HEIGHT: f32 = 44.0;
 const PET_HOP_AHEAD: f32 = 36.0;
+/// The highest a pet leaps up after something it's going for (a cat to sushi on a table, a
+/// spider to someone on a ledge).
+const PET_LEAP_MAX: f32 = 64.0;
+
+// Carrie — Bug Report: she opens her laptop and bugs pour out every which way: spiders that run
+// along the floors and horseflies that fly. After a moment's scatter each one hunts down the
+// nearest foe, bites them a couple of times, and is done.
+const BUGS_COOLDOWN: u32 = 30 * SECOND;
+const BUGS: usize = 14;
+const BUG_TICKS: u32 = 7 * SECOND;
+/// How long they scatter outward before they start hunting.
+const BUG_SCATTER: u32 = SECOND * 2 / 5;
+/// Both well under a fighter's full run (150): they catch you standing or walking, but you can
+/// outrun them.
+const SPIDER_SPEED: f32 = 105.0;
+/// How hard a spider is flung out of the laptop (up, or down, as the case may be).
+const SPIDER_LAUNCH: f32 = 230.0;
+const FLY_SPEED: f32 = 85.0;
+const FLY_LAUNCH: f32 = 170.0;
+/// How sharply a fly can change course (px/s²), and how much it buzzes about on the way.
+const FLY_ACCEL: f32 = 420.0;
+const FLY_WOBBLE: f32 = 35.0;
+const BUG_BITE: f32 = 3.0;
+const BUG_BITES: u8 = 2;
+const BUG_BITE_EVERY: u32 = SECOND / 2;
+/// How long she's seen with the laptop open.
+pub const LAPTOP_TICKS: u32 = SECOND;
+
+// Matt — Skate Strike: he drops a skateboard and shoots off along it, fast and far, the way he
+// faces, hitting everyone he goes through. He can do it pinned by Kyle or ridden by Vid, and it
+// frees him (only him: whoever he hits stays however they were).
+const SKATE_COOLDOWN: u32 = 8 * SECOND;
+pub const SKATE_SPEED: f32 = 520.0;
+/// How long the run lasts (so about 200px).
+const SKATE_TICKS: u32 = SECOND * 2 / 5;
+const SKATE_DAMAGE: f32 = 14.0;
+
+// Zack — Twin Tornadoes: two tornadoes spin up either side of him, each a column from the floor
+// to the ceiling, and wander off outward for a few seconds. Each pulls everyone (Zack too)
+// and every loose item toward it like gravity, at any height; get into the column and you're
+// carried up it and flung out near the top, the way it spins. Rocks, spears and swords whipped
+// round in it hurt whoever they hit (except Zack's side).
+const TORNADO_COOLDOWN: u32 = 25 * SECOND;
+pub const TORNADO_TICKS: u32 = 5 * SECOND;
+/// Where they spin up (either side of him) and how fast they wander outward (px/s).
+const TORNADO_SPAWN: f32 = 45.0;
+const TORNADO_DRIFT: f32 = 25.0;
+/// How far either side of the column the pull reaches, and how hard it drags you at its
+/// strongest (px/s, whatever you're doing: a full run gets you away).
+pub const TORNADO_R: f32 = 80.0;
+const TORNADO_PULL: f32 = 125.0;
+/// How close to the column's middle you have to get to be carried up it.
+const FUNNEL_HALF: f32 = 8.0;
+/// How fast it carries you up, how near the ceiling it flings you out, and how hard.
+const TORNADO_LIFT: f32 = 90.0;
+const TORNADO_TOP: f32 = 40.0;
+const TORNADO_FLING: f32 = 260.0;
+/// Loose items within this of the vortex low in the column (see `Tornado::core`) are pulled in
+/// (px/s²) and spun round it, up to a top speed.
+const ITEM_VORTEX_R: f32 = 100.0;
+const ITEM_PULL: f32 = 520.0;
+const ITEM_SWIRL: f32 = 620.0;
+const ITEM_WHIRL_MAX: f32 = 230.0;
+/// What something whipped round by a tornado does, compared with being thrown.
+pub const WHIRLED_HIT: f32 = 0.5;
 
 // Justin — Sushi Table: a table drops in front of him (onto him, if he's facing a wall) and
 // serves sushi to throw. It's solid from the sides and on top, never from below (see
@@ -136,6 +203,9 @@ const LUNGE_TICKS: u32 = 6;
 /// The throw: up and over, the way he faces (px/s).
 const JUDO_THROW: Vec2 = vec2(240.0, -230.0);
 const JUDO_DAMAGE: f32 = 12.0;
+/// Anyone the thrown body flies into is knocked down too (and gets up just as slowly), taking this
+/// as they hit the ground.
+const JUDO_BOWL_DAMAGE: f32 = 6.0;
 /// Down on the ground after landing, getting up.
 pub const JUDO_DOWN: u32 = SECOND;
 /// If they somehow never land (pinned in mid-air), they count as landed after this long.
@@ -180,6 +250,9 @@ crate::enum_all! {
         Vid,
         Doug,
         Travis,
+        Carrie,
+        Matt,
+        Zack,
     }
 }
 
@@ -212,6 +285,9 @@ impl Character {
             Character::Vid => &CharacterDef { id: "vid", special: Some(&ChosenOne) },
             Character::Doug => &CharacterDef { id: "doug", special: Some(&JudoThrow) },
             Character::Travis => &CharacterDef { id: "travis", special: Some(&LegDay) },
+            Character::Carrie => &CharacterDef { id: "carrie", special: Some(&BugReport) },
+            Character::Matt => &CharacterDef { id: "matt", special: Some(&SkateStrike) },
+            Character::Zack => &CharacterDef { id: "zack", special: Some(&TwinTornadoes) },
         }
     }
 
@@ -233,6 +309,11 @@ pub trait Special: Sync {
     fn activate(&self, m: &mut Match, who: usize);
     /// When a bot fires it: brains were never trained with specials, so a simple rule decides.
     fn bot_wants(&self, m: &Match, who: usize) -> bool;
+    /// It can be used while pinned by Kyle, ridden by Vid or carried up a tornado, and frees you
+    /// (Matt's).
+    fn breaks_free(&self) -> bool {
+        false
+    }
 }
 
 /// Living opponents of `who` (not its own minis or summoner), in no particular order.
@@ -404,7 +485,7 @@ impl Special for MiniMe {
             // A little hop out in front, so they spread out.
             mini.vel = vec2(seth.facing * (40.0 + 40.0 * k as f32), -160.0);
             mini.grounded = false;
-            mini.hp = 1.0;
+            mini.hp = MINI_HP;
             mini.scale = MINI_SCALE;
             mini.owner = Some(who);
             mini.life = Some(MINI_LIFE);
@@ -741,7 +822,145 @@ fn judo_throw(m: &mut Match, who: usize, j: usize) {
     v.vel = vec2(dir * JUDO_THROW.x, JUDO_THROW.y);
     v.grounded = false;
     v.hitstun = 2;
-    m.effects.push(Effect::Judo(Judo { at: v.center(), owner: who, victim: j, dir, flown: 0, down: 0, ticks: JUDO_MAX_FLIGHT + JUDO_DOWN }));
+    m.effects.push(Effect::Judo(Judo { at: v.center(), owner: who, victim: j, dir, flown: 0, down: 0, ticks: JUDO_MAX_FLIGHT + JUDO_DOWN, damage: JUDO_DAMAGE, bowls: true, bowled: 1 << j }));
+}
+
+struct TwinTornadoes;
+
+impl Special for TwinTornadoes {
+    fn id(&self) -> &'static str {
+        "twin_tornadoes"
+    }
+    fn cooldown(&self) -> u32 {
+        TORNADO_COOLDOWN
+    }
+    fn activate(&self, m: &mut Match, who: usize) {
+        let f = &m.f[who];
+        // One each side, wandering off outward, each spinning so it flings people further out.
+        for side in [-1.0, 1.0] {
+            let x = (f.pos.x + side * TORNADO_SPAWN).clamp(crate::sim::WALL + 12.0, W - crate::sim::WALL - 12.0);
+            let t = Tornado { at: vec2(x, crate::sim::FLOOR_Y), dir: side, spin: side, owner: who, ticks: TORNADO_TICKS };
+            m.events.push(Event::Poof { pos: t.core() });
+            m.effects.push(Effect::Tornado(t));
+        }
+    }
+    /// Anyone (at any height) within a tornado's reach of where they'd start.
+    fn bot_wants(&self, m: &Match, who: usize) -> bool {
+        let me = m.f[who].pos;
+        foes(m, who).any(|f| (f.pos.x - me.x).abs() < TORNADO_SPAWN + TORNADO_R * 0.6)
+    }
+}
+
+/// One of Zack's tornadoes: a column from the floor to the ceiling, wandering slowly.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Tornado {
+    /// The bottom of the column, on the floor (it reaches all the way up to the ceiling).
+    pub at: Vec2,
+    /// Which way it wanders, and which way it spins (1: flings people to the right).
+    pub dir: f32,
+    pub spin: f32,
+    pub owner: usize,
+    pub ticks: u32,
+}
+
+impl Tornado {
+    /// Low in the column: the vortex loose items swirl round (and where it shows as a threat).
+    pub fn core(&self) -> Vec2 {
+        self.at - vec2(0.0, 50.0)
+    }
+}
+
+struct SkateStrike;
+
+impl Special for SkateStrike {
+    fn id(&self) -> &'static str {
+        "skate_strike"
+    }
+    fn cooldown(&self) -> u32 {
+        SKATE_COOLDOWN
+    }
+    fn activate(&self, m: &mut Match, who: usize) {
+        // Free of Kyle's pin, and of Vid (who steps out next tick).
+        m.f[who].pinned = 0;
+        if m.f[who].ridden > 0 {
+            for i in 0..N_FIGHTERS {
+                if m.f[i].host == Some(who as u8) && m.f[i].digital > 0 {
+                    m.f[i].digital = 1;
+                }
+            }
+        }
+        let f = &mut m.f[who];
+        f.skate = SKATE_TICKS;
+        f.skate_hit = 0;
+        // Out of a tornado's grip, too.
+        f.hitstun = 0;
+        f.caught = 0;
+        f.dash_t = 0;
+    }
+    /// Someone on his level ahead, in range of the run; or he's held and wants out.
+    fn bot_wants(&self, m: &Match, who: usize) -> bool {
+        let me = &m.f[who];
+        let held = me.pinned > 0 || me.ridden > 0 || me.caught > 0;
+        held || foes(m, who).any(|f| {
+            let dx = (f.pos.x - me.pos.x) * me.facing;
+            (f.center().y - me.center().y).abs() < 8.0 && dx > 0.0 && dx < 180.0
+        })
+    }
+    fn breaks_free(&self) -> bool {
+        true
+    }
+}
+
+struct BugReport;
+
+impl Special for BugReport {
+    fn id(&self) -> &'static str {
+        "bug_report"
+    }
+    fn cooldown(&self) -> u32 {
+        BUGS_COOLDOWN
+    }
+    fn activate(&self, m: &mut Match, who: usize) {
+        let f = &m.f[who];
+        let at = laptop_at(f);
+        // Out of the laptop in a ring, every direction at once: spiders and flies in turn.
+        for k in 0..BUGS {
+            let a = (k as f32 + 0.5) / BUGS as f32 * std::f32::consts::TAU;
+            let (c, s) = (libm::cosf(a), libm::sinf(a));
+            let dir = if c >= 0.0 { 1.0 } else { -1.0 };
+            let mut bug = if k % 2 == 0 {
+                // (Flung straight up or down, a spider barely goes sideways at first.)
+                let mut b = Pet::new(Breed::Spider(k as u8), at, dir, SPIDER_SPEED * c.abs().max(0.15), who, BUG_TICKS);
+                b.vy = s * SPIDER_LAUNCH;
+                b
+            } else {
+                let mut b = Pet::new(Breed::Fly(k as u8), at, dir, FLY_SPEED, who, BUG_TICKS);
+                (b.vx, b.vy) = (c * FLY_LAUNCH, s * FLY_LAUNCH);
+                b
+            };
+            bug.bites = Some(BUG_BITES);
+            m.effects.push(Effect::Pet(bug));
+        }
+        m.effects.push(Effect::Laptop(Laptop { at, owner: who, ticks: LAPTOP_TICKS }));
+    }
+    /// Someone close enough for the swarm to reach.
+    fn bot_wants(&self, m: &Match, who: usize) -> bool {
+        let me = m.f[who].pos;
+        foes(m, who).any(|f| f.pos.distance(me) < 220.0)
+    }
+}
+
+/// Where Carrie holds her laptop: out in front of her, at chest height (the bottom of it).
+pub fn laptop_at(f: &Fighter) -> Vec2 {
+    vec2(f.pos.x + f.facing * 5.0 * f.scale, f.pos.y - 6.0 * f.scale)
+}
+
+/// Carrie's laptop, open in her hands for a moment.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Laptop {
+    pub at: Vec2,
+    pub owner: usize,
+    pub ticks: u32,
 }
 
 /// Doug lunging into a grab: the first foe in his hands while it lasts is thrown.
@@ -805,6 +1024,15 @@ pub struct Judo {
     /// Landed: ticks left lying there (0 while still in the air).
     pub down: u32,
     pub ticks: u32,
+    /// What the landing does to them.
+    #[serde(skip)]
+    pub damage: f32,
+    /// Thrown by Doug (not just bowled over by someone he threw): knocks down whoever it hits.
+    #[serde(skip)]
+    pub bowls: bool,
+    /// Who this throw has already knocked down (a bit per body).
+    #[serde(skip)]
+    pub bowled: u8,
 }
 
 impl Judo {
@@ -983,6 +1211,10 @@ pub enum Breed {
     Hound,
     /// One of Corwin's cats (the number picks its coat).
     Cat(u8),
+    /// One of Carrie's bugs: one that crawls (a spider) or flies (a horsefly). The number varies
+    /// how it moves.
+    Spider(u8),
+    Fly(u8),
 }
 
 impl Breed {
@@ -991,12 +1223,14 @@ impl Breed {
         match self {
             Breed::Hound => (3.0, 5.0),
             Breed::Cat(_) => (2.0, 4.0),
+            Breed::Spider(_) => (2.0, 2.0),
+            Breed::Fly(_) => (1.5, 2.0),
         }
     }
 }
 
-/// One of Tyler's dogs or Corwin's cats: runs along floors, turns at walls, and bites (or
-/// scratches) anyone not on its owner's side.
+/// One of Tyler's dogs, Corwin's cats or Carrie's bugs: runs along floors (or flies), and bites
+/// (or scratches) anyone not on its owner's side.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Pet {
     pub breed: Breed,
@@ -1005,8 +1239,12 @@ pub struct Pet {
     pub dir: f32,
     pub speed: f32,
     pub vy: f32,
+    /// A fly's sideways speed (the rest run at `speed` the way they face).
+    pub vx: f32,
     pub owner: usize,
     pub ticks: u32,
+    /// A bug: bites left before it's done (None: as many as it likes while it lasts).
+    pub bites: Option<u8>,
     /// A cat that's found sushi and is sitting eating it (it's forgotten about fighting).
     pub eating: bool,
     #[serde(skip)]
@@ -1015,7 +1253,7 @@ pub struct Pet {
 
 impl Pet {
     fn new(breed: Breed, pos: Vec2, dir: f32, speed: f32, owner: usize, ticks: u32) -> Self {
-        Self { breed, pos, dir, speed, vy: 0.0, owner, ticks, eating: false, bite_cd: [0; N_BODIES] }
+        Self { breed, pos, dir, speed, vy: 0.0, vx: 0.0, owner, ticks, bites: None, eating: false, bite_cd: [0; N_BODIES] }
     }
     pub fn body(&self) -> Aabb {
         let (hw, h) = self.breed.size();
@@ -1161,6 +1399,8 @@ impl Match {
                 Effect::AirBomb(b) => self.step_air_bomb(b),
                 Effect::Judo(j) => self.step_judo(j),
                 Effect::Lunge(l) => self.step_lunge(l),
+                Effect::Laptop(l) => self.step_laptop(l),
+                Effect::Tornado(t) => self.step_tornado(t),
                 Effect::Quake(q) => q.ticks = q.ticks.saturating_sub(1),
             }
             self.effects[e] = effect;
@@ -1183,10 +1423,27 @@ impl Match {
                 .filter(|it| (it.pos.x - pet.pos.x).abs() < CAT_SNIFF && (-45.0..8.0).contains(&(it.pos.y - pet.pos.y)))
                 .min_by(|a, b| a.pos.distance(pet.pos).total_cmp(&b.pos.distance(pet.pos)))
                 .map(|it| vec2(it.pos.x + ((k % 7) as f32 - 3.0) * 1.5, it.pos.y + crate::sim::ITEM_R)),
-            Breed::Hound => None,
+            Breed::Hound | Breed::Spider(_) | Breed::Fly(_) => None,
         };
-        let hop = goal.is_none() && pet.vy == 0.0 && self.chance(PET_HOP_CHANCE);
-        run_pet(pet, self.arena(), &props(&self.effects), goal, hop);
+        // Carrie's bugs scatter every which way out of the laptop, then each hunts down whoever is
+        // nearest: a spider runs after them (leaping up to a ledge they're on), a fly makes a
+        // beeline, buzzing about as it goes.
+        let bug = matches!(pet.breed, Breed::Spider(_) | Breed::Fly(_));
+        let hunting = bug && BUG_TICKS - pet.ticks.min(BUG_TICKS) >= BUG_SCATTER;
+        let prey = (0..N_BODIES).filter(|&j| hunting && self.foes(pet.owner, j)).map(|j| self.f[j].pos).min_by(|a, b| a.distance(pet.pos).total_cmp(&b.distance(pet.pos)));
+        match pet.breed {
+            Breed::Fly(k) => fly_bug(pet, prey.map(|p| p - vec2(0.0, 7.0)), k, self.tick),
+            Breed::Spider(_) => {
+                if hunting {
+                    pet.speed = SPIDER_SPEED;
+                }
+                run_pet(pet, self.arena(), &props(&self.effects), prey, false);
+            }
+            _ => {
+                let hop = goal.is_none() && pet.vy == 0.0 && self.chance(PET_HOP_CHANCE);
+                run_pet(pet, self.arena(), &props(&self.effects), goal, hop);
+            }
+        }
         if goal.is_some() {
             pet.bite_cd.iter_mut().for_each(|t| *t = t.saturating_sub(1));
             pet.ticks -= 1;
@@ -1211,10 +1468,23 @@ impl Match {
                     let v = self.f[j].vel;
                     self.damage(owner, j, SCRATCH_DAMAGE, vec2(v.x + dir * 25.0, v.y.min(-30.0)), 0, dir, Source::Special, false);
                 }
+                // A bug's bite is light too, and it only has a few in it: then it's done.
+                Breed::Spider(_) | Breed::Fly(_) => {
+                    pet.bite_cd[j] = BUG_BITE_EVERY;
+                    self.events.push(Event::Scratch { pos });
+                    let v = self.f[j].vel;
+                    self.damage(owner, j, BUG_BITE, vec2(v.x + dir * 20.0, v.y.min(-30.0)), 0, dir, Source::Special, false);
+                    let left = pet.bites.unwrap_or(1).saturating_sub(1);
+                    pet.bites = Some(left);
+                    if left == 0 {
+                        pet.ticks = 0;
+                        return;
+                    }
+                }
             }
         }
         pet.bite_cd.iter_mut().for_each(|t| *t = t.saturating_sub(1));
-        pet.ticks -= 1;
+        pet.ticks = pet.ticks.saturating_sub(1);
     }
 
     fn step_chain(&mut self, c: &mut Chain) {
@@ -1274,6 +1544,95 @@ impl Match {
         }
     }
 
+    /// A tornado wanders (turning back at the walls) and pulls at everything in reach, at any
+    /// height: everyone (Zack too) is dragged toward it, carried up it if they get into it,
+    /// and flung out near the top; loose items are pulled in, lifted and spun round it, and rocks,
+    /// spears and swords spun fast enough hurt whoever they hit (but never Zack's side).
+    fn step_tornado(&mut self, t: &mut Tornado) {
+        t.ticks = t.ticks.saturating_sub(1);
+        t.at.x += t.dir * TORNADO_DRIFT * DT;
+        let (lo, hi) = (crate::sim::WALL + 12.0, W - crate::sim::WALL - 12.0);
+        if t.at.x < lo || t.at.x > hi {
+            t.at.x = t.at.x.clamp(lo, hi);
+            t.dir = -t.dir;
+        }
+        let top = crate::sim::WALL + TORNADO_TOP;
+        for j in 0..N_BODIES {
+            let f = &mut self.f[j];
+            let dx = t.at.x - f.pos.x;
+            // (Not Matt on his skateboard: he rides straight out of it.)
+            if !f.present() || f.pinned > 0 || f.skate > 0 || dx.abs() > TORNADO_R {
+                continue;
+            }
+            if dx.abs() < FUNNEL_HALF {
+                if f.pos.y - f.height() > top {
+                    // Carried up the column, kept in the middle of it (but hands free: you can
+                    // still grab, throw, swing and use your special on the way).
+                    f.caught = 2;
+                    f.grounded = false;
+                    f.dash_t = 0;
+                    f.skate = 0;
+                    f.vel = vec2(dx * 6.0 + t.spin * 30.0, f.vel.y.min(-TORNADO_LIFT));
+                } else {
+                    // Out near the top, the way it spins.
+                    f.vel = vec2(t.spin * TORNADO_FLING, 0.0);
+                    f.hitstun = 18;
+                }
+            } else {
+                f.wind += dx.signum() * TORNADO_PULL * (1.0 - dx.abs() / TORNADO_R);
+            }
+        }
+        // Loose items swirl round a vortex low in the column: pulled toward it, swung round it the
+        // way it spins, and held up against gravity, so they orbit it rather than settle.
+        let vortex = t.core();
+        for it in self.items.iter_mut() {
+            let to = vortex - it.pos;
+            let d = to.length();
+            if it.held_by.is_some() || it.carries.is_some() || d > ITEM_VORTEX_R || d < 1e-3 {
+                continue;
+            }
+            let fall = 1.0 - d / ITEM_VORTEX_R;
+            let toward = to / d;
+            let round = vec2(-toward.y, toward.x) * t.spin;
+            let g = if it.lethal { it.kind.def().flight_gravity } else { 0.8 };
+            let push = (toward * ITEM_PULL + round * ITEM_SWIRL) * fall + vec2(0.0, -crate::sim::GRAVITY * g);
+            it.vel = (it.vel + push * DT).clamp_length_max(ITEM_WHIRL_MAX);
+            if matches!(it.kind, crate::sim::ItemKind::Rock | crate::sim::ItemKind::Spear | crate::sim::ItemKind::Sword) && it.vel.length() > crate::sim::LETHAL_SPEED {
+                it.lethal = true;
+                it.whirled = true;
+                it.owner = Some(t.owner);
+            }
+        }
+    }
+
+    /// Matt on his skateboard hits everyone he goes through, once each per run.
+    pub(crate) fn step_skate(&mut self) {
+        for i in 0..N_FIGHTERS {
+            if self.f[i].skate == 0 || !self.f[i].present() {
+                continue;
+            }
+            let reach = self.f[i].body();
+            let dir = self.f[i].facing;
+            for j in 0..N_BODIES {
+                if !self.foes(i, j) || self.f[i].skate_hit & (1 << j) != 0 || !reach.overlaps(&self.f[j].body()) {
+                    continue;
+                }
+                self.f[i].skate_hit |= 1 << j;
+                self.damage(i, j, SKATE_DAMAGE, vec2(dir * 170.0, -190.0), 14, dir, Source::Special, false);
+            }
+        }
+    }
+
+    /// Carrie's laptop stays in her hands (wherever she goes) for a moment, then she puts it away.
+    fn step_laptop(&mut self, l: &mut Laptop) {
+        l.ticks = l.ticks.saturating_sub(1);
+        let f = &self.f[l.owner];
+        if !f.present() {
+            l.ticks = 0;
+        }
+        l.at = laptop_at(f);
+    }
+
     /// Doug mid-lunge: grabs (and throws) the first foe he reaches. Reaching nobody, or knocked
     /// out of it, the lunge was a miss and he's soon ready to try again.
     fn step_lunge(&mut self, l: &mut Lunge) {
@@ -1296,6 +1655,35 @@ impl Match {
 
     /// Someone Doug threw: helpless in the air until they come down on something; then they slam
     /// down (that's the damage) and lie there, stunned, getting back up.
+    /// Someone Doug threw, flying into others on their side: they're knocked flat too, and lie
+    /// there getting up just as long. (Pinned people stay put: Kyle's pin holds.)
+    fn bowl_over(&mut self, judo: &mut Judo) {
+        let body = self.f[judo.victim].body();
+        let down: Vec<usize> = self.effects.iter().filter_map(|e| if let Effect::Judo(o) = e { Some(o.victim) } else { None }).collect();
+        for k in 0..N_BODIES {
+            let f = &self.f[k];
+            if judo.bowled & (1 << k) != 0 || !self.foes(judo.owner, k) || f.pinned > 0 || down.contains(&k) || !body.overlaps(&f.body()) {
+                continue;
+            }
+            judo.bowled |= 1 << k;
+            if let Some(i) = self.held_item(k) {
+                self.items[i].held_by = None;
+                self.items[i].vel = vec2(0.0, -60.0);
+            }
+            let f = &mut self.f[k];
+            f.holding = None;
+            f.atk_timer = 0;
+            f.dash_t = 0;
+            f.skate = 0;
+            f.vel = vec2(judo.dir * 110.0, -150.0);
+            f.grounded = false;
+            f.hitstun = 2;
+            let at = f.center();
+            self.events.push(Event::Slam { pos: at });
+            self.effects.push(Effect::Judo(Judo { at, owner: judo.owner, victim: k, dir: judo.dir, flown: 0, down: 0, ticks: JUDO_MAX_FLIGHT + JUDO_DOWN, damage: JUDO_BOWL_DAMAGE, bowls: false, bowled: 0 }));
+        }
+    }
+
     fn step_judo(&mut self, judo: &mut Judo) {
         judo.ticks = judo.ticks.saturating_sub(1);
         let j = judo.victim;
@@ -1312,7 +1700,9 @@ impl Match {
                 judo.ticks = JUDO_DOWN;
                 let pos = f.center();
                 self.events.push(Event::Slam { pos });
-                self.damage(judo.owner, j, JUDO_DAMAGE, Vec2::ZERO, JUDO_DOWN, judo.dir, Source::Special, false);
+                self.damage(judo.owner, j, judo.damage, Vec2::ZERO, JUDO_DOWN, judo.dir, Source::Special, false);
+            } else if judo.bowls {
+                self.bowl_over(judo);
             }
         } else {
             judo.down -= 1;
@@ -1334,6 +1724,7 @@ impl Match {
     pub(crate) fn step_bulk(&mut self, landed: [bool; N_BODIES]) {
         for f in self.f.iter_mut() {
             f.shaken = f.shaken.saturating_sub(1);
+            f.caught = f.caught.saturating_sub(1);
         }
         for i in 0..N_FIGHTERS {
             let f = &mut self.f[i];
@@ -1581,6 +1972,10 @@ pub enum Effect {
     Judo(Judo),
     /// Doug lunging into a grab.
     Lunge(Lunge),
+    /// Carrie's laptop, open in her hands (her bugs are `Pet`s).
+    Laptop(Laptop),
+    /// One of Zack's tornadoes.
+    Tornado(Tornado),
     /// One of Travis's steps shaking the ground.
     Quake(Quake),
 }
@@ -1601,6 +1996,8 @@ impl Effect {
             Effect::AirBomb(b) => b.owner,
             Effect::Judo(j) => j.owner,
             Effect::Lunge(l) => l.owner,
+            Effect::Laptop(l) => l.owner,
+            Effect::Tornado(t) => t.owner,
             Effect::Quake(q) => q.owner,
         }
     }
@@ -1620,6 +2017,8 @@ impl Effect {
             Effect::AirBomb(b) => Some(b.pos),
             Effect::Judo(_) => None,
             Effect::Lunge(_) => None,
+            Effect::Laptop(_) => None,
+            Effect::Tornado(t) => Some(t.core()),
             Effect::Quake(_) => None,
         }
     }
@@ -1639,6 +2038,8 @@ impl Effect {
             Effect::AirBomb(b) => b.pos,
             Effect::Judo(j) => j.at,
             Effect::Lunge(l) => l.at,
+            Effect::Laptop(l) => l.at,
+            Effect::Tornado(t) => t.at,
             Effect::Quake(q) => q.at,
         }
     }
@@ -1658,6 +2059,8 @@ impl Effect {
             Effect::AirBomb(b) => &mut b.pos,
             Effect::Judo(j) => &mut j.at,
             Effect::Lunge(l) => &mut l.at,
+            Effect::Laptop(l) => &mut l.at,
+            Effect::Tornado(t) => &mut t.at,
             Effect::Quake(q) => &mut q.at,
         }
     }
@@ -1676,8 +2079,42 @@ impl Effect {
             Effect::AirBomb(b) => b.ticks == 0,
             Effect::Judo(j) => j.ticks == 0,
             Effect::Lunge(l) => l.ticks == 0,
+            Effect::Laptop(l) => l.ticks == 0,
+            Effect::Tornado(t) => t.ticks == 0,
             Effect::Quake(q) => q.ticks == 0,
         }
+    }
+}
+
+/// One tick of a fly: steering (not too sharply) at `prey`, buzzing about on the way, and
+/// bouncing off walls, floor and ceiling (it flies straight over ledges). With nobody to chase
+/// it drifts, slowing.
+fn fly_bug(fly: &mut Pet, prey: Option<Vec2>, k: u8, tick: u32) {
+    let v = vec2(fly.vx, fly.vy);
+    let v = match prey {
+        Some(p) => {
+            // (libm, not std: matches must play out identically everywhere.)
+            let t = tick as f32 * DT + k as f32 * 1.7;
+            let buzz = vec2(libm::sinf(t * 7.0), libm::cosf(t * 5.3)) * FLY_WOBBLE;
+            let want = (p - fly.pos).normalize_or_zero() * fly.speed + buzz;
+            v + (want - v).clamp_length_max(FLY_ACCEL * DT)
+        }
+        None => v * 0.985,
+    };
+    (fly.vx, fly.vy) = (v.x, v.y);
+    let was = fly.pos;
+    fly.pos.x += fly.vx * DT;
+    if SOLIDS.iter().any(|s| fly.body().overlaps(s)) {
+        fly.pos.x = was.x;
+        fly.vx = -fly.vx * 0.5;
+    }
+    fly.pos.y += fly.vy * DT;
+    if SOLIDS.iter().any(|s| fly.body().overlaps(s)) {
+        fly.pos.y = was.y;
+        fly.vy = -fly.vy * 0.5;
+    }
+    if fly.vx.abs() > 1.0 {
+        fly.dir = fly.vx.signum();
     }
 }
 
@@ -1708,7 +2145,7 @@ fn run_pet(dog: &mut Pet, arena: &Arena, props: &[Aabb], goal: Option<Vec2>, hop
             }
             // Up on a table above: hop.
             if grounded && g.y < dog.pos.y - 4.0 && dx.abs() < 14.0 {
-                dog.vy = -libm::sqrtf(2.0 * 640.0 * (dog.pos.y - g.y + 4.0));
+                dog.vy = -libm::sqrtf(2.0 * 640.0 * (dog.pos.y - g.y + 4.0).min(PET_LEAP_MAX));
             }
             dog.eating = dx.abs() <= 1.0 && (g.y - dog.pos.y).abs() < 6.0;
             dx.clamp(-dog.speed * DT, dog.speed * DT)
@@ -1745,7 +2182,7 @@ mod tests {
 
     /// A match with the given cast, everyone standing still on the floor at chosen x positions.
     fn staged(cast: [Character; N_FIGHTERS], xs: [f32; N_FIGHTERS]) -> Match {
-        let mut m = Match::new(7, &MatchConfig { heals: 0..=0, countdown: 0, spawn_grace: 0, ..MatchConfig::default() });
+        let mut m = Match::new(7, &MatchConfig { heals: 0..=0, countdown: 0, spawn_grace: 0, unstick: false, ..MatchConfig::default() });
         m.items.clear();
         for i in 0..N_FIGHTERS {
             m.f[i].character = cast[i];
@@ -1862,7 +2299,7 @@ mod tests {
     }
 
     #[test]
-    fn seths_minis_fight_for_him_and_go_down_in_one_hit() {
+    fn seths_minis_fight_for_him_and_take_a_few_hits() {
         let z = zero_brain();
         let mut m = staged([Character::Seth, Character::Classic, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
         m.f[0].facing = 1.0;
@@ -1870,7 +2307,7 @@ mod tests {
         let minis: Vec<usize> = (N_FIGHTERS..N_BODIES).filter(|&j| !m.f[j].absent).collect();
         assert_eq!(minis.len(), MINIS_PER_USE);
         let a = minis[0];
-        assert_eq!((m.f[a].scale, m.f[a].owner, m.f[a].hp), (MINI_SCALE, Some(0), 1.0));
+        assert_eq!((m.f[a].scale, m.f[a].owner, m.f[a].hp), (MINI_SCALE, Some(0), MINI_HP));
         assert!(m.f[a].body().h < m.f[0].body().h * 0.8, "smaller than a full fighter");
         // On Seth's side: not each other's foes, everyone else's.
         assert!(!m.foes(a, 0) && !m.foes(0, a) && !m.foes(a, minis[1]));
@@ -1878,8 +2315,11 @@ mod tests {
         // What a mini does counts for Seth.
         m.damage(a, 1, 10.0, Vec2::ZERO, 0, 1.0, Source::Fist, false);
         assert_eq!(m.f[0].dmg_dealt, 10.0);
-        // One hit and it's gone (in a puff).
+        // It takes a few hits now, then it's gone (in a puff).
         m.damage(1, a, 8.0, Vec2::ZERO, 0, 1.0, Source::Fist, false);
+        step_idle(&mut m, &z, false);
+        assert!(!m.f[a].absent && m.f[a].hp == MINI_HP - 8.0, "one punch doesn't finish it");
+        m.damage(1, a, MINI_HP, Vec2::ZERO, 0, 1.0, Source::Fist, false);
         step_idle(&mut m, &z, false);
         assert!(m.f[a].absent);
         assert!(!m.f[minis[1]].absent, "the other is still there");
@@ -2380,6 +2820,42 @@ mod tests {
     }
 
     #[test]
+    fn dougs_throw_bowls_over_whoever_it_flies_into() {
+        let z = zero_brain();
+        let mut m = staged([Character::Doug, Character::Classic, Character::Classic, Character::Classic], [100.0, 110.0, 175.0, 440.0]);
+        m.f[0].facing = 1.0;
+        step_idle(&mut m, &z, true);
+        let mut knocked = false;
+        for _ in 0..SECOND {
+            step_idle(&mut m, &z, false);
+            knocked |= m.effects.iter().any(|e| matches!(e, Effect::Judo(j) if j.victim == 2));
+            if knocked {
+                break;
+            }
+        }
+        assert!(knocked, "the one in the way was knocked down");
+        // Down a second, like the one thrown; hurt a little; then up.
+        let run = Action { mv: 1.0, run: true, ..Action::default() };
+        let mut slammed = false;
+        for _ in 0..SECOND / 2 {
+            m.step_with([&z; N_FIGHTERS], Some((2, run)));
+            slammed |= m.f[2].hp < MAX_HP;
+        }
+        assert!(slammed, "and hurt when they hit the ground");
+        let x = m.f[2].pos.x;
+        for _ in 0..SECOND / 3 {
+            m.step_with([&z; N_FIGHTERS], Some((2, run)));
+        }
+        assert!((m.f[2].pos.x - x).abs() < 1.0, "still down, can't run");
+        assert_eq!(m.f[2].hp, MAX_HP - JUDO_BOWL_DAMAGE);
+        for _ in 0..SECOND {
+            m.step_with([&z; N_FIGHTERS], Some((2, run)));
+        }
+        assert!(m.f[2].pos.x > x + 20.0, "up and running again");
+        assert_eq!(m.f[3].hp, MAX_HP, "nobody else");
+    }
+
+    #[test]
     fn doug_lunging_at_nobody_is_soon_ready_again() {
         let z = zero_brain();
         let mut m = staged([Character::Doug, Character::Classic, Character::Classic, Character::Classic], [100.0, 200.0, 300.0, 400.0]);
@@ -2476,6 +2952,251 @@ mod tests {
         assert!(big, "landing shook the ground");
         assert_eq!(m.f[1].hp, MAX_HP - QUAKE_BIG_DAMAGE, "the one standing next to him was hurt");
         assert_eq!(m.f[2].hp, MAX_HP, "the one in the air wasn't");
+    }
+
+    #[test]
+    fn matt_skates_far_and_fast_through_everyone_in_his_way() {
+        let z = zero_brain();
+        let mut m = staged([Character::Matt, Character::Classic, Character::Classic, Character::Classic], [60.0, 120.0, 200.0, 440.0]);
+        m.f[0].facing = 1.0;
+        step_idle(&mut m, &z, true);
+        // Pushing the other way doesn't turn him round.
+        let back = Action { mv: -1.0, run: true, ..Action::default() };
+        for _ in 0..SKATE_TICKS + 1 {
+            m.step_with([&z; N_FIGHTERS], Some((0, back)));
+        }
+        assert!(m.f[0].pos.x > 60.0 + 180.0, "a long way: to x {}", m.f[0].pos.x);
+        assert_eq!(m.f[1].hp, MAX_HP - SKATE_DAMAGE, "hit once on the way through");
+        assert_eq!(m.f[2].hp, MAX_HP - SKATE_DAMAGE, "and the next one too");
+        assert_eq!(m.f[3].hp, MAX_HP, "not the one out of reach");
+        assert_eq!(m.f[0].skate, 0);
+    }
+
+    #[test]
+    fn matts_skate_frees_him_of_kyles_pin_and_vid_but_nobody_else() {
+        let z = zero_brain();
+        // Pinned by Kyle (with a pinned Classic in his path).
+        let mut m = staged([Character::Matt, Character::Kyle, Character::Classic, Character::Classic], [100.0, 400.0, 160.0, 440.0]);
+        m.f[0].facing = 1.0;
+        let mut h = [None; N_FIGHTERS];
+        h[0] = Some(Action::default());
+        h[1] = Some(Action { special: true, ..Action::default() });
+        m.step_humans([&z; N_FIGHTERS], h);
+        assert!(m.f[0].pinned > 0 && m.f[2].pinned > 0);
+        step_idle(&mut m, &z, true);
+        for _ in 0..SKATE_TICKS + 1 {
+            step_idle(&mut m, &z, false);
+        }
+        assert!(m.f[0].pos.x > 200.0, "skated off out of the pin: {}", m.f[0].pos.x);
+        assert!(m.f[2].pinned > 0 && m.f[2].hp < MAX_HP, "the one he went through is still pinned");
+        // Ridden by Vid: he takes his body back, and Vid's put out.
+        let mut m = staged([Character::Matt, Character::Vid, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
+        let mut h = [None; N_FIGHTERS];
+        h[1] = Some(Action { special: true, cursor: Some(vec2(100.0, 240.0)), ..Action::default() });
+        m.step_humans([&z; N_FIGHTERS], h);
+        assert!(m.f[0].ridden > 0);
+        let mut h = [None; N_FIGHTERS];
+        h[0] = Some(Action { special: true, ..Action::default() });
+        h[1] = Some(Action::default());
+        m.step_humans([&z; N_FIGHTERS], h);
+        step_idle(&mut m, &z, false);
+        assert!(m.f[0].ridden == 0 && m.f[1].host.is_none() && m.f[1].present(), "Vid's out");
+        assert!(m.f[0].skate > 0 || m.f[0].pos.x > 110.0, "and Matt's off");
+    }
+
+    #[test]
+    fn vid_inside_someone_fires_their_special_if_its_ready() {
+        let z = zero_brain();
+        let mut m = staged([Character::Vid, Character::Tyler, Character::Classic, Character::Classic], [100.0, 200.0, 380.0, 440.0]);
+        let ride = Action { special: true, cursor: Some(vec2(200.0, 240.0)), ..Action::default() };
+        let mut h = [None; N_FIGHTERS];
+        h[0] = Some(ride);
+        h[1] = Some(Action::default());
+        m.step_humans([&z; N_FIGHTERS], h);
+        assert_eq!(m.f[0].host, Some(1));
+        // Vid presses special again inside Tyler: Tyler's hounds come out, on Tyler's cooldown.
+        let mut h = [None; N_FIGHTERS];
+        h[0] = Some(Action { special: true, ..Action::default() });
+        h[1] = Some(Action::default());
+        m.step_humans([&z; N_FIGHTERS], h);
+        assert_eq!(m.f[1].special_cd, HOUNDS_COOLDOWN, "Tyler's special was used");
+        assert_eq!(m.effects.iter().filter(|e| matches!(e, Effect::Pet(_))).count(), 3);
+        // Spent: pressing again does nothing more.
+        let mut h = [None; N_FIGHTERS];
+        h[0] = Some(Action { special: true, ..Action::default() });
+        h[1] = Some(Action::default());
+        m.step_humans([&z; N_FIGHTERS], h);
+        assert_eq!(m.effects.iter().filter(|e| matches!(e, Effect::Pet(_))).count(), 3);
+    }
+
+    #[test]
+    fn zacks_tornadoes_drag_people_in_and_fling_them_out() {
+        let z = zero_brain();
+        // Someone standing still 60px past where the right-hand tornado spins up.
+        let mut m = staged([Character::Zack, Character::Classic, Character::Classic, Character::Classic], [200.0, 305.0, 30.0, 470.0]);
+        step_idle(&mut m, &z, true);
+        assert_eq!(m.effects.iter().filter(|e| matches!(e, Effect::Tornado(_))).count(), 2);
+        let (mut swept, mut flung) = (false, false);
+        for _ in 0..TORNADO_TICKS {
+            step_idle(&mut m, &z, false);
+            swept |= m.f[1].pos.y < crate::sim::FLOOR_Y - 20.0;
+            flung |= m.f[1].vel.x.abs() > 200.0;
+        }
+        assert!(swept, "swept up the funnel");
+        assert!(flung, "and flung out of it");
+        assert!(m.effects.iter().all(|e| !matches!(e, Effect::Tornado(_))), "gone after 5s");
+        // A fighter running away from the edge of its reach gets away.
+        let mut m = staged([Character::Zack, Character::Classic, Character::Classic, Character::Classic], [200.0, 320.0, 30.0, 470.0]);
+        step_idle(&mut m, &z, true);
+        let run = Action { mv: 1.0, run: true, ..Action::default() };
+        for _ in 0..SECOND {
+            m.step_with([&z; N_FIGHTERS], Some((1, run)));
+        }
+        assert!(m.f[1].pos.x > 360.0, "outran it: {}", m.f[1].pos.x);
+    }
+
+    #[test]
+    fn zacks_own_tornadoes_pull_at_him_too() {
+        let z = zero_brain();
+        // Near the wall: the left-hand tornado bounces off it and comes back over him.
+        let mut m = staged([Character::Zack, Character::Classic, Character::Classic, Character::Classic], [60.0, 300.0, 380.0, 470.0]);
+        step_idle(&mut m, &z, true);
+        let mut swept = false;
+        for _ in 0..3 * SECOND {
+            step_idle(&mut m, &z, false);
+            swept |= m.f[0].pos.y < crate::sim::FLOOR_Y - 20.0;
+        }
+        assert!(swept, "Zack was carried up his own tornado");
+    }
+
+    #[test]
+    fn in_a_tornado_you_can_still_swing_throw_and_use_your_special_but_not_steer() {
+        use crate::sim::{Item, ItemKind};
+        let z = zero_brain();
+        // A Tyler holding a rock, right where the right-hand tornado spins up.
+        let mut m = staged([Character::Zack, Character::Tyler, Character::Classic, Character::Classic], [200.0, 245.0, 30.0, 470.0]);
+        let mut rock = Item::new(ItemKind::Rock, m.f[1].hand());
+        rock.held_by = Some(1);
+        m.items.push(rock);
+        m.f[1].holding = Some(ItemKind::Rock);
+        let mut h = [None; N_FIGHTERS];
+        h[0] = Some(Action { special: true, ..Action::default() });
+        h[1] = Some(Action::default());
+        m.step_humans([&z; N_FIGHTERS], h);
+        let mut tyler = |m: &mut Match, a: Action| {
+            let mut h = [None; N_FIGHTERS];
+            h[1] = Some(a);
+            m.step_humans([&z; N_FIGHTERS], h);
+        };
+        for _ in 0..20 {
+            tyler(&mut m, Action::default());
+        }
+        assert!(m.f[1].caught > 0 && m.f[1].hitstun == 0, "carried, but not stunned");
+        // Pushing left (and dashing) doesn't get him out.
+        let x = m.f[1].pos.x;
+        for _ in 0..10 {
+            tyler(&mut m, Action { mv: -1.0, run: true, dash: Some(-1.0), ..Action::default() });
+        }
+        assert!((m.f[1].pos.x - x).abs() < 8.0 && m.f[1].caught > 0, "still in it");
+        tyler(&mut m, Action { attack: true, ..Action::default() });
+        assert!(m.events.iter().any(|e| matches!(e, Event::Swing { who: 1 })), "swung");
+        for _ in 0..30 {
+            tyler(&mut m, Action::default());
+        }
+        tyler(&mut m, Action { throw: true, target: Some(vec2(-1.0, 0.0)), ..Action::default() });
+        assert!(m.events.iter().any(|e| matches!(e, Event::Throw { who: 1 })), "threw");
+        tyler(&mut m, Action { special: true, ..Action::default() });
+        assert!(m.events.iter().any(|e| matches!(e, Event::Special { who: 1 })), "released the hounds");
+    }
+
+    #[test]
+    fn matt_skates_out_of_a_tornado() {
+        let z = zero_brain();
+        // Matt right where the right-hand tornado spins up.
+        let mut m = staged([Character::Zack, Character::Matt, Character::Classic, Character::Classic], [200.0, 245.0, 30.0, 470.0]);
+        m.f[1].facing = 1.0;
+        let mut h = [None; N_FIGHTERS];
+        h[0] = Some(Action { special: true, ..Action::default() });
+        h[1] = Some(Action::default());
+        m.step_humans([&z; N_FIGHTERS], h);
+        // (Matt as a player standing still: a bot Matt would skate straight out by himself.)
+        for _ in 0..30 {
+            let mut h = [None; N_FIGHTERS];
+            h[1] = Some(Action::default());
+            m.step_humans([&z; N_FIGHTERS], h);
+        }
+        assert!(m.f[1].caught > 0 && m.f[1].pos.y < crate::sim::FLOOR_Y - 5.0, "carried up it");
+        let y = m.f[1].pos.y;
+        let mut h = [None; N_FIGHTERS];
+        h[1] = Some(Action { special: true, ..Action::default() });
+        m.step_humans([&z; N_FIGHTERS], h);
+        assert!(m.f[1].skate > 0, "skated");
+        for _ in 0..10 {
+            step_idle(&mut m, &z, false);
+        }
+        assert!(m.f[1].pos.x > 245.0 + 60.0, "rode straight out of it: {}", m.f[1].pos.x);
+        assert!((m.f[1].pos.y - y).abs() < 3.0, "level, not lifted");
+    }
+
+    #[test]
+    fn rocks_whipped_round_by_a_tornado_hurt_people_but_not_zack() {
+        use crate::sim::{Item, ItemKind};
+        let z = zero_brain();
+        let mut m = staged([Character::Zack, Character::Classic, Character::Classic, Character::Classic], [200.0, 260.0, 30.0, 470.0]);
+        for x in [230.0, 250.0, 270.0, 210.0] {
+            m.items.push(Item::new(ItemKind::Rock, vec2(x, crate::sim::FLOOR_Y - crate::sim::ITEM_R)));
+        }
+        // (Pinned where they stand, so the tornado can't carry them off before a rock comes round.)
+        m.f[1].pinned = TORNADO_TICKS;
+        step_idle(&mut m, &z, true);
+        let mut whirled = false;
+        for _ in 0..TORNADO_TICKS {
+            step_idle(&mut m, &z, false);
+            whirled |= m.items.iter().any(|it| it.whirled && it.lethal && it.owner == Some(0));
+        }
+        assert!(whirled, "the rocks were whipped up");
+        assert!(m.f[1].hp < MAX_HP, "and someone took a hit");
+        assert_eq!(m.f[0].hp, MAX_HP, "never Zack");
+    }
+
+    fn bugs(m: &Match) -> Vec<Pet> {
+        m.effects.iter().filter_map(|e| if let Effect::Pet(p) = e { Some(p.clone()) } else { None }).collect()
+    }
+
+    #[test]
+    fn carries_bugs_scatter_every_way_then_hunt_people_down() {
+        let z = zero_brain();
+        // Two behind her (she faces right), one ahead.
+        let mut m = staged([Character::Carrie, Character::Classic, Character::Classic, Character::Classic], [300.0, 120.0, 60.0, 440.0]);
+        m.f[0].facing = 1.0;
+        step_idle(&mut m, &z, true);
+        let out = bugs(&m);
+        assert_eq!(out.len(), BUGS);
+        assert_eq!(out.iter().filter(|b| matches!(b.breed, Breed::Spider(_))).count(), BUGS / 2);
+        assert!(m.effects.iter().any(|e| matches!(e, Effect::Laptop(_))));
+        for _ in 0..10 {
+            step_idle(&mut m, &z, false);
+        }
+        let at = laptop_at(&m.f[0]);
+        let b = bugs(&m);
+        assert!(b.iter().any(|b| b.pos.x < at.x - 10.0) && b.iter().any(|b| b.pos.x > at.x + 10.0), "left and right");
+        assert!(b.iter().any(|b| b.pos.y < at.y - 10.0), "and up");
+        let mut bitten = [0u32; N_FIGHTERS];
+        for _ in 0..BUG_TICKS {
+            step_idle(&mut m, &z, false);
+            for e in &m.events {
+                if let Event::Scratch { pos } = e {
+                    let j = (1..N_FIGHTERS).min_by(|&a, &b| m.f[a].center().distance(*pos).total_cmp(&m.f[b].center().distance(*pos))).unwrap();
+                    bitten[j] += 1;
+                }
+            }
+        }
+        assert!(bugs(&m).is_empty(), "all gone by the end");
+        assert!(bitten[1] > 0, "they turned round and chased down the nearest one behind her: {bitten:?}");
+        assert!(bitten[3] > 0, "and the one ahead: {bitten:?}");
+        let total: f32 = (1..N_FIGHTERS).map(|j| MAX_HP - m.f[j].hp).sum();
+        assert!(total <= BUGS as f32 * BUG_BITES as f32 * BUG_BITE, "each bug only bites a couple of times: {total}");
+        assert_eq!(m.f[0].hp, MAX_HP, "never Carrie");
     }
 
     #[test]

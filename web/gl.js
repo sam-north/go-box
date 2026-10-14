@@ -24,9 +24,26 @@ var high_dpi = false;
 // if false, requestAnimationFrame will be called at the end of each frame
 var blocking_event_loop = false;
 
+// Go Box: the low-latency canvas (Chrome draws straight to the screen instead of through the
+// page compositor, saving a frame or so of input lag, at the risk of some tearing). Opt-in to
+// compare: `?lowlatency=1` turns it on and remembers it in this browser, `?lowlatency=0` off.
+function context_attributes() {
+    var attrs = {};
+    try {
+        var q = new URLSearchParams(location.search).get("lowlatency");
+        if (q === "1") localStorage.setItem("go-box-lowlatency", "1");
+        if (q === "0") localStorage.removeItem("go-box-lowlatency");
+        if (localStorage.getItem("go-box-lowlatency") === "1") {
+            attrs = { desynchronized: true, alpha: false, powerPreference: "high-performance" };
+            console.log("[go-box] low-latency canvas on");
+        }
+    } catch (e) { /* storage blocked */ }
+    return attrs;
+}
+
 function init_webgl(version) {
     if (version == 1) {
-        gl = canvas.getContext("webgl");
+        gl = canvas.getContext("webgl", context_attributes());
 
         function acquireVertexArrayObjectExtension(ctx) {
             // Extension available in WebGL 1 from Firefox 25 and WebKit 536.28/desktop Safari 6.0.3 onwards. Core feature in WebGL 2.
@@ -88,7 +105,7 @@ function init_webgl(version) {
             alert("Cant initialize WEBGL_depth_texture extension");
         }
     } else {
-        gl = canvas.getContext("webgl2");
+        gl = canvas.getContext("webgl2", context_attributes());
     }
     if (gl === null) {
         alert("Unable to initialize WebGL. Your browser or machine may not support it.");

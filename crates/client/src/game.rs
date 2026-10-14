@@ -8,7 +8,7 @@
 
 use go_box_protocol::{MatchStart, Snapshot};
 use go_box_sim::character::{Effect, props};
-use go_box_sim::sim::{Action, Event, Fighter, Match, MatchView, N_BODIES, TICK_RATE, predict};
+use go_box_sim::sim::{Action, Event, Fighter, Match, MatchView, N_BODIES, TICK_RATE, predict, predict_ridden};
 use macroquad::math::Vec2;
 use std::collections::VecDeque;
 
@@ -27,15 +27,17 @@ pub struct Game {
     events_through: Option<u32>,
     /// Inputs sent but not yet acknowledged, oldest first.
     pending: VecDeque<(u32, Action)>,
-    /// Your fighter, predicted.
+    /// The body you're driving, predicted: your fighter, or (Vid inside someone) theirs.
     me: Option<Fighter>,
+    /// Which body that is (its slot).
+    body: usize,
     /// Where you were drawn minus where prediction now says you are; fades to zero.
     offset: Vec2,
 }
 
 impl Game {
     pub fn new(start: MatchStart) -> Self {
-        Self { start, snaps: VecDeque::new(), render_tick: 0.0, events_through: None, pending: VecDeque::new(), me: None, offset: Vec2::ZERO }
+        Self { start, snaps: VecDeque::new(), render_tick: 0.0, events_through: None, pending: VecDeque::new(), me: None, body: 0, offset: Vec2::ZERO }
     }
 
     pub fn seat(&self) -> Option<usize> {
@@ -55,7 +57,14 @@ impl Game {
         self.latest().is_none_or(|v| v.tick < self.start.config.countdown)
     }
 
-    /// Your fighter as you see it (predicted), if you have a seat.
+    /// For the debug overlay: inputs sent but not yet acknowledged, and how far you're drawn
+    /// from where prediction says you are (a correction still being smoothed out).
+    pub fn debug_stats(&self) -> (usize, f32) {
+        (self.pending.len(), self.offset.length())
+    }
+
+    /// The body you're driving as you see it (predicted), if you have a seat: your fighter, or
+    /// while Vid is inside someone, theirs (your input moves it, so it's predicted too).
     pub fn me(&self) -> Option<&Fighter> {
         self.me.as_ref()
     }
@@ -66,18 +75,26 @@ impl Game {
         }
         if let Some(seat) = self.seat() {
             self.pending.retain(|&(seq, _)| seq > s.ack);
-            let mut f = s.view.f[seat].clone();
+            let you = &s.view.f[seat];
+            let body = you.host.filter(|_| you.digital > 0).map_or(seat, |j| j as usize);
+            let mut f = s.view.f[body].clone();
             let props = props(&s.view.effects);
             for &(_, a) in &self.pending {
-                predict(self.start.config.arena.def(), &props, &mut f, seat, a, &mut Vec::new());
+                // (Your own body, unless Vid's driving someone else's.)
+                let step = if body == seat { predict } else { predict_ridden };
+                step(self.start.config.arena.def(), &props, &mut f, body, a, &mut Vec::new());
             }
-            if let Some(old) = &self.me {
+            // (Switching bodies, into someone or back out, isn't a correction to smooth.)
+            if body != self.body {
+                self.offset = Vec2::ZERO;
+            } else if let Some(old) = &self.me {
                 self.offset += old.pos - f.pos;
                 if self.offset.length() > SNAP_DISTANCE {
                     self.offset = Vec2::ZERO;
                 }
             }
             self.me = Some(f);
+            self.body = body;
         }
         if self.snaps.is_empty() {
             self.render_tick = s.view.tick as f32 - INTERP_TICKS;
@@ -92,13 +109,14 @@ impl Game {
     /// Your jumps and swings this tick go in `events` (so their sounds needn't wait for the
     /// server).
     pub fn local_tick(&mut self, seq: u32, a: Action, events: &mut Vec<Event>) {
-        let (Some(seat), Some(me)) = (self.start.your_seat, &mut self.me) else { return };
+        let (Some(seat), body, Some(me)) = (self.start.your_seat, self.body, &mut self.me) else { return };
         if self.snaps.back().is_some_and(|s| s.view.over) {
             return;
         }
         // (Justin's tables, as of the newest snapshot.)
         let props = self.snaps.back().map(|s| props(&s.view.effects)).unwrap_or_default();
-        predict(self.start.config.arena.def(), &props, me, seat, a, events);
+        let step = if body == seat { predict } else { predict_ridden };
+        step(self.start.config.arena.def(), &props, me, body, a, events);
         self.pending.push_back((seq, a));
         while self.pending.len() > 120 {
             self.pending.pop_front();
@@ -163,13 +181,15 @@ impl Game {
                 }
             }
         }
-        if let (Some(seat), Some(me)) = (self.seat(), &self.me) {
+        // The body you're driving, in the present (yours, or the one Vid's inside).
+        if let (Some(_), Some(me)) = (self.seat(), &self.me) {
+            let body = self.body;
             let mut me = me.clone();
             me.pos += self.offset;
-            for it in view.items.iter_mut().filter(|it| it.held_by == Some(seat)) {
+            for it in view.items.iter_mut().filter(|it| it.held_by == Some(body)) {
                 it.pos = me.hand();
             }
-            view.f[seat] = me;
+            view.f[body] = me;
         }
         Some(Match::from_view(view, &self.start.config, events))
     }
@@ -191,7 +211,7 @@ mod tests {
 
     /// No health pickups.
     fn quiet() -> MatchConfig {
-        MatchConfig { heals: 0..=0, countdown: 0, spawn_grace: 0, ..MatchConfig::default() }
+        MatchConfig { heals: 0..=0, countdown: 0, spawn_grace: 0, unstick: false, ..MatchConfig::default() }
     }
 
     /// The server's match: nothing lying around, nobody else moving.
@@ -206,6 +226,28 @@ mod tests {
     }
 
     const RIGHT: Action = Action { mv: 1.0, run: true, jump: false, attack: false, throw: false, aim: 0.3, grab: false, special: false, target: None, dash: None, down: false, cursor: None };
+
+    #[test]
+    fn as_vid_inside_someone_their_body_moves_the_moment_you_press() {
+        let (mut m, z) = server();
+        m.f[0].character = Character::Vid;
+        // Vid (seat 0) goes into the fighter in seat 1.
+        let cursor = m.f[1].center();
+        m.step_with([&z; N_FIGHTERS], Some((0, Action { special: true, cursor: Some(cursor), ..Action::default() })));
+        assert_eq!(m.f[0].host, Some(1));
+        let mut g = game();
+        g.on_snapshot(snapshot(&m, 0, Vec::new()));
+        let x = m.f[1].pos.x;
+        let mut e = Vec::new();
+        for seq in 1..=5 {
+            g.local_tick(seq, RIGHT, &mut e);
+        }
+        // The server hasn't heard yet, but the body you're driving has already moved, and is drawn
+        // there.
+        assert!(g.me().unwrap().pos.x > x, "predicted right away: {} vs {x}", g.me().unwrap().pos.x);
+        let shown = g.frame(0.0).unwrap();
+        assert!(shown.f[1].pos.x > x, "and drawn there");
+    }
 
     #[test]
     fn a_snapshot_behind_your_inputs_is_caught_up_by_replaying_them() {

@@ -9,6 +9,8 @@ pub const PANEL: Color = Color::new(0.05, 0.06, 0.08, 0.88);
 pub const EDGE: Color = Color::new(0.32, 0.34, 0.40, 1.0);
 pub const ACCENT: Color = Color::new(0.95, 0.75, 0.30, 1.0);
 pub const BAD: Color = Color::new(0.95, 0.42, 0.36, 1.0);
+/// Go: the leader's Play button.
+pub const GOOD: Color = Color::new(0.36, 0.85, 0.42, 1.0);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Field {

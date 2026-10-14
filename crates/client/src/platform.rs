@@ -74,6 +74,33 @@ mod imp {
     pub fn take_paste() -> Option<String> {
         Some(get(3, "")).filter(|s| !s.is_empty())
     }
+
+    #[link(wasm_import_module = "env")]
+    unsafe extern "C" {
+        fn go_now_ms() -> f64;
+        fn go_key_ms() -> f64;
+    }
+
+    /// The browser's clock, in ms.
+    pub fn now_ms() -> f64 {
+        unsafe { go_now_ms() }
+    }
+
+    /// When the last key went down, on the same clock (the event's own timestamp), if any has.
+    pub fn last_key_ms() -> Option<f64> {
+        Some(unsafe { go_key_ms() }).filter(|&t| t >= 0.0)
+    }
+
+    /// Debug mode (see `debug.rs`): `?debug=1` in the URL turns it on and remembers that in this
+    /// browser, `?debug=0` turns it off again.
+    pub fn debug_mode() -> bool {
+        match get(0, "debug").as_str() {
+            "1" => set(1, "go-box-debug", "1"),
+            "0" => set(1, "go-box-debug", ""),
+            _ => {}
+        }
+        get(1, "go-box-debug") == "1"
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -111,6 +138,20 @@ mod imp {
 
     pub fn copy(text: &str) {
         macroquad::miniquad::window::clipboard_set(text);
+    }
+
+    pub fn now_ms() -> f64 {
+        macroquad::time::get_time() * 1000.0
+    }
+
+    /// (Natively there's no event timestamp to read.)
+    pub fn last_key_ms() -> Option<f64> {
+        None
+    }
+
+    /// Debug mode: `--debug`, or GOBOX_DEBUG set.
+    pub fn debug_mode() -> bool {
+        Options::get().debug || std::env::var_os("GOBOX_DEBUG").is_some()
     }
 
     /// The clipboard, when Ctrl+V was just pressed.

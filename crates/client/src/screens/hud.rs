@@ -78,18 +78,20 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
             let ready = 1.0 - f.special_cd as f32 / sp.cooldown() as f32;
             special_pie(vec2(x + bw + ui.px(11.0), by + ui.px(2.0)), ui.px(7.0), ready, render::character_color(f.character));
         }
-        // Yours: the special's recharge bar and what it says, just under your health.
+        // Yours: the special's recharge bar and what it says, just under your health. (Vid inside
+        // someone: theirs, which is the one his key fires.)
+        let own = f.host.filter(|_| f.digital > 0).map_or(f, |j| &m.f[j as usize]);
         if you && f.alive()
-            && let Some(sp) = f.character.special()
+            && let Some(sp) = own.character.special()
         {
-            let c = render::character_color(f.character);
-            let ready = f.special_cd == 0;
-            let frac = 1.0 - f.special_cd as f32 / sp.cooldown() as f32;
+            let c = render::character_color(own.character);
+            let ready = own.special_cd == 0;
+            let frac = 1.0 - own.special_cd as f32 / sp.cooldown() as f32;
             let sy = by + ui.px(8.0);
             draw_rectangle(x, sy, bw, ui.px(3.0), Color::new(0.0, 0.0, 0.0, 0.6));
             draw_rectangle(x, sy, bw * frac, ui.px(3.0), if ready { c } else { Color::new(c.r * 0.5, c.g * 0.5, c.b * 0.5, 1.0) });
             let key = app.settings.bindings.short_label(Act::Special, app.controls.using_pad);
-            let secs = format!("{:.0}", (f.special_cd as f32 * DT).ceil());
+            let secs = format!("{:.0}", (own.special_cd as f32 * DT).ceil());
             let label = if ready { tf("hud.special_ready", &[("key", &key), ("special", special_name(sp))]) } else { tf("hud.special_cooling", &[("special", special_name(sp)), ("secs", &secs)]) };
             ui.text(&ui.fit(&label, 13.0, colw * 1.6), x, sy + ui.px(15.0), 13.0, if ready { c } else { DIM });
         }

@@ -44,6 +44,8 @@ pub struct Options {
     pub controls: bool,
     /// Start with sound off.
     pub mute: bool,
+    /// Show the debug overlay and log frame timing (see `debug.rs`).
+    pub debug: bool,
 }
 
 static OPTIONS: OnceLock<Options> = OnceLock::new();
@@ -74,6 +76,7 @@ impl Options {
             shot_when: val("--shot-when"),
             quit_after: val("--quit-after").and_then(|v| v.parse().ok()),
             mute: has("--mute"),
+            debug: has("--debug"),
             settings: has("--settings"),
             controls: has("--controls"),
         }
@@ -167,6 +170,8 @@ fn effect_kind(e: &go_box_sim::character::Effect) -> &'static str {
         Effect::AirBomb(_) => "plane",
         Effect::Judo(_) => "judo",
         Effect::Lunge(_) => "judo",
+        Effect::Laptop(_) => "laptop",
+        Effect::Tornado(_) => "tornado",
         Effect::Quake(_) => "quake",
     }
 }

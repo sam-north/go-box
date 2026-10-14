@@ -72,6 +72,23 @@ const VEST: Color = Color::new(0.16, 0.17, 0.15, 1.0);
 const VEST_STRAP: Color = Color::new(0.48, 0.42, 0.30, 1.0);
 const VEST_POUCH: Color = Color::new(0.26, 0.28, 0.22, 1.0);
 const BELT: Color = Color::new(0.06, 0.06, 0.07, 1.0);
+/// Matt's skateboard deck and wheels.
+/// Zack's tornadoes.
+const TORNADO_GREY: Color = Color::new(0.62, 0.64, 0.66, 1.0);
+const DECK: Color = Color::new(0.20, 0.55, 0.85, 1.0);
+const WHEEL: Color = Color::new(0.92, 0.88, 0.70, 1.0);
+/// Carrie's Buc-ee's beaver suit: the red cap and its brim, the tail, the belly.
+const BUCEE_RED: Color = Color::new(0.82, 0.12, 0.14, 1.0);
+const BUCEE_BRIM: Color = Color::new(0.62, 0.08, 0.10, 1.0);
+const BUCEE_TAIL: Color = Color::new(0.36, 0.24, 0.15, 1.0);
+const BUCEE_TAIL_DARK: Color = Color::new(0.24, 0.16, 0.10, 1.0);
+const BUCEE_BELLY: Color = Color::new(0.88, 0.74, 0.52, 1.0);
+/// Carrie's bugs: a spider's body and legs; a horsefly's body, eyes and wings.
+const SPIDER: Color = Color::new(0.10, 0.09, 0.09, 1.0);
+const SPIDER_LEG: Color = Color::new(0.22, 0.20, 0.19, 1.0);
+const FLY_BODY: Color = Color::new(0.24, 0.26, 0.20, 1.0);
+const FLY_EYE: Color = Color::new(0.75, 0.22, 0.12, 1.0);
+const FLY_WING: Color = Color::new(0.85, 0.90, 0.95, 0.55);
 /// Dust kicked up by Travis's steps (and a landing from Doug's throw).
 const DUST: Color = Color::new(0.62, 0.56, 0.46, 0.85);
 /// Travis's quake rings: moss green and earth brown.
@@ -104,6 +121,8 @@ pub struct Look {
     pub goatee: bool,
     pub stubble: Option<Color>,
     pub belt: bool,
+    pub beaver_suit: bool,
+    pub mustache: bool,
 }
 
 /// How hair is cut (drawn over a bare head).
@@ -121,6 +140,8 @@ pub enum HairStyle {
     Shaved,
     /// Clipped very short, close to the head all round (Doug).
     Buzz,
+    /// Combed straight back, flat and shiny (Zack).
+    Slick,
     /// Wild and swept back, thin on top (Vid).
     Wild,
 }
@@ -145,13 +166,17 @@ pub struct CharacterArt {
     pub stubble: Option<Color>,
     /// A black belt round the waist (Doug's judo gi).
     pub belt: bool,
+    /// A Buc-ee's beaver suit (Carrie): a tan belly, a flat tail behind, and the red cap.
+    pub beaver_suit: bool,
+    /// A light mustache under the nose (Matt).
+    pub mustache: bool,
     /// Played when it uses its special (None: the special's own effects make the sound).
     pub special_sound: Option<Sfx>,
 }
 
 pub fn art(c: Character) -> &'static CharacterArt {
     match c {
-        Character::Classic => &CharacterArt { color: None, body: CLOAK, legs: [HOOD, CLOAK], arms: HOOD, hair: None, headband: false, skin: SKIN, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false, stubble: None, belt: false, special_sound: None },
+        Character::Classic => &CharacterArt { color: None, body: CLOAK, legs: [HOOD, CLOAK], arms: HOOD, hair: None, headband: false, skin: SKIN, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false, stubble: None, belt: false, beaver_suit: false, mustache: false, special_sound: None },
         // Brown hair and stubble, green-grey jacket; forest green.
         Character::Sam => {
             const ART: CharacterArt = CharacterArt {
@@ -168,6 +193,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 goatee: false,
                 stubble: Some(rgb(96, 62, 36)),
                 belt: false,
+                beaver_suit: false,
+                mustache: false,
                 special_sound: Some(Sfx::GlueShot),
             };
             &ART
@@ -188,6 +215,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 goatee: false,
                 stubble: Some(rgb(122, 60, 36)),
                 belt: false,
+                beaver_suit: false,
+                mustache: false,
                 special_sound: None,
             };
             &ART
@@ -208,6 +237,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 goatee: false,
                 stubble: None,
                 belt: false,
+                beaver_suit: false,
+                mustache: false,
                 special_sound: Some(Sfx::Hounds),
             };
             &ART
@@ -228,6 +259,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 goatee: false,
                 stubble: Some(rgb(84, 48, 34)),
                 belt: false,
+                beaver_suit: false,
+                mustache: false,
                 special_sound: Some(Sfx::Split),
             };
             &ART
@@ -248,6 +281,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 goatee: false,
                 stubble: None,
                 belt: false,
+                beaver_suit: false,
+                mustache: false,
                 special_sound: Some(Sfx::Meow),
             };
             &ART
@@ -268,6 +303,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 goatee: false,
                 stubble: None,
                 belt: false,
+                beaver_suit: false,
+                mustache: false,
                 special_sound: Some(Sfx::Serve),
             };
             &ART
@@ -288,6 +325,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 goatee: false,
                 stubble: None,
                 belt: false,
+                beaver_suit: false,
+                mustache: false,
                 special_sound: Some(Sfx::ChainThrow),
             };
             &ART
@@ -308,6 +347,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 goatee: false,
                 stubble: Some(rgb(104, 84, 68)),
                 belt: false,
+                beaver_suit: false,
+                mustache: false,
                 special_sound: Some(Sfx::Thunder),
             };
             &ART
@@ -328,6 +369,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 goatee: false,
                 stubble: Some(rgb(150, 116, 70)),
                 belt: false,
+                beaver_suit: false,
+                mustache: false,
                 special_sound: Some(Sfx::Organize),
             };
             &ART
@@ -348,6 +391,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 goatee: true,
                 stubble: None,
                 belt: false,
+                beaver_suit: false,
+                mustache: false,
                 special_sound: None,
             };
             &ART
@@ -368,6 +413,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 goatee: false,
                 stubble: None,
                 belt: false,
+                beaver_suit: false,
+                mustache: false,
                 special_sound: None,
             };
             &ART
@@ -388,6 +435,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 goatee: false,
                 stubble: Some(rgb(44, 34, 28)),
                 belt: true,
+                beaver_suit: false,
+                mustache: false,
                 special_sound: Some(Sfx::JudoGrab),
             };
             &ART
@@ -409,7 +458,78 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 goatee: false,
                 stubble: None,
                 belt: false,
+                beaver_suit: false,
+                mustache: false,
                 special_sound: Some(Sfx::Flex),
+            };
+            &ART
+        }
+        // Long straight black hair, fair skin, always in a Buc-ee's beaver suit (brown fur, tan
+        // belly, flat tail, red cap); Buc-ee's yellow.
+        Character::Carrie => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(1.0, 0.86, 0.10, 1.0)),
+                body: rgb(138, 90, 50),
+                legs: [rgb(108, 70, 40), rgb(124, 80, 46)],
+                arms: rgb(126, 82, 46),
+                hair: Some(rgb(16, 14, 16)),
+                headband: false,
+                skin: rgb(244, 222, 208),
+                hair_style: HairStyle::Long,
+                beard: false,
+                glasses: false,
+                goatee: false,
+                stubble: None,
+                belt: false,
+                beaver_suit: true,
+                mustache: false,
+                special_sound: Some(Sfx::Bugs),
+            };
+            &ART
+        }
+        // Dark brown hair and a light mustache, a red flannel and chinos; skater coral. (His
+        // skateboard comes out for the special.)
+        Character::Matt => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(1.0, 0.44, 0.34, 1.0)),
+                body: rgb(150, 52, 46),
+                legs: [rgb(132, 112, 84), rgb(150, 128, 96)],
+                arms: rgb(128, 42, 40),
+                hair: Some(rgb(58, 38, 26)),
+                headband: false,
+                skin: SKIN,
+                hair_style: HairStyle::Short,
+                beard: false,
+                glasses: false,
+                goatee: false,
+                stubble: None,
+                belt: false,
+                beaver_suit: false,
+                mustache: true,
+                special_sound: Some(Sfx::Skate),
+            };
+            &ART
+        }
+        // Dark hair slicked back, a groomed beard along the jaw into an extended goatee, a slate
+        // storm-chaser jacket; storm blue.
+        Character::Zack => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(0.62, 0.84, 1.0, 1.0)),
+                body: rgb(66, 84, 98),
+                legs: [rgb(34, 38, 48), rgb(46, 50, 62)],
+                arms: rgb(58, 74, 88),
+                hair: Some(rgb(40, 30, 24)),
+                headband: false,
+                skin: SKIN,
+                hair_style: HairStyle::Slick,
+                beard: false,
+                glasses: false,
+                goatee: true,
+                stubble: Some(rgb(40, 30, 24)),
+                belt: false,
+                beaver_suit: false,
+                mustache: false,
+                special_sound: Some(Sfx::Tornado),
             };
             &ART
         }
@@ -424,7 +544,7 @@ pub fn character_color(c: Character) -> Color {
 
 pub fn look(c: Character, seat: usize) -> Look {
     let a = art(c);
-    Look { body: a.body, legs: a.legs, arms: a.arms, hair: a.hair, accent: a.color.unwrap_or(ACCENTS[seat]), headband: a.headband, skin: a.skin, hair_style: a.hair_style, beard: a.beard, glasses: a.glasses, goatee: a.goatee, stubble: a.stubble, belt: a.belt }
+    Look { body: a.body, legs: a.legs, arms: a.arms, hair: a.hair, accent: a.color.unwrap_or(ACCENTS[seat]), headband: a.headband, skin: a.skin, hair_style: a.hair_style, beard: a.beard, glasses: a.glasses, goatee: a.goatee, stubble: a.stubble, belt: a.belt, beaver_suit: a.beaver_suit, mustache: a.mustache }
 }
 
 const fn rgb(r: u8, g: u8, b: u8) -> Color {
@@ -891,6 +1011,17 @@ impl Art {
                 }
             }
         }
+        // Tornadoes kick up dust at their feet, flung round the way they spin.
+        for e in &m.effects {
+            if let Effect::Tornado(t) = e {
+                let seed = (self.time * 1000.0) as i32;
+                if hash(seed, t.at.x as i32, 83) < dt * 40.0 {
+                    let side = if hash(seed, 2, 84) < 0.5 { -1.0 } else { 1.0 };
+                    let vel = vec2(t.spin * 40.0 + side * 15.0, -30.0 - hash(seed, 3, 85) * 40.0);
+                    self.particles.push(Particle { pos: t.at + vec2(side * 3.0, -1.0), vel, color: DUST, life: 0.6, stick: false, gravity: 60.0 });
+                }
+            }
+        }
         // Rockets leave a smoke trail.
         for e in &m.effects {
             if let Effect::Rocket(r) = e {
@@ -1028,6 +1159,8 @@ impl Art {
                 Effect::Pet(p) => match p.breed {
                     Breed::Hound => draw_dog(p),
                     Breed::Cat(coat) => draw_cat(p, coat),
+                    Breed::Spider(_) => draw_spider(p),
+                    Breed::Fly(k) => draw_fly(p, k, self.time),
                 },
                 Effect::Table(t) => draw_table(t),
                 Effect::Chain(c) => draw_chain(c, chain_anchor(&m.f[c.owner])),
@@ -1041,6 +1174,9 @@ impl Art {
                 // (Drawn as the thrown fighter tumbling.)
                 Effect::Judo(_) => {}
                 Effect::Lunge(_) => {}
+                // (Drawn in her hands, over the fighters, below.)
+                Effect::Laptop(_) => {}
+                Effect::Tornado(t) => draw_tornado(t, self.time),
                 Effect::Quake(q) => draw_quake(q, self.time),
             }
         }
@@ -1061,7 +1197,8 @@ impl Art {
             }
         }
 
-        // Kyle's pin: a glowing ring at the feet of everyone stuck. Tyler's haste: speed streaks.
+        // Kyle's pin: a glowing ring at the feet of everyone stuck. Tyler's haste and Matt's
+        // skateboard: speed streaks.
         for f in m.f.iter().filter(|f| f.present()) {
             if f.pinned > 0 {
                 let pulse = 0.5 + 0.5 * (self.time * 8.0).sin();
@@ -1080,7 +1217,7 @@ impl Art {
             if f.bulked > 0 && f.grounded {
                 draw_bulk_reach(f, self.time);
             }
-            if f.haste > 0 && f.vel.x.abs() > 60.0 {
+            if (f.haste > 0 || f.skate > 0) && f.vel.x.abs() > 60.0 {
                 let a = look(f.character, 0).accent;
                 let back = -f.vel.x.signum();
                 for (k, dy) in [3.0, 7.0, 11.0].into_iter().enumerate() {
@@ -1116,6 +1253,9 @@ impl Art {
             if let Effect::Order(o) = e {
                 draw_order(o, &m.f[o.owner], self.time);
             }
+            if let Effect::Laptop(l) = e {
+                draw_laptop(l, &m.f[l.owner], self.time);
+            }
         }
         // The protected start: a pulsing shield around everyone, fading out as it ends.
         if m.protected() {
@@ -1150,11 +1290,14 @@ impl Art {
             draw_rectangle(p.pos.x.floor(), p.pos.y.floor(), 1.0, 1.0, p.color);
         }
 
-        // Health bars (not minis: one hit is all they take).
-        for (i, f) in m.f.iter().enumerate().take(N_FIGHTERS).filter(|(_, f)| f.present()) {
-            let (x, y) = ((f.pos.x - 6.0).round(), (f.pos.y - 22.0).round());
-            draw_rectangle(x, y, 12.0, 1.0, Color::new(0.0, 0.0, 0.0, 0.6));
-            draw_rectangle(x, y, (12.0 * f.hp / MAX_HP).ceil(), 1.0, look(f.character, i).accent);
+        // Health bars; a mini's is shorter, sits lower (it's smaller) and runs out of its own (smaller)
+        // health.
+        for (i, f) in m.f.iter().enumerate().filter(|(_, f)| f.present()) {
+            let mini = i >= N_FIGHTERS;
+            let (w, full) = if mini { (8.0, MINI_HP) } else { (12.0, MAX_HP) };
+            let (x, y) = ((f.pos.x - w / 2.0).round(), (f.pos.y - 22.0 * f.scale).round());
+            draw_rectangle(x, y, w, 1.0, Color::new(0.0, 0.0, 0.0, 0.6));
+            draw_rectangle(x, y, (w * f.hp / full).ceil(), 1.0, look(f.character, f.team(i)).accent);
         }
         draw_texture(&self.vignette, 0.0, 0.0, WHITE);
     }
@@ -1204,15 +1347,20 @@ fn draw_item(it: &Item, time: f32) {
             line(base + dir * 4.0, base + dir * 6.5, 1.0, TIP);
         }
         ItemKind::Grenade => {
-            draw_rectangle(x, y, 3.0, 3.0, GRENADE);
-            draw_rectangle(x, y, 1.0, 1.0, Color::new(0.45, 0.52, 0.35, 1.0));
-            draw_rectangle(x + 1.0, y - 1.0, 1.0, 1.0, Color::new(0.35, 0.33, 0.30, 1.0));
+            // A little bigger than a rock, outlined so it stands out: a ridged olive body sitting
+            // on the ground, with the lever and pin ring on top.
+            let (gx, gy) = (p.x.round() - 2.0, (p.y + ITEM_R).round() - 4.0);
+            outlined(gx, gy, 4.0, 4.0, GRENADE);
+            draw_rectangle(gx, gy, 1.0, 1.0, Color::new(0.48, 0.56, 0.36, 1.0));
+            draw_rectangle(gx, gy + 2.0, 4.0, 1.0, Color::new(0.22, 0.27, 0.16, 1.0));
+            draw_rectangle(gx + 1.0, gy - 1.0, 2.0, 1.0, Color::new(0.55, 0.53, 0.50, 1.0));
+            draw_rectangle(gx + 3.0, gy - 2.0, 1.0, 1.0, Color::new(0.78, 0.76, 0.70, 1.0));
             // A live fuse blinks red, faster as it burns down.
             if let Some(t) = it.fuse {
                 let rate = 4.0 + 16.0 * (1.0 - t as f32 / GRENADE_FUSE as f32);
                 if (time * rate).sin() > 0.0 {
-                    draw_rectangle(x + 1.0, y + 1.0, 1.0, 1.0, Color::new(1.0, 0.15, 0.1, 1.0));
-                    draw_circle(p.x, p.y, 3.5, Color::new(1.0, 0.2, 0.1, 0.25));
+                    draw_rectangle(gx + 1.0, gy + 1.0, 2.0, 1.0, Color::new(1.0, 0.15, 0.1, 1.0));
+                    draw_circle(p.x, p.y, 4.5, Color::new(1.0, 0.2, 0.1, 0.25));
                 }
             }
         }
@@ -1424,9 +1572,27 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
     for k in 1..6 {
         line(v.scarf[k - 1], v.scarf[k], 1.0, tint(scarf, flash));
     }
+    if look.beaver_suit {
+        // The flat beaver tail, sticking out behind, low; criss-crossed darker.
+        let (tx, ty) = (if s > 0.0 { x.round() - 5.0 } else { x.round() + 1.0 }, fy.round() - 4.0);
+        draw_rectangle(tx, ty, 4.0, 2.0, tint(BUCEE_TAIL, flash));
+        draw_rectangle(tx + 1.0, ty, 1.0, 1.0, tint(BUCEE_TAIL_DARK, flash));
+        draw_rectangle(tx + 2.0, ty + 1.0, 1.0, 1.0, tint(BUCEE_TAIL_DARK, flash));
+    }
+    // Matt's skateboard: a deck under his feet on two wheels, his feet planted front and back.
+    let skating = f.skate > 0;
+    if skating {
+        let (bx, by) = (x.round() - 4.0, fy.round() - 1.0);
+        draw_rectangle(bx, by, 9.0, 1.0, tint(DECK, flash));
+        draw_rectangle(if s > 0.0 { bx + 8.0 } else { bx }, by - 1.0, 1.0, 1.0, tint(DECK, flash));
+        draw_rectangle(bx + 1.0, by + 1.0, 1.0, 1.0, tint(WHEEL, flash));
+        draw_rectangle(bx + 7.0, by + 1.0, 1.0, 1.0, tint(WHEEL, flash));
+    }
     // Legs.
     for k in 0..2 {
-        let foot = if f.grounded {
+        let foot = if skating {
+            vec2(x + (k as f32 - 0.5) * 4.0 * s, fy - 1.5)
+        } else if f.grounded {
             let ph = v.walk_phase + k as f32 * std::f32::consts::PI;
             let amt = (speed / 45.0).min(1.5);
             vec2(x + ph.sin() * 3.0 * amt, fy - (-ph.cos()).max(0.0) * 2.0 * amt.min(1.0))
@@ -1449,6 +1615,10 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
         draw_rectangle(vx, vy, 6.0, 4.0, tint(VEST, flash));
         draw_rectangle(vx, vy + 2.0, 6.0, 1.0, tint(VEST_STRAP, flash));
         draw_rectangle(if s > 0.0 { vx + 4.0 } else { vx }, vy + 1.0, 2.0, 2.0, tint(VEST_POUCH, flash));
+    }
+    if look.beaver_suit {
+        // The suit's tan belly, out front.
+        draw_rectangle(if s > 0.0 { x.round() } else { x.round() - 1.0 }, fy.round() - 9.0, 2.0, 3.0, tint(BUCEE_BELLY, flash));
     }
     if look.belt {
         draw_rectangle((hip.x - 2.0).round(), (hip.y - 1.0).round(), 5.0, 1.0, tint(BELT, flash));
@@ -1499,6 +1669,12 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
                 }
                 HairStyle::Shaved => {}
                 HairStyle::Buzz => px(-3.0, -2.0, 1.0, 2.0, hair),
+                HairStyle::Slick => {
+                    // Combed straight back off the forehead, flat and shiny, a little long behind.
+                    px(-3.0, -2.0, 2.0, 3.0, hair);
+                    px(-4.0, -1.0, 1.0, 2.0, hair);
+                    px(0.0, -3.0, 2.0, 1.0, tint(mix(hair, WHITE, 0.25), flash));
+                }
                 HairStyle::Wild => {
                     px(-4.0, -3.0, 2.0, 3.0, hair);
                     px(-5.0, -4.0, 2.0, 1.0, hair);
@@ -1520,6 +1696,9 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
                 px(-1.0, 1.0, 4.0, 1.0, c);
                 px(0.0, 2.0, 3.0, 1.0, c);
             }
+            if look.mustache {
+                px(0.0, 1.0, 2.0, 1.0, tint(mix(look.skin, look.hair.unwrap_or(HOOD), 0.75), flash));
+            }
             if look.goatee {
                 px(1.0, 2.0, 2.0, 2.0, hair);
                 px(1.0, 4.0, 1.0, 2.0, hair);
@@ -1530,6 +1709,12 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
             }
             if look.headband {
                 draw_rectangle(hx - 2.0, hy - 2.0, 5.0, 1.0, tint(look.accent, flash));
+            }
+            if look.beaver_suit {
+                // Buc-ee's red cap, the brim out front, a spot of yellow badge on it.
+                px(-2.0, -4.0, 5.0, 2.0, tint(BUCEE_RED, flash));
+                px(3.0, -3.0, 2.0, 1.0, tint(BUCEE_BRIM, flash));
+                px(1.0, -4.0, 1.0, 1.0, tint(look.accent, flash));
             }
         }
     }
@@ -1579,6 +1764,80 @@ fn draw_cat(c: &Pet, coat: u8) {
     draw_rectangle(hx + 1.0, y - 5.0, 1.0, 1.0, dark);
     let tx = if s > 0.0 { x - 3.0 } else { x + 2.0 };
     draw_rectangle(tx, y - 5.0 - stride, 1.0, 3.0, dark);
+}
+
+/// One of Zack's tornadoes: a grey column from the floor to the ceiling, narrow at the bottom and
+/// flaring out toward the top, swaying, with streaks of wind whirling round it the way it
+/// spins. It fades in and out.
+fn draw_tornado(t: &Tornado, time: f32) {
+    let age = (TORNADO_TICKS - t.ticks.min(TORNADO_TICKS)) as f32;
+    let fade = (age / 12.0).min(1.0).min(t.ticks as f32 / 20.0);
+    let (bottom, top) = (t.at.y - 1.0, WALL);
+    let rows = ((bottom - top) / 4.0) as i32;
+    for k in 0..=rows {
+        let h = k as f32 / rows as f32;
+        let y = bottom - h * (bottom - top);
+        let w = 2.5 + h * 4.0 + h * h * 12.0;
+        let cx = t.at.x + (time * 2.5 + k as f32 * 0.25).sin() * (1.0 + h * 5.0);
+        draw_ellipse(cx, y, w, 1.8, 0.0, Color::new(TORNADO_GREY.r, TORNADO_GREY.g, TORNADO_GREY.b, 0.16 * fade));
+        draw_ellipse_lines(cx, y, w, 1.8, 0.0, 1.0, Color::new(TORNADO_GREY.r, TORNADO_GREY.g, TORNADO_GREY.b, 0.45 * fade));
+        // A streak whipping round this ring (only on the front half, so it reads as turning).
+        let a = time * 9.0 * t.spin + k as f32 * 0.9;
+        if a.sin() > 0.0 {
+            draw_rectangle((cx + a.cos() * w).round(), y.round(), 2.0, 1.0, Color::new(0.92, 0.94, 0.96, 0.75 * fade));
+        }
+    }
+}
+
+/// One of Carrie's spiders: a black body, four legs splayed out each side, stepping as it runs.
+/// (Drawn a little bigger than it is, so it's easy to see.)
+fn draw_spider(sp: &Pet) {
+    let (x, y, s) = (sp.pos.x.round(), sp.pos.y.round(), sp.dir);
+    let step = (sp.pos.x * 0.9).sin() > 0.0;
+    draw_rectangle(x - 1.0, y - 3.0, 3.0, 2.0, SPIDER);
+    for side in [-1.0, 1.0] {
+        let kx = if side < 0.0 { x - 2.0 } else { x + 2.0 };
+        // Knees up by the body, feet out on the ground; the pairs take turns lifting.
+        let (near, far) = if step { (1.0, 0.0) } else { (0.0, 1.0) };
+        draw_rectangle(kx, y - 3.0 - near, 1.0, 1.0, SPIDER_LEG);
+        draw_rectangle(kx + side, y - 2.0, 1.0, 1.0, SPIDER_LEG);
+        draw_rectangle(kx + side, y - 1.0 - far, 1.0, 1.0, SPIDER_LEG);
+        draw_rectangle(kx, y - 1.0, 1.0, 1.0, SPIDER_LEG);
+    }
+    // A glint of eyes at the front.
+    draw_rectangle(if s > 0.0 { x + 1.0 } else { x - 1.0 }, y - 3.0, 1.0, 1.0, FLY_EYE);
+}
+
+/// One of Carrie's horseflies: a fat dark body with big red eyes and a blur of wings. (Drawn a
+/// little bigger than it is, so it's easy to see.)
+fn draw_fly(fly: &Pet, k: u8, time: f32) {
+    let (x, y, s) = (fly.pos.x.round(), fly.pos.y.round(), fly.dir);
+    draw_rectangle(x - 2.0, y - 3.0, 4.0, 2.0, FLY_BODY);
+    draw_rectangle(if s > 0.0 { x - 2.0 } else { x + 1.0 }, y - 2.0, 1.0, 1.0, Color::new(0.40, 0.42, 0.30, 1.0));
+    draw_rectangle(if s > 0.0 { x + 2.0 } else { x - 3.0 }, y - 3.0, 1.0, 2.0, FLY_EYE);
+    let up = (time * 45.0 + k as f32).sin() > 0.0;
+    let wy = if up { y - 5.0 } else { y - 4.0 };
+    draw_rectangle(if s > 0.0 { x - 2.0 } else { x }, wy, 3.0, 1.0, FLY_WING);
+    draw_rectangle(if s > 0.0 { x - 1.0 } else { x }, wy - 1.0 + up as u8 as f32, 1.0, 1.0, FLY_WING);
+}
+
+/// Carrie's laptop, open in her hands: a dark base with the screen lit up and glowing, flickering
+/// with code (where the bugs come from).
+fn draw_laptop(l: &Laptop, carrie: &Fighter, time: f32) {
+    let fade = (l.ticks as f32 / 12.0).min(1.0);
+    let s = carrie.facing;
+    let (x, y) = (l.at.x.round(), l.at.y.round());
+    let screen_glow = Color::new(0.55, 0.85, 1.0, 1.0);
+    draw_circle(x, y - 2.0, 5.0, Color::new(screen_glow.r, screen_glow.g, screen_glow.b, 0.18 * fade));
+    draw_rectangle(x - 2.0, y, 5.0, 1.0, Color::new(0.30, 0.31, 0.34, fade));
+    // The screen, tilted back toward her.
+    let sx = if s > 0.0 { x - 2.0 } else { x };
+    draw_rectangle(sx, y - 4.0, 3.0, 4.0, Color::new(0.20, 0.21, 0.24, fade));
+    for row in 0..3 {
+        let on = (time * 12.0 + row as f32 * 2.3).sin() > -0.3;
+        let c = if on { screen_glow } else { Color::new(0.25, 0.55, 0.75, 1.0) };
+        draw_rectangle(if s > 0.0 { sx + 1.0 } else { sx }, y - 3.0 + row as f32, 2.0, 1.0, Color::new(c.r, c.g, c.b, fade));
+    }
 }
 
 /// Robert's lightning: a jagged bolt to each foe, with a couple of short forks branching off, all
@@ -1646,7 +1905,7 @@ fn draw_order(o: &Order, kyle: &Fighter, time: f32) {
 /// it, bright at the head of each stream.
 fn draw_ridden(v: &FighterVis, f: &Fighter, time: f32) {
     let black = Color::new(0.02, 0.03, 0.02, 1.0);
-    let dark = Look { body: black, legs: [black, black], arms: black, hair: Some(black), accent: Color::new(0.05, 0.25, 0.08, 1.0), headband: false, skin: black, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false, stubble: None, belt: false };
+    let dark = Look { body: black, legs: [black, black], arms: black, hair: Some(black), accent: Color::new(0.05, 0.25, 0.08, 1.0), headband: false, skin: black, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false, stubble: None, belt: false, beaver_suit: false, mustache: false };
     draw_human(v, f, &dark, false);
     let (x0, top, h) = (f.pos.x.round() - 3.0, (f.pos.y - f.height()).round() - 1.0, f.height() + 1.0);
     for col in 0..4 {

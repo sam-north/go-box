@@ -67,6 +67,9 @@ go_box_sim::enum_all! {
         Flex,
         Stomp,
         BigStomp,
+        Bugs,
+        Skate,
+        Tornado,
         Start,
         Win,
         Lose,
@@ -348,6 +351,28 @@ impl Sfx {
                 s.noise(0.0, 0.5, 900.0, 90.0, 0.001, 7.0, 0.55);
                 s.wobble(0.05, 0.35, 45.0, 18.0, 0.2);
             }
+            // Carrie's laptop: a clack as it opens, then a swarm of buzzing rising out of it.
+            Sfx::Bugs => {
+                s.tone(0.0, 0.03, 1400.0, 900.0, Wave::Square, 0.001, 80.0, 0.15);
+                s.noise(0.0, 0.03, 4000.0, 2000.0, 0.001, 90.0, 0.3);
+                for (k, f) in [190.0, 230.0, 260.0, 310.0].into_iter().enumerate() {
+                    s.tone(0.05 + k as f32 * 0.04, 0.6, f, f * 1.15, Wave::Saw, 0.08, 4.0, 0.07);
+                }
+                s.wobble(0.05, 0.6, 210.0, 33.0, 0.12);
+            }
+            // Matt's skateboard: the clack of it hitting the ground and a fast rolling rumble.
+            Sfx::Skate => {
+                s.tone(0.0, 0.04, 900.0, 500.0, Wave::Square, 0.001, 70.0, 0.2);
+                s.noise(0.0, 0.03, 3000.0, 1500.0, 0.001, 90.0, 0.35);
+                s.noise(0.03, 0.4, 500.0, 900.0, 0.01, 5.0, 0.4);
+                s.wobble(0.03, 0.4, 70.0, 40.0, 0.15);
+            }
+            // Zack's tornadoes spinning up: a rising, howling rush of wind.
+            Sfx::Tornado => {
+                s.swell(0.0, 0.9, 250.0, 1800.0, 0.35);
+                s.noise(0.3, 0.9, 1400.0, 500.0, 0.05, 3.0, 0.3);
+                s.tone(0.1, 0.9, 180.0, 320.0, Wave::Saw, 0.2, 2.5, 0.05);
+            }
             Sfx::Start => {
                 s.tone(0.0, 0.12, 440.0, 440.0, Wave::Square, 0.003, 10.0, 0.14);
                 s.tone(0.16, 0.3, 660.0, 660.0, Wave::Square, 0.003, 6.0, 0.16);
@@ -527,6 +552,7 @@ pub struct Sounds {
     step_dist: [f32; N_BODIES],
     fuse_acc: f32,
     fire_acc: f32,
+    wind_acc: f32,
     special_cd: Option<u32>,
     /// The countdown number last shown (3, 2, 1), to beep on each.
     count: Option<u32>,
@@ -547,7 +573,7 @@ impl Sounds {
                 }
             }
         });
-        Self { sounds, muted: false, master: 0.8, effects: 1.0, last: vec![-1.0; Sfx::ALL.len()], now: 0.0, step_dist: [0.0; N_BODIES], fuse_acc: 0.0, fire_acc: 0.0, special_cd: None, count: None, ending: None }
+        Self { sounds, muted: false, master: 0.8, effects: 1.0, last: vec![-1.0; Sfx::ALL.len()], now: 0.0, step_dist: [0.0; N_BODIES], fuse_acc: 0.0, fire_acc: 0.0, wind_acc: 0.0, special_cd: None, count: None, ending: None }
     }
 
     /// Plays `s` at `vol` (0..1, before the master volume).
@@ -724,6 +750,18 @@ impl Sounds {
                 }
             }
             None => self.fire_acc = 0.0,
+        }
+        // A tornado howls on (the nearest one; a new gust as the last dies away).
+        let wind = m.effects.iter().filter(|e| matches!(e, go_box_sim::character::Effect::Tornado(_))).map(|e| e.pos()).min_by(|a, b| a.distance(ear).total_cmp(&b.distance(ear)));
+        match wind {
+            Some(p) => {
+                self.wind_acc += dt;
+                if self.wind_acc >= 0.9 {
+                    self.wind_acc = 0.0;
+                    self.at(Sfx::Tornado, p, ear, 0.35);
+                }
+            }
+            None => self.wind_acc = 0.0,
         }
         let cd = own.map(|s| &m.f[s]).filter(|f| f.alive() && f.character.special().is_some()).map(|f| f.special_cd);
         if let (Some(prev), Some(0)) = (self.special_cd, cd)

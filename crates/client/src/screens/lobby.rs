@@ -238,7 +238,6 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     // Play / ready / exit.
     let bh = ui.px(48.0);
     let bw = ui.px(220.0);
-    let again = room.last_results.is_some();
     let others = seated.iter().filter(|p| p.id != room.leader).count();
     let ready = seated.iter().filter(|p| p.id != room.leader && p.ready).count();
     // Exit, quietly, on the left; play (or ready up) on the right, with who's ready beside it.
@@ -249,8 +248,9 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     let play = Rect::new(r.x + w - pad - bw, y, bw, bh);
     let note_right = play.x - ui.px(16.0);
     if leader {
-        let label = if again { t("lobby.play_again") } else { t("lobby.start") };
-        if ui.button(play, label, true, ACCENT) {
+        // Play, in green, once everyone else seated has said they're ready (the server holds to
+        // that too).
+        if ui.button(play, t("lobby.play"), ready == others, ui::GOOD) {
             app.send(ClientMsg::Start);
         }
         if others > 0 {
@@ -263,7 +263,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
         ui.text(note, r.x + w - pad - ui.text_width(note, 18.0), y + bh * 0.62, 18.0, DIM);
     } else {
         let me_ready = room.players.iter().any(|p| Some(p.id) == app.me && p.ready);
-        let label = if me_ready { t("lobby.is_ready") } else if again { t("lobby.play_again") } else { t("lobby.ready") };
+        let label = if me_ready { t("lobby.is_ready") } else { t("lobby.ready") };
         if ui.button(play, label, true, if me_ready { ACCENT } else { INK }) {
             app.send(ClientMsg::SetReady(!me_ready));
         }

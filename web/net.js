@@ -24,6 +24,11 @@
     if (t) pastes.push(t);
   });
 
+  // When the last key went down, by the browser's own clock (the event's timestamp, so it
+  // includes any wait before the page got to it): the debug overlay measures input lag with it.
+  let lastKeyMs = -1;
+  window.addEventListener("keydown", (e) => { if (!e.repeat) lastKeyMs = e.timeStamp; }, true);
+
   // Right click is melee: don't open the browser's menu over the game.
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
@@ -48,6 +53,10 @@
       env.go_ws_send = (ptr, len) => { if (state === 1) ws.send(mem(ptr, len).slice()); };
       env.go_ws_next_len = () => (inbox.length ? inbox[0].length : -1);
       env.go_ws_take = (ptr) => { const m = inbox.shift(); mem(ptr, m.length).set(m); };
+
+      // The browser's clock (ms), and when the last key went down on it (-1: none yet).
+      env.go_now_ms = () => performance.now();
+      env.go_key_ms = () => lastKeyMs;
 
       // The first connected gamepad: writes [left x, left y, right x, right y, button bits]
       // and returns 1, or returns 0 if there's none.

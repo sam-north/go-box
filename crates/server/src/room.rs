@@ -281,7 +281,8 @@ impl Room {
                     self.broadcast_room();
                 }
             }
-            ClientMsg::Start if is_leader && lobby => self.start(),
+            // (Only once everyone else seated has said they're ready.)
+            ClientMsg::Start if is_leader && lobby && self.everyone_ready() => self.start(),
             ClientMsg::EndMatch if is_leader => {
                 if let Some(r) = &mut self.running {
                     r.m.end_now();
@@ -307,6 +308,12 @@ impl Room {
             }
             _ => {}
         }
+    }
+
+    /// Everyone seated for the next match (the first four in the room) but the leader has said
+    /// they're ready: the leader can start it. (Spectators needn't be.)
+    fn everyone_ready(&self) -> bool {
+        self.players.iter().take(N_FIGHTERS).all(|p| p.id == self.leader || p.ready)
     }
 
     fn start(&mut self) {
@@ -470,6 +477,7 @@ mod tests {
         r.on_msg(1, ClientMsg::SetSeatFill { seat: 3, fill: SeatFill::Empty });
         r.on_msg(1, ClientMsg::SetSeatFill { seat: 9, fill: SeatFill::Empty });
         assert_eq!(last_room(&mut a).fills, [SeatFill::Bot, SeatFill::Bot, SeatFill::Bot, SeatFill::Empty]);
+        r.on_msg(2, ClientMsg::SetReady(true));
         r.on_msg(1, ClientMsg::Start);
         let run = r.running.as_ref().unwrap();
         assert_eq!(run.seats, [Some(1), Some(2), None, None]);
@@ -480,10 +488,28 @@ mod tests {
     }
 
     #[test]
+    fn the_leader_cant_start_until_everyone_seated_is_ready() {
+        let mut r = room();
+        let _a = join(&mut r, 1);
+        let _b = join(&mut r, 2);
+        let _c = join(&mut r, 3);
+        r.on_msg(2, ClientMsg::SetReady(true));
+        r.on_msg(1, ClientMsg::Start);
+        assert!(r.running.is_none(), "player 3 isn't ready");
+        r.on_msg(3, ClientMsg::SetReady(true));
+        r.on_msg(3, ClientMsg::Start);
+        assert!(r.running.is_none(), "only the leader starts it");
+        r.on_msg(1, ClientMsg::Start);
+        assert!(r.running.is_some(), "everyone's ready: it starts");
+        assert!(r.players.iter().all(|p| !p.ready), "and everyone's unready again for next time");
+    }
+
+    #[test]
     fn a_leaver_hands_over_the_lead_and_their_fighter_plays_on_as_a_bot() {
         let mut r = room();
         let _a = join(&mut r, 1);
         let mut b = join(&mut r, 2);
+        r.on_msg(2, ClientMsg::SetReady(true));
         r.on_msg(1, ClientMsg::Start);
         r.handle(RoomCmd::Leave { id: 1 });
         assert_eq!(r.leader, 2);
@@ -514,6 +540,7 @@ mod tests {
         let mut r = room();
         let mut a = join(&mut r, 1);
         let _b = join(&mut r, 2);
+        r.on_msg(2, ClientMsg::SetReady(true));
         r.on_msg(1, ClientMsg::Start);
         for _ in 0..10 {
             r.step();
@@ -532,6 +559,10 @@ mod tests {
         let mut r = room();
         let mut rx: Vec<_> = (1..=6).map(|id| join(&mut r, id)).collect();
         assert_eq!(last_room(&mut rx[0]).players.len(), 6, "six in the room");
+        // (Spectators needn't be ready; the other three seated must.)
+        for id in 2..=4 {
+            r.on_msg(id, ClientMsg::SetReady(true));
+        }
         r.on_msg(1, ClientMsg::Start);
         let seats = r.running.as_ref().unwrap().seats;
         assert_eq!(seats, [Some(1), Some(2), Some(3), Some(4)], "the first four play");
@@ -549,6 +580,9 @@ mod tests {
         r.step();
         // A seated player leaves: the first spectator plays the next match.
         r.handle(RoomCmd::Leave { id: 2 });
+        for id in 3..=5 {
+            r.on_msg(id, ClientMsg::SetReady(true));
+        }
         r.on_msg(1, ClientMsg::Start);
         assert!(r.running.as_ref().unwrap().seats.contains(&Some(5)), "the fifth moved up");
         assert!(!r.running.as_ref().unwrap().seats.contains(&Some(6)));

@@ -6,6 +6,7 @@
 
 mod app;
 mod attract;
+mod debug;
 mod game;
 mod input;
 mod net;
@@ -98,8 +99,10 @@ async fn main() {
         app.enter(ClientMsg::JoinRoom { code: code.clone() });
     }
     let mut automation = Automation::new();
+    let mut debug = debug::Debug::new();
 
     loop {
+        debug.begin();
         let dt = get_frame_time().min(0.1);
         app.update_net(&mut art, &mut sfx);
         app.controls.poll();
@@ -137,8 +140,13 @@ async fn main() {
         let me = app.game.as_ref().and_then(|g| g.me()).cloned();
         if let (true, Some(seat), Some(me)) = (playing, seat, me) {
             app.controls.latch(&app.settings.bindings, me.holding.is_some(), mouse_free);
+            if app.controls.pressed(&app.settings.bindings, Act::Jump) {
+                debug.jump_pressed();
+            }
+            let mut ticks = 0;
             app.acc = (app.acc + dt).min(0.25);
             while app.acc >= DT {
+                ticks += 1;
                 app.acc -= DT;
                 app.seq += 1;
                 let action = if opts.autopilot {
@@ -158,6 +166,7 @@ async fn main() {
                 app.game.as_mut().unwrap().local_tick(seq, action, &mut mine);
                 sfx.local(&mine, me.holding);
             }
+            debug.ticks(ticks);
         }
 
         // The arena: the match you're in, or bots fighting behind the menus.
@@ -165,6 +174,7 @@ async fn main() {
             Some(g) => g.frame(dt),
             None => None,
         };
+        debug.observe(shown.as_ref().zip(seat).map(|(m, s)| &m.f[s]), app.game.as_ref().and_then(|g| g.latest()).map(|v| v.tick));
         let m = match &shown {
             Some(m) => {
                 art.set_arena(m.config.arena);
@@ -270,6 +280,8 @@ async fn main() {
             sfx.play(Sfx::Click, 1.0);
         }
         ui.end();
+        debug.draw(&ui);
+        debug.end(app.game.as_ref().filter(|_| playing).map(|g| g.debug_stats()));
 
         if automation.step(&mut app, shown.as_ref()) {
             break;

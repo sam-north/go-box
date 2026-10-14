@@ -241,7 +241,7 @@ mod tests {
 
     /// Matches of bots playing every character, with a snapshot taken the first time each
     /// special's leftovers are about (stuck glue, dogs, minis, cats, a table and its sushi,
-    /// a chain, Jake in his phone, lightning, a pin, someone thrown, a quake), so their layouts are
+    /// a chain, Jake in his phone, lightning, a pin, someone thrown, a quake, bugs, a tornado), so their layouts are
     /// on the wire too.
     fn sample_snapshots() -> Vec<Snapshot> {
         use go_box_sim::brain::Brain;
@@ -249,7 +249,7 @@ mod tests {
         use go_box_sim::sim::ItemKind;
         let brain = Brain::from_json(include_str!("../../../brains/gen_219000.json")).unwrap();
         type Seen = fn(&Match) -> bool;
-        let wanted: [(&str, Seen); 13] = [
+        let wanted: [(&str, Seen); 15] = [
             ("glue", |m| m.effects.iter().any(|e| matches!(e, Effect::Glue(g) if g.stuck))),
             ("dogs", |m| m.effects.iter().any(|e| matches!(e, Effect::Pet(p) if p.breed == Breed::Hound))),
             ("minis", |m| m.f[N_FIGHTERS..].iter().any(|f| !f.absent)),
@@ -263,14 +263,17 @@ mod tests {
             ("ridden", |m| m.f.iter().any(|f| f.ridden > 0)),
             ("thrown", |m| m.effects.iter().any(|e| matches!(e, Effect::Judo(_)))),
             ("quake", |m| m.effects.iter().any(|e| matches!(e, Effect::Quake(_))) && m.f.iter().any(|f| f.bulked > 0)),
+            ("bugs", |m| m.effects.iter().any(|e| matches!(e, Effect::Pet(p) if matches!(p.breed, Breed::Fly(_)))) && m.effects.iter().any(|e| matches!(e, Effect::Laptop(_)))),
+            ("tornado", |m| m.effects.iter().any(|e| matches!(e, Effect::Tornado(_)))),
         ];
         let mut found: Vec<Option<Snapshot>> = vec![None; wanted.len()];
         let casts = [
             [Character::Seth, Character::Sam, Character::Austin, Character::Tyler],
             [Character::Corwin, Character::Justin, Character::Ryan, Character::Jake],
-            [Character::Robert, Character::Kyle, Character::Tyler, Character::Sam],
+            [Character::Robert, Character::Kyle, Character::Zack, Character::Sam],
             [Character::Vid, Character::Jake, Character::Classic, Character::Jake],
-            [Character::Doug, Character::Travis, Character::Doug, Character::Travis],
+            [Character::Doug, Character::Travis, Character::Carrie, Character::Matt],
+            [Character::Doug, Character::Classic, Character::Doug, Character::Classic],
         ];
         for (seed, cast) in casts.into_iter().enumerate() {
             let mut m = Match::new(5 + seed as u64, &MatchConfig::default());
@@ -381,7 +384,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (25, 0xfe44_c2e1_5485_b6f3);
+    const WIRE: (u16, u64) = (25, 0x7700_ba3d_12bd_af57);
 
     #[test]
     fn every_sample_round_trips() {

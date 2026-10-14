@@ -16,7 +16,7 @@ Open http://127.0.0.1:7878, pick a name and **Create a room**. Share the invite 
 4-letter code); up to four people can join, and bots take the empty seats. The room leader picks
 the map and starts matches; after each match an overlay shows the scoreboard (kills,
 headshots, damage, when each fighter went down), everyone can switch character, the others can
-mark themselves ready, and the leader hits **Play again**. Someone who leaves mid-match is
+mark themselves ready, and once every seated player is ready the leader's green **Play** button lights up (the server holds to that too). Someone who leaves mid-match is
 replaced by a bot; someone who joins mid-match watches until the next one.
 
 Controls: you always run; **Esc** (Options on a controller) opens Settings, where the **Controls**
@@ -47,23 +47,28 @@ Everyone has the same body; each character adds one special on a cooldown.
 | Sam | **Glue Gun**: fires a glob of glue (like Noita's glue gunners) the way he aims. Whoever it hits takes 4 and is stuck for 5s: moving at a third of normal speed, tethered to the nearest surface by an elastic strand that snaps if stretched past 48px. A glob that hits terrain leaves a blob, and anyone who runs into a blob or a strand is stuck too | 8s |
 | Austin | **Pop-Up**: teleports to the mouse cursor (out of walls, onto tables). With a controller, and for bots, it goes the way he's facing, at least 160px ahead (a third of the arena) when there's room, else anywhere ahead; prefers spots 40px from everyone | 6s |
 | Tyler | **Release the Hounds**: three dogs run the floors for 5s (leaping up onto ledges now and then), biting anyone but Tyler for 15 (each dog at most twice a second per victim), and Tyler runs 35% faster while they're out | 30s |
-| Seth | **Mini Me**: two smaller (70%) clones hop out in front of him for 15s. They fight like bots (grabbing and throwing too), die to one hit, and their kills count as his; they vanish if he goes down | 30s |
+| Seth | **Mini Me**: two smaller (70%) clones hop out in front of him for 15s. They fight like bots (grabbing and throwing too), have 30 health (30% of a fighter's), and their kills count as his; they vanish if he goes down | 30s |
 | Corwin | **Cat Herder**: twenty cats pour out and run the floors for 5s (leaping up onto ledges now and then); each scratch is only 2 (once a second per cat per victim) but they come as a swarm. Sushi within 100px distracts them: they crowd round it (hopping up onto a table for it) and scratch nobody | 30s |
 | Justin | **Sushi Table**: a table appears in the air in front of him (over his head, if he's facing a wall) and stays right there as a platform, with three pieces of sushi on top. Solid from the sides and on top but never from below, so it can't pin anyone; sushi throws like a rock (10) and splats on whatever it hits. Lasts 15s, one at a time | 10s |
 | Ryan | **Yanking Your Chain**: throws a chain up to 110px the way he aims; the first foe it hooks takes 6 and is yanked to just in front of him, dazed for 0.4s | 8s |
 | Jake | **Into the Phone**: turns into light and hides inside his phone for 5s, which drops from his head; meanwhile he can't act or be hurt, and anyone can grab and throw the phone (it hits like a rock). Then he pops back out standing on wherever it went, and the phone stays as an ordinary item. Every phone stays all match: while inside, left/right hops him to the next phone that way (any Jake's, if it's free), marked by a chevron, and he comes out of whichever he's in | 20s |
 | Robert | **Forked Lightning**: a forked bolt strikes every opponent in the arena at once (no line of sight needed): 30 up close, falling off to 5 at 300px and beyond | 25s |
 | Kyle | **Organize**: pins every opponent exactly where they are (even in mid-air) for 3s, with a glow at their feet; they can still swing and throw, just not move or jump | 20s |
-| Vid | **The Chosen One**: goes inside the opponent nearest the mouse cursor (for bots, nearest him) and drives their body for 3s, while it's drawn as a silhouette of falling green code; he can't be hurt meanwhile, then steps back out beside them | 20s |
-| Doug | **Judo Throw**: lunges forward (about 40px) into a grab; the first foe he gets hold of (whatever they hold goes flying) is thrown and throws them over his shoulder like a ragdoll, spinning; wherever they land they slam down for 12 and lie stunned for 1s, getting up. A lunge that catches nobody is ready again in 1s | 7s |
+| Vid | **The Chosen One**: goes inside the opponent nearest the mouse cursor (for bots, nearest him) and drives their body for 3s, while it's drawn as a silhouette of falling green code; he can't be hurt meanwhile, then steps back out beside them. Pressing special inside fires their special, if it's ready (on their cooldown) | 20s |
+| Doug | **Judo Throw**: lunges forward (about 40px) into a grab; the first foe he gets hold of (whatever they hold goes flying) is thrown and throws them over his shoulder like a ragdoll, spinning; wherever they land they slam down for 12 and lie stunned for 1s, getting up. Anyone the thrown body flies into is knocked down too (6 as they land) and lies there just as long. A lunge that catches nobody is ready again in 1s | 7s |
 | Travis | **Leg Day**: bulks up in a weighted vest for 5s; every step (each 26px run) sends a shockwave along the ground hurting foes on the ground within 28px for 4, and landing from a jump one within 42px for 8 (each person at most every 0.4s). Jump to dodge it | 20s |
+| Carrie | **Bug Report**: opens her laptop and fourteen bugs pour out of it in a ring, every direction at once: spiders that run the floors at 105px/s (leaping up to 64px after you) and horseflies that fly at 85px/s, both slower than a full run so you can outrun them. After a moment's scatter each one hunts down the nearest foe and bites twice (3 a bite, at most every 0.5s), then it's done; any left vanish after 7s. Always in a Buc-ee's beaver suit | 30s |
+| Matt | **Skate Strike**: drops a skateboard and shoots off along it the way he faces (about 200px in 0.4s; he can't turn), hitting everyone he goes through for 14 once each. He can use it pinned by Kyle, ridden by Vid or carried up one of Zack's tornadoes, and it frees him (only him); tornadoes don't pull at him while he's on the board | 8s |
+| Zack | **Twin Tornadoes**: two tornadoes, each a column from the floor to the ceiling, spin up either side of him and wander outward for 5s. Each pulls everyone, Zack included, toward it from up to 80px either side, at any height, up to 125px/s whatever you're doing (a full run just gets you away); anyone who gets into the column is carried slowly up it (90px/s; they can't steer, jump or dash, but can still grab, throw, swing and use their special) and flung out near the top the way it spins. Loose items within 100px of a vortex low in the column are pulled in and orbit it; rocks, spears and swords spun fast hurt whoever they hit (half their thrown damage, never Zack's side) | 25s |
 
 Bots playing a character use its special by a simple rule (the brains never trained with
 specials), and never during the protected start: Sam fires the glue at someone ahead of him, near his level; Austin pops away from incoming projectiles, grenades
 about to blow, or a crowd when hurt; Tyler releases the hounds at someone on his level ahead; Seth splits when a foe is close; Corwin lets the cats go at someone on his level ahead; Justin
 serves a table when he has nothing to throw; Ryan throws the chain at someone level with him, in reach; Jake hides in his phone when Austin would
 pop away; Robert casts when the bolts would do 30 all told or finish someone; Kyle organizes when someone's
-within arm's reach; Doug lunges when someone is within a lunge ahead; Travis bulks up when someone's on his level within 90px. Tuning lives at the top of `crates/sim/src/character.rs`.
+within arm's reach; Doug lunges when someone is within a lunge ahead; Travis bulks up when someone's on his level within 90px; Carrie opens the laptop with someone within 220px; Matt skates at someone on his level within 180px ahead, or to break free; Zack calls the tornadoes with someone within about 90px either side, at any height. Tuning lives at the top of `crates/sim/src/character.rs`.
+
+A bot that stays within 12px of one spot for 5 seconds (jittering on a ledge, say) is walked out of it for a second: toward the nearest opponent, or, with them right below, toward the middle dropping through the ledge, hopping as it goes. Not while it's pinned, stunned, ridden or in a phone; players are never moved.
 
 **Adding a map** is a variant in `ArenaId` with its platforms (`crates/sim/src/arena.rs`) and its
 name in the text file; check the bots cope with it using `--example tournament 400 <map id>`.
@@ -75,6 +80,12 @@ variant of `Mode`.
 `art` (`crates/render/src/lib.rs`: colours, hair, special sound), and its name in
 `crates/client/text/en-US.txt`. If its special leaves something in the arena, that's a variant of
 `Effect`; the compiler then lists what to fill in (how it steps, is drawn and is seen by bots).
+
+### Debug mode
+
+For chasing lag: open the page with `?debug=1` (remembered in that browser until `?debug=0`; natively `--debug` or GOBOX_DEBUG) and an overlay in the top right shows the frame rate, each frame's gap and how long our own code took, ticks per frame, snapshot timing, unacknowledged inputs and any prediction correction, and, after you jump, how long the key event waited for a frame and how long until you were drawn jumping. A summary goes to the browser console every second, with a line for each hitch (a frame over 30ms). Off, it costs a check a frame.
+
+`?lowlatency=1` (remembered until `?lowlatency=0`) asks the browser for a low-latency canvas, drawn straight to the screen rather than through the page compositor: a frame or so less input lag in Chrome, at the risk of some tearing.
 
 ### Sound
 

@@ -25,9 +25,9 @@ pub const fn secs(s: u32) -> u32 {
 }
 /// The default match length.
 pub const MAX_TICKS: u32 = secs(45);
-/// The default 3-2-1 before a match, and the protected start after it.
+/// The default 3-2-1 before a match, and the protected start after it (1.5s: nobody can be hurt).
 pub const COUNTDOWN: u32 = secs(3);
-pub const SPAWN_GRACE: u32 = secs(3);
+pub const SPAWN_GRACE: u32 = TICK_RATE * 3 / 2;
 /// Seats: the fighters players and bots play (4).
 pub const N_FIGHTERS: usize = 4;
 /// How many of Seth's minis can be out at once (they take the slots after the seats).
@@ -40,7 +40,7 @@ pub const HALF_W: f32 = 4.0;
 pub const BODY_H: f32 = 14.0;
 /// Top slice of the body that counts as the head for headshots.
 pub const HEAD_H: f32 = 4.0;
-const GRAVITY: f32 = 640.0;
+pub const GRAVITY: f32 = 640.0;
 const MAX_FALL: f32 = 320.0;
 const JUMP_V: f32 = 250.0;
 // Moving: a quick start up to walking pace, then speed builds gradually to a full run (slow to
@@ -90,10 +90,15 @@ pub use crate::item::{GRENADE_FUSE, ItemKind};
 use crate::item::{Blast, DROPPED_FUSE, FISTS, Hit, N_SENSED, OnThrow, SPAWN_ORDER};
 pub const GRENADE_RADIUS: f32 = crate::item::GRENADE_BLAST.radius;
 pub const ITEM_R: f32 = 1.5;
-const LETHAL_SPEED: f32 = 110.0;
+pub const LETHAL_SPEED: f32 = 110.0;
 const OWN_GRACE: u32 = 15;
 /// How close a foe has to be for one of Seth's minis to throw what it's holding at them.
 const MINI_THROW_RANGE: f32 = 170.0;
+/// A bot that stays within STUCK_RANGE of one spot for STUCK_TICKS is stuck, and is walked out of
+/// it for UNSTICK_TICKS.
+const STUCK_RANGE: f32 = 12.0;
+const STUCK_TICKS: u32 = secs(5);
+const UNSTICK_TICKS: u32 = secs(1);
 
 // Items lying around.
 const START_SPEARS: usize = 2;
@@ -265,6 +270,31 @@ pub struct Fighter {
     /// Just shaken by one of Travis's steps: ticks before another can hurt them.
     #[serde(skip)]
     pub shaken: u32,
+    /// Matt on his skateboard: ticks left of the run (flat out the way he faces; he can't turn).
+    pub skate: u32,
+    /// Who this skate run has already hit (a bit per body).
+    #[serde(skip)]
+    pub skate_hit: u8,
+    /// Zack's tornadoes pulling at you: a sideways push (px/s) on top of however you're moving,
+    /// for the next tick.
+    #[serde(skip)]
+    pub wind: f32,
+    /// Being carried up one of Zack's tornadoes (ticks; the tornado keeps topping it up): it moves
+    /// you, but you can still grab, throw, swing and use your special. (Sent to clients, which
+    /// predict your movement with it.)
+    pub caught: u32,
+    /// A bot getting stuck: where it's been hanging about, and for how long; then, while it's being
+    /// walked out, ticks left of that, which way, and whether it drops through ledges on the way.
+    #[serde(skip)]
+    pub stuck_at: Vec2,
+    #[serde(skip)]
+    pub stuck_ticks: u32,
+    #[serde(skip)]
+    pub unstick: u32,
+    #[serde(skip)]
+    pub unstick_mv: f32,
+    #[serde(skip)]
+    pub unstick_down: bool,
     /// Dashing: ticks left of the burst, and until the next one is allowed.
     pub dash_t: u32,
     pub dash_cd: u32,
@@ -315,6 +345,15 @@ impl Fighter {
             bulked: 0,
             stride: 0.0,
             shaken: 0,
+            skate: 0,
+            skate_hit: 0,
+            wind: 0.0,
+            caught: 0,
+            stuck_at: vec2(x, FLOOR_Y),
+            stuck_ticks: 0,
+            unstick: 0,
+            unstick_mv: 0.0,
+            unstick_down: false,
             dash_t: 0,
             dash_cd: 0,
             jump_held: false,
@@ -417,13 +456,17 @@ pub struct Item {
     pub fuse: Option<u32>,
     /// Jake's phone with Jake inside it: whose seat.
     pub carries: Option<usize>,
+    /// Whipped about by Zack's tornado (its owner is then Zack): it can't hurt his side, and
+    /// it hurts others less than a throw.
+    #[serde(skip)]
+    pub whirled: bool,
     #[serde(skip)]
     age: u32,
 }
 
 impl Item {
     pub fn new(kind: ItemKind, pos: Vec2) -> Self {
-        Self { kind, pos, vel: Vec2::ZERO, held_by: None, owner: None, lethal: false, fuse: None, carries: None, age: 0 }
+        Self { kind, pos, vel: Vec2::ZERO, held_by: None, owner: None, lethal: false, fuse: None, carries: None, whirled: false, age: 0 }
     }
     /// On the ground and safe to pick up.
     pub fn loose(&self) -> bool {
@@ -606,11 +649,14 @@ pub struct MatchConfig {
     /// How many health pickups appear (picked at random from the range).
     pub heals: RangeInclusive<u32>,
     pub mode: Mode,
+    /// Walk a bot out of wherever it's got stuck (see `Match::unstick`). Off in tests that want
+    /// bots standing still.
+    pub unstick: bool,
 }
 
 impl Default for MatchConfig {
     fn default() -> Self {
-        Self { arena: ArenaId::default(), max_ticks: MAX_TICKS, countdown: COUNTDOWN, spawn_grace: SPAWN_GRACE, heals: HEALS_PER_ROUND, mode: Mode::default() }
+        Self { arena: ArenaId::default(), max_ticks: MAX_TICKS, countdown: COUNTDOWN, spawn_grace: SPAWN_GRACE, heals: HEALS_PER_ROUND, mode: Mode::default(), unstick: true }
     }
 }
 
@@ -937,6 +983,9 @@ impl Match {
             if i >= N_FIGHTERS {
                 self.mini_uses_its_item(i, &mut actions[i]);
             }
+            if self.config.unstick {
+                self.unstick(i, &mut actions[i]);
+            }
             self.f[i].action = actions[i];
         }
 
@@ -944,11 +993,16 @@ impl Match {
         // walks them off in a line, hopping, throwing away whatever they hold.
         for i in 0..N_FIGHTERS {
             let Some(j) = self.f[i].host.map(|j| j as usize).filter(|_| self.f[i].digital > 0) else { continue };
-            let a = if humans.get(i).copied().flatten().is_some() {
+            let mut a = if humans.get(i).copied().flatten().is_some() {
                 actions[i]
             } else {
                 Action { mv: self.f[j].facing, run: true, jump: self.tick % 30 < 3, throw: true, ..Action::default() }
             };
+            // (His special key fires theirs, if it's ready. And one that breaks free, Matt's, the
+            // body's owner can still fire himself.)
+            if self.f[j].character.special().is_some_and(|s| s.breaks_free()) {
+                a.special |= actions[j].special;
+            }
             actions[j] = a;
             self.f[j].action = a;
             actions[i] = Action::default();
@@ -966,6 +1020,7 @@ impl Match {
             let f = &mut self.f[i];
             control(f, i, actions[i], wall, &mut self.events);
             collide(f, self.config.arena.def(), &props);
+            f.wind = 0.0;
             if f.grounded && !was_grounded {
                 landed[i] = true;
                 self.events.push(Event::Land { pos: f.pos });
@@ -973,6 +1028,8 @@ impl Match {
         }
         // Travis's steps shake the ground.
         self.step_bulk(landed);
+        // Matt's skateboard hits whoever he runs through.
+        self.step_skate();
 
         // 2b. Specials.
         self.step_specials(actions.map(|a| a.special));
@@ -1031,6 +1088,45 @@ impl Match {
             self.over = true;
             self.winner = winner;
         }
+    }
+
+    /// A bot that's hung about in one small spot (jittering back and forth on a ledge, say) for
+    /// STUCK_TICKS is walked out of it for a moment: toward the nearest foe (or, with them right
+    /// below, the middle of the arena, dropping through the ledge), hopping now and then. Not
+    /// while something's holding it there (a pin, a phone, Vid, a stun).
+    fn unstick(&mut self, i: usize, a: &mut Action) {
+        let f = &self.f[i];
+        let (pos, held) = (f.pos, f.pinned > 0 || f.ridden > 0 || f.digital > 0 || f.hitstun > 0);
+        if self.f[i].unstick > 0 {
+            let f = &mut self.f[i];
+            f.unstick -= 1;
+            *a = Action { mv: f.unstick_mv, run: true, jump: f.unstick % 30 >= 18, down: f.unstick_down, ..*a };
+            f.stuck_at = pos;
+            f.stuck_ticks = 0;
+            return;
+        }
+        if held || pos.distance(self.f[i].stuck_at) > STUCK_RANGE {
+            let f = &mut self.f[i];
+            f.stuck_at = pos;
+            f.stuck_ticks = 0;
+            return;
+        }
+        self.f[i].stuck_ticks += 1;
+        if self.f[i].stuck_ticks < STUCK_TICKS {
+            return;
+        }
+        let foe = (0..N_BODIES).filter(|&j| self.foes(i, j)).map(|j| self.f[j].pos).min_by(|a, b| a.distance(pos).total_cmp(&b.distance(pos)));
+        let middle = if pos.x < W / 2.0 { 1.0 } else { -1.0 };
+        let (mv, down) = match foe {
+            Some(p) if (p.x - pos.x).abs() > 30.0 => ((p.x - pos.x).signum(), p.y > pos.y + 20.0),
+            Some(p) if p.y > pos.y + 20.0 => (middle, true),
+            _ => (middle, false),
+        };
+        let f = &mut self.f[i];
+        f.unstick = UNSTICK_TICKS;
+        f.unstick_mv = mv;
+        f.unstick_down = down;
+        f.stuck_ticks = 0;
     }
 
     /// Seth's minis think with the brain, which (trained full size, with long lives) tends to carry
@@ -1183,7 +1279,9 @@ impl Match {
                 let own_grace = it.owner == Some(j) && it.age < OWN_GRACE;
                 // Thrown things don't hit the thrower's teammates (Seth and his minis).
                 let friendly = it.owner.is_some_and(|o| o != j && self.f[o].team(o) == self.f[j].team(j));
-                self.f[j].present() && !own_grace && !friendly && ib.overlaps(&self.f[j].body())
+                // Nor does something Zack's tornado is whipping about hit his side, him included.
+                let zacks = it.whirled && it.owner.is_some_and(|o| self.f[o].team(o) == self.f[j].team(j));
+                self.f[j].present() && !own_grace && !friendly && !zacks && ib.overlaps(&self.f[j].body())
             });
             if let Some(j) = victim {
                 let dir = it.vel.x.signum();
@@ -1191,6 +1289,8 @@ impl Match {
                 let headshot = self.f[j].is_head(it.pos.y);
                 let Some(hit) = it.kind.def().thrown else { continue };
                 let dmg = if headshot { hit.damage * hit.headshot_mult } else { hit.damage };
+                // Whipped round by a tornado rather than thrown: it hurts, but not as much.
+                let dmg = if it.whirled { dmg * crate::character::WHIRLED_HIT } else { dmg };
                 let it = &mut self.items[k];
                 it.vel *= -0.2;
                 it.lethal = false;
@@ -1246,7 +1346,7 @@ impl Match {
         let mut hi = 0;
         while hi < self.heals.len() {
             let hb = Aabb::around(self.heals[hi], HEAL_R);
-            // (Not minis: one hit is all they take.)
+            // (Not minis: they only last a few seconds anyway.)
             let taker = (0..N_FIGHTERS).find(|&j| {
                 let f = &self.f[j];
                 f.present() && f.hp < MAX_HP && f.body().overlaps(&hb)
@@ -1393,7 +1493,18 @@ impl Match {
 /// `props` are the tables in the arena (`props(&view.effects)`).
 pub fn predict(arena: &Arena, props: &[Aabb], f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
     // (Ridden by Vid, your body isn't yours to predict: the server's word goes.)
-    if f.absent || f.digital > 0 || f.ridden > 0 {
+    if f.ridden == 0 {
+        predict_body(arena, props, f, who, a, events);
+    }
+}
+
+/// Like `predict`, for Vid driving someone else's body: his client predicts it from his input.
+pub fn predict_ridden(arena: &Arena, props: &[Aabb], f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
+    predict_body(arena, props, f, who, a, events);
+}
+
+fn predict_body(arena: &Arena, props: &[Aabb], f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
+    if f.absent || f.digital > 0 {
         return;
     }
     control(f, who, a, wall_side(f, props), events);
@@ -1462,6 +1573,7 @@ fn step_item(it: &mut Item, arena: &Arena, props: &[Aabb]) -> (bool, bool) {
     }
     if it.vel.length() < LETHAL_SPEED {
         it.lethal = false;
+        it.whirled = false;
     }
     let touched = landed.is_some() || struck || SOLIDS.iter().any(|s| Aabb::around(it.pos, ITEM_R + 0.5).overlaps(s));
     // Belt and braces: items can never leave the box.
@@ -1515,6 +1627,7 @@ fn control(f: &mut Fighter, who: usize, a: Action, wall: f32, events: &mut Vec<E
     f.wall_cd = f.wall_cd.saturating_sub(1);
     f.dash_cd = f.dash_cd.saturating_sub(1);
     let pinned = f.pinned > 0;
+    let carried = f.caught > 0;
     f.pinned = f.pinned.saturating_sub(1);
     let run = if f.haste > 0 { RUN * HASTE } else { RUN };
     f.haste = f.haste.saturating_sub(1);
@@ -1533,8 +1646,11 @@ fn control(f: &mut Fighter, who: usize, a: Action, wall: f32, events: &mut Vec<E
         if glued {
             target *= GLUED_SPEED;
         }
-        f.vel.x = approach(f.vel.x, target, accel(f.vel.x, target, f.grounded) * DT);
-        if f.atk_timer == 0 && a.mv.abs() >= 0.2 {
+        // (Carried up a tornado: it decides where you go, but your hands are free.)
+        if !carried {
+            f.vel.x = approach(f.vel.x, target, accel(f.vel.x, target, f.grounded) * DT);
+        }
+        if f.atk_timer == 0 && f.skate == 0 && a.mv.abs() >= 0.2 {
             f.facing = a.mv.signum();
         }
         if a.jump && f.grounded && !pinned {
@@ -1543,7 +1659,7 @@ fn control(f: &mut Fighter, who: usize, a: Action, wall: f32, events: &mut Vec<E
             events.push(Event::Jump { who, pos: f.pos });
         }
         // Off a wall: up and away from it.
-        if fresh_jump && wall != 0.0 && !f.grounded && f.wall_cd == 0 && !pinned {
+        if fresh_jump && wall != 0.0 && !f.grounded && f.wall_cd == 0 && !pinned && !carried {
             let k = if glued { GLUED_JUMP } else { 1.0 };
             f.vel = vec2(-wall * WALL_KICK * k, -WALL_JUMP_V * k);
             f.facing = -wall;
@@ -1554,7 +1670,7 @@ fn control(f: &mut Fighter, who: usize, a: Action, wall: f32, events: &mut Vec<E
             f.vel.y = WALL_SLIDE;
         }
         // Dash: left or right as asked, else the way you're pushing, else the way you face.
-        if let Some(d) = a.dash.filter(|_| f.dash_cd == 0 && !pinned) {
+        if let Some(d) = a.dash.filter(|_| f.dash_cd == 0 && !pinned && !carried) {
             if d != 0.0 {
                 f.facing = d.signum();
             } else if a.mv.abs() >= 0.2 {
@@ -1570,6 +1686,7 @@ fn control(f: &mut Fighter, who: usize, a: Action, wall: f32, events: &mut Vec<E
             // A player aiming swings toward their aim, whichever way they were running.
             if let Some(t) = a.target
                 && t.x.abs() > 1e-3
+                && f.skate == 0
             {
                 f.facing = t.x.signum();
             }
@@ -1579,8 +1696,21 @@ fn control(f: &mut Fighter, who: usize, a: Action, wall: f32, events: &mut Vec<E
     // Pinned: stuck exactly where they are (in mid-air too), whatever hits them.
     if pinned {
         f.vel = Vec2::ZERO;
+        f.wind = 0.0;
         f.dash_t = 0;
         return;
+    }
+    // On Matt's skateboard: flat out the way he faces, holding height (knocked off it by a hit);
+    // he rolls off it at running pace.
+    if f.skate > 0 {
+        f.skate -= 1;
+        if f.alive() && f.hitstun == 0 {
+            let pace = if f.skate == 0 { RUN } else { crate::character::SKATE_SPEED };
+            f.vel = vec2(f.facing * pace * if glued { GLUED_SPEED } else { 1.0 }, 0.0);
+            f.dash_t = 0;
+            return;
+        }
+        f.skate = 0;
     }
     // Mid-dash: flat out, holding height (cut short by a hit); it ends at running pace, not in a
     // long skid.
@@ -1604,12 +1734,14 @@ fn control(f: &mut Fighter, who: usize, a: Action, wall: f32, events: &mut Vec<E
 /// ever be pinned under one.
 fn collide(f: &mut Fighter, arena: &Arena, props: &[Aabb]) {
     let before = f.body();
-    f.pos.x += f.vel.x * DT;
+    // (Plus any wind from Zack's tornadoes, which pushes you whatever you do.)
+    let mx = f.vel.x + f.wind;
+    f.pos.x += mx * DT;
     for s in SOLIDS.iter() {
         if f.body().overlaps(s) {
-            if f.vel.x > 0.0 {
+            if mx > 0.0 {
                 f.pos.x = s.x - f.half_w();
-            } else if f.vel.x < 0.0 {
+            } else if mx < 0.0 {
                 f.pos.x = s.x + s.w + f.half_w();
             }
             f.vel.x = 0.0;
@@ -1681,13 +1813,35 @@ mod tests {
         }
         assert_eq!(h, CLASSIC_HASH, "classic match fingerprint changed: {h:#018x}");
     }
-    // Last deliberately changed by items spawning twice as often. It must
+    // Last deliberately changed by the protected start shortening to 1.5s. It must
     // come out the same on 32-bit targets too: `cargo test -p go-box-sim --target i686-pc-windows-msvc`.
-    const CLASSIC_HASH: u64 = 0xa45c_0610_eaf7_28b5;
+    const CLASSIC_HASH: u64 = 0xbece_11b9_7afb_0a97;
 
     /// Everyone on the floor, nothing lying around, nobody thinking (all-zero brains stand still).
+    #[test]
+    fn a_bot_stuck_in_one_spot_is_walked_out_of_it() {
+        let (mut m, z) = quiet_match();
+        m.config.unstick = true;
+        // All-zero brains stand still: stuck, but not for long enough yet.
+        for _ in 0..STUCK_TICKS - 5 {
+            m.step([&z; N_FIGHTERS]);
+        }
+        assert_eq!(m.f[1].pos.x, 200.0);
+        for _ in 0..UNSTICK_TICKS {
+            m.step([&z; N_FIGHTERS]);
+        }
+        assert!((m.f[1].pos.x - 200.0).abs() > 40.0, "walked out: {}", m.f[1].pos.x);
+        // A player standing still is left alone.
+        let (mut m, z) = quiet_match();
+        m.config.unstick = true;
+        for _ in 0..STUCK_TICKS + UNSTICK_TICKS {
+            m.step_with([&z; N_FIGHTERS], Some((0, Action::default())));
+        }
+        assert_eq!(m.f[0].pos.x, 60.0);
+    }
+
     fn quiet_match() -> (Match, Brain) {
-        let mut m = Match::new(3, &MatchConfig { heals: 0..=0, countdown: 0, spawn_grace: 0, ..MatchConfig::default() });
+        let mut m = Match::new(3, &MatchConfig { heals: 0..=0, countdown: 0, spawn_grace: 0, unstick: false, ..MatchConfig::default() });
         m.items.clear();
         m.next_item = u32::MAX;
         for (i, x) in [60.0, 200.0, 300.0, 420.0].into_iter().enumerate() {
@@ -1730,7 +1884,7 @@ mod tests {
 
     #[test]
     fn nobody_acts_in_the_countdown_and_nobody_is_hurt_just_after() {
-        let mut m = Match::new(3, &MatchConfig { heals: 0..=0, ..MatchConfig::default() });
+        let mut m = Match::new(3, &MatchConfig { heals: 0..=0, unstick: false, ..MatchConfig::default() });
         m.items.clear();
         let z = Brain { w: vec![0.0; Brain::N_WEIGHTS] };
         let run = Action { mv: 1.0, run: true, ..Action::default() };
