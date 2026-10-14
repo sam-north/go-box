@@ -39,7 +39,8 @@ pub struct Controls {
     last_mouse: Vec2,
     throw: bool,
     special: bool,
-    dash: bool,
+    /// A dash pressed since the last tick: -1 left, 1 right, 0 the way you're going.
+    dash: Option<f32>,
     /// The left stick's menu direction last frame, and when it may step again.
     stick_nav: Option<Vec2>,
     stick_next: f64,
@@ -101,7 +102,11 @@ impl Controls {
     pub fn latch(&mut self, b: &Bindings, holding: bool, mouse_free: bool) {
         self.throw |= holding && b.pressed(Act::Hand, &self.pad, self.pad_prev, mouse_free);
         self.special |= b.pressed(Act::Special, &self.pad, self.pad_prev, mouse_free);
-        self.dash |= b.pressed(Act::Dash, &self.pad, self.pad_prev, mouse_free);
+        for (act, d) in [(Act::Dash, 0.0), (Act::DashLeft, -1.0), (Act::DashRight, 1.0)] {
+            if b.pressed(act, &self.pad, self.pad_prev, mouse_free) {
+                self.dash = Some(d);
+            }
+        }
     }
 
     /// This tick's action for fighter `me`. `mouse_arena` is the mouse in arena coordinates.
@@ -122,12 +127,13 @@ impl Controls {
             special: self.special,
             target: self.target(me, mouse_arena),
             dash: self.dash,
+            down: down(Act::Down) || (self.pad.connected && self.pad.left.y > 0.6),
             // (Austin teleports to the cursor; with a gamepad there isn't one.)
             cursor: (!self.using_pad).then_some(mouse_arena),
         };
         self.throw = false;
         self.special = false;
-        self.dash = false;
+        self.dash = None;
         a
     }
 

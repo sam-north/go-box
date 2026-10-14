@@ -67,14 +67,19 @@ pub enum Act {
     Hand,
     Melee,
     Special,
+    /// Dash the way you're going (a gamepad's), or left / right.
     Dash,
+    DashLeft,
+    DashRight,
+    /// Hold to drop through ledges.
+    Down,
     Settings,
     Mute,
 }
 
 impl Act {
     /// In the order the controls are listed.
-    pub const ALL: [Act; 9] = [Act::Left, Act::Right, Act::Jump, Act::Hand, Act::Melee, Act::Special, Act::Dash, Act::Settings, Act::Mute];
+    pub const ALL: [Act; 12] = [Act::Left, Act::Right, Act::Jump, Act::Down, Act::Hand, Act::Melee, Act::Special, Act::DashLeft, Act::DashRight, Act::Dash, Act::Settings, Act::Mute];
 
     /// A stable id; players see the text `act.<id>`.
     pub fn id(self) -> &'static str {
@@ -86,6 +91,9 @@ impl Act {
             Act::Melee => "melee",
             Act::Special => "special",
             Act::Dash => "dash",
+            Act::DashLeft => "dash_left",
+            Act::DashRight => "dash_right",
+            Act::Down => "down",
             Act::Settings => "settings",
             Act::Mute => "mute",
         }
@@ -208,10 +216,13 @@ impl Default for Bindings {
                 (Act::Left, vec![k(KeyCode::A), k(KeyCode::Left)]),
                 (Act::Right, vec![k(KeyCode::D), k(KeyCode::Right)]),
                 (Act::Jump, vec![k(KeyCode::W), k(KeyCode::Space), k(KeyCode::Up)]),
-                (Act::Hand, vec![Mouse(0), k(KeyCode::E)]),
+                (Act::Hand, vec![Mouse(0)]),
                 (Act::Melee, vec![Mouse(1), k(KeyCode::R)]),
-                (Act::Special, vec![k(KeyCode::LeftShift), k(KeyCode::RightShift), k(KeyCode::F), k(KeyCode::Q)]),
-                (Act::Dash, vec![k(KeyCode::S), k(KeyCode::Down)]),
+                (Act::Special, vec![k(KeyCode::LeftShift), k(KeyCode::RightShift), k(KeyCode::F)]),
+                (Act::DashLeft, vec![k(KeyCode::Q)]),
+                (Act::DashRight, vec![k(KeyCode::E)]),
+                (Act::Dash, vec![k(KeyCode::C)]),
+                (Act::Down, vec![k(KeyCode::S), k(KeyCode::Down)]),
                 (Act::Settings, vec![k(KeyCode::Escape)]),
                 (Act::Mute, vec![k(KeyCode::M)]),
             ],
@@ -222,7 +233,10 @@ impl Default for Bindings {
                 (Act::Hand, vec![Pad(2), Pad(7)]),
                 (Act::Melee, vec![Pad(1), Pad(5)]),
                 (Act::Special, vec![Pad(3), Pad(6), Pad(4)]),
-                (Act::Dash, vec![Pad(13), Pad(10)]),
+                (Act::Dash, vec![Pad(10)]),
+                (Act::DashLeft, vec![]),
+                (Act::DashRight, vec![]),
+                (Act::Down, vec![Pad(13)]),
                 (Act::Settings, vec![Pad(9)]),
                 (Act::Mute, vec![]),
             ],
@@ -275,6 +289,7 @@ impl Bindings {
             tf("help.hand", &[("keys", &s(Act::Hand))]),
             tf("help.melee", &[("keys", &s(Act::Melee))]),
             tf("help.special", &[("keys", &s(Act::Special))]),
+            tf("help.dash", &[("keys", &if pad { s(Act::Dash) } else { format!("{}/{}", s(Act::DashLeft), s(Act::DashRight)) })]),
             tf("help.settings", &[("keys", &s(Act::Settings))]),
         ]
         .join("   ")

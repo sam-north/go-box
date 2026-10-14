@@ -61,7 +61,7 @@ const WALL_JUMP_CD: u32 = 12;
 const WALL_SLIDE: f32 = 70.0;
 // Dash: a quick burst along the ground (or through the air, holding height), then a cooldown.
 pub const DASH_SPEED: f32 = 380.0;
-pub const DASH_TICKS: u32 = 9;
+pub const DASH_TICKS: u32 = 7;
 pub const DASH_COOLDOWN: u32 = 45;
 /// px/s²: getting going (up to walking pace), then building to a run.
 const GROUND_START: f32 = 900.0;
@@ -186,8 +186,10 @@ pub struct Action {
     /// Where a player is aiming (a direction from their hand, e.g. toward the mouse). Throws
     /// go exactly this way and swings turn to face it; `aim` is ignored. Bots leave it None.
     pub target: Option<Vec2>,
-    /// A dash this tick (a fresh press).
-    pub dash: bool,
+    /// A dash this tick (a fresh press): -1 left, 1 right, 0 the way you're pushing (or facing).
+    pub dash: Option<f32>,
+    /// Holding down: drop through ledges (and tables).
+    pub down: bool,
     /// Where a mouse player's cursor is, in the arena (Austin teleports there). None with a
     /// gamepad, and for bots.
     pub cursor: Option<Vec2>,
@@ -260,6 +262,8 @@ pub struct Fighter {
     /// jump.
     pub jump_held: bool,
     pub wall_cd: u32,
+    /// Holding down this tick: ledges and tables don't hold you up.
+    pub dropping: bool,
     /// Inside a phone: which way left/right was held last tick (a fresh press switches phones).
     #[serde(skip)]
     pub phone_mv: i8,
@@ -302,6 +306,7 @@ impl Fighter {
             dash_cd: 0,
             jump_held: false,
             wall_cd: 0,
+            dropping: false,
             phone_mv: 0,
         }
     }
@@ -905,7 +910,8 @@ impl Match {
                 aim: out[5],
                 grab: out[6] > 0.0,
                 // (Not during the protected start: it'd be wasted on people who can't be hurt.)
-                dash: false,
+                dash: None,
+                down: false,
                 cursor: None,
                 special: self.f[i].special_cd == 0 && !self.protected() && self.f[i].character.special().is_some_and(|s| s.bot_wants(self, i)),
                 target: None,
@@ -1457,6 +1463,7 @@ fn wall_side(f: &Fighter, props: &[Aabb]) -> f32 {
 }
 
 fn control(f: &mut Fighter, who: usize, a: Action, wall: f32, events: &mut Vec<Event>) {
+    f.dropping = a.down && f.alive();
     let fresh_jump = a.jump && !f.jump_held;
     f.jump_held = a.jump;
     f.wall_cd = f.wall_cd.saturating_sub(1);
@@ -1500,9 +1507,11 @@ fn control(f: &mut Fighter, who: usize, a: Action, wall: f32, events: &mut Vec<E
             // Pushing into a wall while falling: slide down it.
             f.vel.y = WALL_SLIDE;
         }
-        // Dash: the way you're pushing, else the way you face.
-        if a.dash && f.dash_cd == 0 && !pinned {
-            if a.mv.abs() >= 0.2 {
+        // Dash: left or right as asked, else the way you're pushing, else the way you face.
+        if let Some(d) = a.dash.filter(|_| f.dash_cd == 0 && !pinned) {
+            if d != 0.0 {
+                f.facing = d.signum();
+            } else if a.mv.abs() >= 0.2 {
                 f.facing = a.mv.signum();
             }
             f.dash_t = DASH_TICKS;
@@ -1527,11 +1536,13 @@ fn control(f: &mut Fighter, who: usize, a: Action, wall: f32, events: &mut Vec<E
         f.dash_t = 0;
         return;
     }
-    // Mid-dash: flat out, holding height (cut short by a hit).
+    // Mid-dash: flat out, holding height (cut short by a hit); it ends at running pace, not in a
+    // long skid.
     if f.dash_t > 0 {
         f.dash_t -= 1;
         if f.alive() && f.hitstun == 0 {
-            f.vel = vec2(f.facing * DASH_SPEED * if glued { GLUED_SPEED } else { 1.0 }, 0.0);
+            let pace = if f.dash_t == 0 { RUN } else { DASH_SPEED };
+            f.vel = vec2(f.facing * pace * if glued { GLUED_SPEED } else { 1.0 }, 0.0);
             return;
         }
         f.dash_t = 0;
@@ -1583,7 +1594,7 @@ fn collide(f: &mut Fighter, arena: &Arena, props: &[Aabb]) {
         }
     }
     if f.vel.y >= 0.0 {
-        for p in arena.platforms.iter().chain(props) {
+        for p in arena.platforms.iter().chain(props).filter(|_| !f.dropping) {
             let over_x = f.pos.x + f.half_w() > p.x && f.pos.x - f.half_w() < p.x + p.w;
             if over_x && prev_bottom <= p.y + 0.01 && f.pos.y >= p.y {
                 f.pos.y = p.y;
@@ -1787,13 +1798,28 @@ mod tests {
         let (mut m, z) = quiet_match();
         m.f[0].facing = 1.0;
         let x0 = m.f[0].pos.x;
-        m.step_with([&z; N_FIGHTERS], Some((0, Action { dash: true, ..Action::default() })));
+        m.step_with([&z; N_FIGHTERS], Some((0, Action { dash: Some(0.0), ..Action::default() })));
         for _ in 0..DASH_TICKS {
             m.step_with([&z; N_FIGHTERS], Some((0, Action::default())));
         }
+        // Ends at running pace, not a long skid: about 50px all told.
+        assert!(m.f[0].vel.x <= RUN + 1.0, "slowed to a run: {}", m.f[0].vel.x);
+        for _ in 0..30 {
+            m.step_with([&z; N_FIGHTERS], Some((0, Action::default())));
+        }
         let gone = m.f[0].pos.x - x0;
-        assert!(gone > 45.0, "dashed {gone}px");
-        m.step_with([&z; N_FIGHTERS], Some((0, Action { dash: true, ..Action::default() })));
+        assert!(gone > 40.0 && gone < 65.0, "dashed {gone}px");
+        // Q and E: left and right, whichever way you face.
+        let x1 = m.f[0].pos.x;
+        for _ in 0..DASH_COOLDOWN {
+            m.step_with([&z; N_FIGHTERS], Some((0, Action::default())));
+        }
+        m.step_with([&z; N_FIGHTERS], Some((0, Action { dash: Some(-1.0), ..Action::default() })));
+        for _ in 0..DASH_TICKS {
+            m.step_with([&z; N_FIGHTERS], Some((0, Action::default())));
+        }
+        assert!(m.f[0].pos.x < x1 - 30.0, "dashed left: {}", m.f[0].pos.x - x1);
+        m.step_with([&z; N_FIGHTERS], Some((0, Action { dash: Some(0.0), ..Action::default() })));
         assert_eq!(m.f[0].dash_t, 0, "not again so soon");
         assert!(!m.events.iter().any(|e| matches!(e, Event::Dash { .. })));
     }
@@ -1884,6 +1910,23 @@ mod tests {
         assert_eq!(finish(&|m| m.f[0].dmg_dealt = 30.0), Some(0), "then damage");
         assert_eq!(finish(&|m| m.f[1].headshots = 2), Some(1), "then headshots");
         assert_eq!(finish(&|_| {}), None, "level on everything: a draw");
+    }
+
+    #[test]
+    fn holding_down_drops_through_a_ledge() {
+        let (mut m, z) = quiet_match();
+        // Standing on the left low ledge.
+        let ledge = m.arena().platforms[0];
+        m.f[0].pos = vec2(ledge.x + 20.0, ledge.y);
+        m.f[0].grounded = true;
+        for _ in 0..10 {
+            m.step_with([&z; N_FIGHTERS], Some((0, Action::default())));
+        }
+        assert_eq!(m.f[0].pos.y, ledge.y, "it holds you up");
+        for _ in 0..30 {
+            m.step_with([&z; N_FIGHTERS], Some((0, Action { down: true, ..Action::default() })));
+        }
+        assert_eq!(m.f[0].pos.y, FLOOR_Y, "dropped through to the floor");
     }
 
     #[test]

@@ -23,8 +23,9 @@ Controls: you always run; **Esc** (Options on a controller) opens Settings, wher
 page shows every binding and lets you change it, separately for keyboard/mouse and controller (PS4,
 PS5 or Xbox pads in Chrome, Edge or Firefox). By default: `A`/`D` move, `W`/`Space` jump, the mouse
 aims, left click grabs (empty-handed) or throws (holding something), right click attacks toward the
-cursor, `Shift` uses your special, `S` dashes, `M` mutes. Settings are saved in the browser. In the
-air against a wall, press jump to kick off it (and hold toward a wall to slide down it slowly).
+cursor, `Shift` uses your special, `Q`/`E` dash left/right (`C` the way you're going), holding `S` (or
+Down) drops through ledges, `M` mutes. Settings are saved in the browser. In the air against a
+wall, press jump to kick off it (and hold toward a wall to slide down it slowly).
 
 The browser only reports a controller after you press a button on it. In menus (lobby, scoreboard,
 settings) the d-pad or left stick moves a highlight and Cross presses it.

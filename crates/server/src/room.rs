@@ -88,7 +88,7 @@ impl Player {
             }
             None => {
                 self.starved += 1;
-                if self.starved > STARVED_RELEASE { Action::default() } else { Action { throw: false, special: false, dash: false, ..self.last_action } }
+                if self.starved > STARVED_RELEASE { Action::default() } else { Action { throw: false, special: false, dash: None, ..self.last_action } }
             }
         }
     }
@@ -407,7 +407,6 @@ fn results(r: &Running) -> Results {
     Results { seats, winner, duration: r.m.tick as f32 * DT }
 }
 
-/// Inputs come off the network: never let a NaN or an out-of-range value into the sim.
 /// `later`, plus any one-off presses from `earlier` (so merging two inputs never loses an attack,
 /// a throw, a special or a dash).
 fn merged(earlier: Action, later: Action) -> Action {
@@ -415,18 +414,21 @@ fn merged(earlier: Action, later: Action) -> Action {
         attack: later.attack || earlier.attack,
         throw: later.throw || earlier.throw,
         special: later.special || earlier.special,
-        dash: later.dash || earlier.dash,
+        dash: later.dash.or(earlier.dash),
         ..later
     }
 }
 
+/// Inputs come off the network: never let a NaN or an out-of-range value into the sim.
 fn sanitize(a: Action) -> Action {
     let clamp = |v: f32| if v.is_finite() { v.clamp(-1.0, 1.0) } else { 0.0 };
     // An aim direction must be a real, non-zero direction; only its direction matters.
     let target = a.target.filter(|t| t.is_finite() && t.length_squared() > 1e-6).map(|t| t.normalize());
+    // A dash direction is left, right or "your way".
+    let dash = a.dash.map(|d| if d.is_finite() { d.signum() * (d.abs() > 0.5) as u8 as f32 } else { 0.0 });
     // The cursor: a real point, kept to the arena.
     let cursor = a.cursor.filter(|c| c.is_finite()).map(|c| vec2(c.x.clamp(0.0, W), c.y.clamp(0.0, H)));
-    Action { mv: clamp(a.mv), aim: clamp(a.aim), target, cursor, ..a }
+    Action { mv: clamp(a.mv), aim: clamp(a.aim), target, cursor, dash, ..a }
 }
 
 #[cfg(test)]
