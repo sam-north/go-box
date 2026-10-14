@@ -83,12 +83,22 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
             ui.text(head, r.x + pad + cols[k] * tw, y, 18.0, DIM);
         }
         y += ui.px(8.0);
-        // First to last: whoever lasted longest (survivors first), then kills, damage dealt, headshots.
+        // First to last: the winner, always; then whoever lasted longest (survivors first, by the
+        // health they ended on, as the win is decided at the time limit), then kills, damage dealt,
+        // headshots.
         let mut order: Vec<usize> = (0..res.seats.len()).collect();
-        order.sort_by(|&a, &b| {
-            let (a, b) = (&res.seats[a], &res.seats[b]);
+        order.sort_by(|&ia, &ib| {
+            let (a, b) = (&res.seats[ia], &res.seats[ib]);
+            let won = |i: usize| res.winner == Some(i);
             let lasted = |s: &SeatResult| s.died_at.unwrap_or(f32::INFINITY);
-            lasted(b).total_cmp(&lasted(a)).then(b.kills.cmp(&a.kills)).then(b.damage_dealt.total_cmp(&a.damage_dealt)).then(b.headshots.cmp(&a.headshots))
+            let left = |s: &SeatResult| if s.died_at.is_none() { s.hp } else { 0.0 };
+            won(ib)
+                .cmp(&won(ia))
+                .then(lasted(b).total_cmp(&lasted(a)))
+                .then(left(b).total_cmp(&left(a)))
+                .then(b.kills.cmp(&a.kills))
+                .then(b.damage_dealt.total_cmp(&a.damage_dealt))
+                .then(b.headshots.cmp(&a.headshots))
         });
         for (place, i) in order.into_iter().enumerate() {
             let s = &res.seats[i];
