@@ -28,7 +28,7 @@ use go_box_sim::sim::{Action, ArenaId, Event, MatchConfig, MatchView, N_FIGHTERS
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 20;
+pub const PROTOCOL_VERSION: u16 = 21;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -290,7 +290,7 @@ mod tests {
     /// message kind doesn't compile until it has a sample here.
     fn samples() -> Vec<Vec<u8>> {
         use go_box_sim::sim::Action;
-        let action = Action { mv: -1.0, run: true, jump: true, attack: false, throw: true, aim: 0.3, grab: false, special: true, target: Some(glam_vec(0.6, -0.8)) };
+        let action = Action { mv: -1.0, run: true, jump: true, attack: false, throw: true, aim: 0.3, grab: false, special: true, target: Some(glam_vec(0.6, -0.8)), dash: true, cursor: Some(glam_vec(240.0, 120.0)) };
         let client = [
             ClientMsg::Hello { version: PROTOCOL_VERSION, name: "Sam".into() },
             ClientMsg::CreateRoom { passphrase: "open sesame".into() },
@@ -363,7 +363,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (20, 0x4368_416f_088c_6454);
+    const WIRE: (u16, u64) = (21, 0x0e6e_dec9_f25e_f6ee);
 
     #[test]
     fn every_sample_round_trips() {

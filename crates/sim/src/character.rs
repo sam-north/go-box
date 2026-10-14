@@ -63,6 +63,8 @@ const CAT_TICKS: u32 = 5 * SECOND;
 const SCRATCH_DAMAGE: f32 = 2.0;
 /// A cat scratches each fighter at most once a second (in practice once per pass).
 const SCRATCH_EVERY: u32 = SECOND;
+/// How far (sideways) a cat can smell sushi from.
+const CAT_SNIFF: f32 = 100.0;
 
 // Justin — Sushi Table: a table drops in front of him (onto him, if he's facing a wall) and
 // serves sushi to throw. It's solid from the sides and on top, never from below (see
@@ -258,6 +260,27 @@ impl Special for PopUp {
     }
     fn activate(&self, m: &mut Match, who: usize) {
         let from = m.f[who].center();
+        // A mouse player pops up right where the cursor is (in mid-air too: then he drops). Not
+        // inside a wall or a table, though: squeezed out of the wall, or stood on the table.
+        if let Some(c) = m.f[who].action.cursor {
+            let f = &m.f[who];
+            let (hw, h) = (f.half_w(), f.height());
+            let x = c.x.clamp(crate::sim::WALL + hw, W - crate::sim::WALL - hw);
+            let mut y = (c.y + h / 2.0).clamp(crate::sim::WALL + h + 1.0, crate::sim::FLOOR_Y);
+            for p in props(&m.effects) {
+                if Aabb::new(x - hw, y - h, hw * 2.0, h).overlaps(&p) {
+                    y = p.y;
+                }
+            }
+            let f = &mut m.f[who];
+            f.pos = vec2(x, y);
+            f.vel = Vec2::ZERO;
+            f.grounded = false;
+            let to = f.center();
+            m.events.push(Event::Poof { pos: from });
+            m.events.push(Event::Poof { pos: to });
+            return;
+        }
         // Only somewhere ahead of him, on any level: at least POPUP_DISTANCE ahead if there's
         // room, else anywhere ahead at least POPUP_MIN_AHEAD. Up against the wall
         // with nowhere ahead, he pops up where he stands.
@@ -411,11 +434,18 @@ impl Special for SushiTable {
         let f = &m.f[who];
         let half = TABLE_W / 2.0;
         let ahead = f.pos.x + f.facing * (f.half_w() + 3.0 + half);
-        // Facing a wall (no room ahead): it drops onto him instead, from just over his head.
+        // Facing a wall (no room ahead): it appears over his head instead. Either way it stays put
+        // right where it appears: a floating platform, not something that falls.
         let fits = ahead - half >= crate::sim::WALL && ahead + half <= W - crate::sim::WALL;
         let (x, y) = if fits { (ahead, f.pos.y - TABLE_DROP) } else { (f.pos.x.clamp(crate::sim::WALL + half, W - crate::sim::WALL - half), f.pos.y - f.height() - 2.0) };
-        let t = Table { pos: vec2(x, y), vy: 0.0, owner: who, ticks: TABLE_TICKS, landed: false };
+        let t = Table { pos: vec2(x, y), owner: who, ticks: TABLE_TICKS };
         m.events.push(Event::Poof { pos: vec2(x, y - TABLE_H / 2.0) });
+        // Sushi served on top.
+        let top = y - TABLE_H - crate::sim::ITEM_R;
+        for k in 0..SUSHI_PER_TABLE {
+            let dx = (k as f32 - (SUSHI_PER_TABLE - 1) as f32 / 2.0) * 7.0;
+            m.items.push(crate::sim::Item::new(crate::sim::ItemKind::Sushi, vec2(x + dx, top)));
+        }
         m.effects.push(Effect::Table(t));
     }
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
@@ -426,16 +456,14 @@ impl Special for SushiTable {
     }
 }
 
-/// Justin's table: drops, lands on whatever's below (fighters don't hold it up), serves sushi,
-/// and is cleared away after a while.
+/// Justin's table: appears in front of him and stays exactly there (a platform, in mid-air if
+/// need be) with sushi on top, until it's cleared away.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Table {
     /// Bottom centre.
     pub pos: Vec2,
-    pub vy: f32,
     pub owner: usize,
     pub ticks: u32,
-    pub landed: bool,
 }
 
 impl Table {
@@ -666,13 +694,15 @@ pub struct Pet {
     pub vy: f32,
     pub owner: usize,
     pub ticks: u32,
+    /// A cat that's found sushi and is sitting eating it (it's forgotten about fighting).
+    pub eating: bool,
     #[serde(skip)]
     bite_cd: [u32; N_BODIES],
 }
 
 impl Pet {
     fn new(breed: Breed, pos: Vec2, dir: f32, speed: f32, owner: usize, ticks: u32) -> Self {
-        Self { breed, pos, dir, speed, vy: 0.0, owner, ticks, bite_cd: [0; N_BODIES] }
+        Self { breed, pos, dir, speed, vy: 0.0, owner, ticks, eating: false, bite_cd: [0; N_BODIES] }
     }
     pub fn body(&self) -> Aabb {
         let (hw, h) = self.breed.size();
@@ -775,7 +805,24 @@ impl Match {
     }
 
     fn step_pet(&mut self, pet: &mut Pet) {
-        run_pet(pet, self.arena());
+        // Cats can't resist sushi: one lying close by (on the floor or up on a table) and they all
+        // crowd round it, each taking its own spot, and forget about scratching anyone.
+        let goal = match pet.breed {
+            Breed::Cat(k) => self
+                .items
+                .iter()
+                .filter(|it| it.kind == crate::sim::ItemKind::Sushi && it.held_by.is_none() && !it.lethal)
+                .filter(|it| (it.pos.x - pet.pos.x).abs() < CAT_SNIFF && (-45.0..8.0).contains(&(it.pos.y - pet.pos.y)))
+                .min_by(|a, b| a.pos.distance(pet.pos).total_cmp(&b.pos.distance(pet.pos)))
+                .map(|it| vec2(it.pos.x + ((k % 7) as f32 - 3.0) * 1.5, it.pos.y + crate::sim::ITEM_R)),
+            Breed::Hound => None,
+        };
+        run_pet(pet, self.arena(), &props(&self.effects), goal);
+        if goal.is_some() {
+            pet.bite_cd.iter_mut().for_each(|t| *t = t.saturating_sub(1));
+            pet.ticks -= 1;
+            return;
+        }
         let (body, owner, dir) = (pet.body(), pet.owner, pet.dir);
         for j in 0..N_BODIES {
             if !self.foes(owner, j) || pet.bite_cd[j] > 0 || !body.overlaps(&self.f[j].body()) {
@@ -885,28 +932,9 @@ impl Match {
         }
     }
 
-    /// A table falls until it lands on terrain (not on fighters), then serves its sushi.
+    /// A table just stands there (in mid-air, if that's where it appeared) until it's cleared away.
     fn step_table(&mut self, t: &mut Table) {
         t.ticks -= 1;
-        if t.landed {
-            return;
-        }
-        let prev = t.pos.y;
-        t.vy = (t.vy + 640.0 * DT).min(320.0);
-        t.pos.y += t.vy * DT;
-        let over = |x0: f32, x1: f32| t.pos.x + TABLE_W / 2.0 > x0 && t.pos.x - TABLE_W / 2.0 < x1;
-        let floor = SOLIDS.iter().filter(|s| t.body().overlaps(s) && prev <= s.y + 0.01).map(|s| s.y);
-        let ledge = self.arena().platforms.iter().filter(|p| over(p.x, p.x + p.w) && prev <= p.y + 0.01 && t.pos.y >= p.y).map(|p| p.y);
-        let Some(top) = floor.chain(ledge).reduce(f32::min) else { return };
-        t.pos.y = top;
-        t.vy = 0.0;
-        t.landed = true;
-        self.events.push(Event::Land { pos: t.pos });
-        let y = top - TABLE_H - crate::sim::ITEM_R;
-        for k in 0..SUSHI_PER_TABLE {
-            let dx = (k as f32 - (SUSHI_PER_TABLE - 1) as f32 / 2.0) * 7.0;
-            self.items.push(crate::sim::Item::new(crate::sim::ItemKind::Sushi, vec2(t.pos.x + dx, y)));
-        }
     }
 
     /// A table going away takes the sushi still sitting on it (nobody's touched it).
@@ -1074,9 +1102,28 @@ impl Effect {
     }
 }
 
-fn run_pet(dog: &mut Pet, arena: &Arena) {
+/// One tick of a pet running the floors (and landing on tables). With a `goal` (a cat after sushi)
+/// it heads there instead, hops up to it if it's on a table, and sits once it's arrived.
+fn run_pet(dog: &mut Pet, arena: &Arena, props: &[Aabb], goal: Option<Vec2>) {
     let (half_w, h) = dog.breed.size();
-    dog.pos.x += dog.dir * dog.speed * DT;
+    let grounded = dog.vy == 0.0;
+    dog.eating = false;
+    let step = match goal {
+        None => dog.dir * dog.speed * DT,
+        Some(g) => {
+            let dx = g.x - dog.pos.x;
+            if dx.abs() > 1.0 {
+                dog.dir = dx.signum();
+            }
+            // Up on a table above: hop.
+            if grounded && g.y < dog.pos.y - 4.0 && dx.abs() < 14.0 {
+                dog.vy = -libm::sqrtf(2.0 * 640.0 * (dog.pos.y - g.y + 4.0));
+            }
+            dog.eating = dx.abs() <= 1.0 && (g.y - dog.pos.y).abs() < 6.0;
+            dx.clamp(-dog.speed * DT, dog.speed * DT)
+        }
+    };
+    dog.pos.x += step;
     if let Some(s) = SOLIDS.iter().find(|s| dog.body().overlaps(s)) {
         dog.pos.x = if dog.dir > 0.0 { s.x - half_w } else { s.x + s.w + half_w };
         dog.dir = -dog.dir;
@@ -1089,7 +1136,7 @@ fn run_pet(dog: &mut Pet, arena: &Arena) {
         dog.vy = 0.0;
     }
     if dog.vy >= 0.0 {
-        for p in arena.platforms {
+        for p in arena.platforms.iter().chain(props) {
             let over = dog.pos.x + half_w > p.x && dog.pos.x - half_w < p.x + p.w;
             if over && prev <= p.y + 0.01 && dog.pos.y >= p.y {
                 dog.pos.y = p.y;
@@ -1314,107 +1361,111 @@ mod tests {
     }
 
     #[test]
-    fn justins_table_lands_ahead_serves_sushi_and_is_solid_from_the_side_and_top() {
+    fn justins_table_stays_in_the_air_where_it_appears_with_sushi_on_top() {
         let z = zero_brain();
         let mut m = justin_and(100.0, 300.0);
         step_idle(&mut m, &z, true);
-        for _ in 0..30 {
+        let at = table(&m).pos;
+        assert!(at.x > 100.0 + TABLE_W / 2.0, "in front of him");
+        assert!(at.y < crate::sim::FLOOR_Y - 10.0, "up in the air");
+        for _ in 0..60 {
             step_idle(&mut m, &z, false);
         }
         let t = table(&m);
-        assert!(t.landed && t.pos.y == crate::sim::FLOOR_Y, "landed on the floor");
-        assert!(t.pos.x > 100.0 + TABLE_W / 2.0, "in front of him");
-        let sushi = m.items.iter().filter(|it| it.kind == crate::sim::ItemKind::Sushi).count();
-        assert_eq!(sushi, SUSHI_PER_TABLE);
-        // Running at it from the right: stopped at its side.
-        let run_left = Action { mv: -1.0, run: true, ..Action::default() };
-        for _ in 0..120 {
-            m.step_with([&z; N_FIGHTERS], Some((1, run_left)));
+        assert_eq!(t.pos, at, "it hasn't moved");
+        let sushi: Vec<_> = m.items.iter().filter(|it| it.kind == crate::sim::ItemKind::Sushi).collect();
+        assert_eq!(sushi.len(), SUSHI_PER_TABLE);
+        assert!(sushi.iter().all(|it| (it.pos.y + crate::sim::ITEM_R - t.body().y).abs() < 0.5), "sitting on top");
+    }
+
+    #[test]
+    fn the_floating_table_is_a_platform_and_never_pins_anyone() {
+        let z = zero_brain();
+        // The fighter standing right where the table appears: under it or in it, they walk away.
+        let make = || {
+            let mut m = justin_and(100.0, 100.0 + 4.0 + 3.0 + TABLE_W / 2.0);
+            step_idle(&mut m, &z, true);
+            m
+        };
+        let mut m = make();
+        let t = table(&m);
+        let x0 = m.f[1].pos.x;
+        for _ in 0..60 {
+            m.step_with([&z; N_FIGHTERS], Some((1, Action { mv: 1.0, ..Action::default() })));
         }
-        let side = t.body().x + TABLE_W + m.f[1].half_w();
-        assert!((m.f[1].pos.x - side).abs() < 0.01, "blocked at the table's side: x {}", m.f[1].pos.x);
-        // Jumping on: stands on top.
-        let hop = Action { mv: -1.0, jump: true, ..Action::default() };
-        for _ in 0..40 {
-            m.step_with([&z; N_FIGHTERS], Some((1, hop)));
+        assert!(m.f[1].pos.x > x0 + 20.0, "walked away");
+        // Jumping up from underneath goes through it and lands on top.
+        let mut m = make();
+        for _ in 0..12 {
+            m.step_with([&z; N_FIGHTERS], Some((1, Action { jump: true, ..Action::default() })));
         }
-        for _ in 0..10 {
+        for _ in 0..60 {
             m.step_with([&z; N_FIGHTERS], Some((1, Action::default())));
         }
         assert!(m.f[1].grounded && m.f[1].pos.y == t.body().y, "standing on the table: {:?}", m.f[1].pos);
     }
 
     #[test]
-    fn nobody_is_ever_pinned_under_a_table() {
-        let z = zero_brain();
-        // The table drops right onto the fighter standing just ahead of Justin.
-        let trapped = || {
-            let mut m = justin_and(100.0, 100.0 + 4.0 + 3.0 + TABLE_W / 2.0);
-            step_idle(&mut m, &z, true);
-            for _ in 0..30 {
-                step_idle(&mut m, &z, false);
-            }
-            m
-        };
-        let mut m = trapped();
-        let t = table(&m);
-        assert!(t.landed && m.f[1].body().overlaps(&t.body()), "it fell around them");
-        // They can walk out either way...
-        let mut out = trapped();
-        for _ in 0..60 {
-            out.step_with([&z; N_FIGHTERS], Some((1, Action { mv: 1.0, ..Action::default() })));
-        }
-        assert!(!out.f[1].body().overlaps(&t.body()), "walked out");
-        // ...or jump straight up out of it, and land on top.
-        let jump = Action { jump: true, ..Action::default() };
-        for _ in 0..12 {
-            m.step_with([&z; N_FIGHTERS], Some((1, jump)));
-        }
-        for _ in 0..60 {
-            m.step_with([&z; N_FIGHTERS], Some((1, Action::default())));
-        }
-        assert_eq!(m.f[1].pos.y, t.body().y, "jumped out and landed on top");
-    }
-
-    #[test]
-    fn facing_a_wall_the_table_drops_onto_justin_and_he_walks_out() {
+    fn facing_a_wall_the_table_appears_over_justin() {
         let z = zero_brain();
         let mut m = justin_and(16.0, 300.0);
         m.f[0].facing = -1.0;
         step_idle(&mut m, &z, true);
-        for _ in 0..30 {
-            step_idle(&mut m, &z, false);
-        }
         let t = table(&m);
-        assert!(t.landed && m.f[0].body().overlaps(&t.body()), "on top of him");
+        assert!(t.body().y + t.body().h <= m.f[0].body().y, "over his head");
         for _ in 0..60 {
             m.step_with([&z; N_FIGHTERS], Some((0, Action { mv: 1.0, ..Action::default() })));
         }
-        assert!(!m.f[0].body().overlaps(&t.body()), "walked out from under it");
+        assert!(m.f[0].pos.x > 40.0, "walked out from under it");
+    }
+
+    #[test]
+    fn corwins_cats_drop_everything_for_sushi() {
+        let z = zero_brain();
+        let mut m = staged([Character::Corwin, Character::Classic, Character::Classic, Character::Classic], [40.0, 300.0, 380.0, 440.0]);
+        m.f[0].facing = 1.0;
+        // Sushi on the floor between the cats and the fighters.
+        m.items.push(crate::sim::Item::new(crate::sim::ItemKind::Sushi, vec2(120.0, crate::sim::FLOOR_Y - crate::sim::ITEM_R)));
+        step_idle(&mut m, &z, true);
+        for _ in 0..CAT_TICKS - 5 {
+            step_idle(&mut m, &z, false);
+        }
+        let cats: Vec<Pet> = m.effects.iter().filter_map(|e| if let Effect::Pet(p) = e { Some(p.clone()) } else { None }).collect();
+        assert_eq!(cats.len(), CATS);
+        assert!(cats.iter().all(|c| (c.pos.x - 120.0).abs() < 8.0), "all crowded round the sushi");
+        assert!(cats.iter().filter(|c| c.eating).count() > CATS / 2, "eating");
+        assert_eq!(m.f[1].hp, MAX_HP, "and nobody got scratched");
+    }
+
+    #[test]
+    fn austin_pops_up_where_the_cursor_is() {
+        let z = zero_brain();
+        let mut m = staged([Character::Austin, Character::Classic, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
+        let a = Action { special: true, cursor: Some(vec2(250.0, 150.0)), ..Action::default() };
+        m.step_with([&z; N_FIGHTERS], Some((0, a)));
+        let f = &m.f[0];
+        assert!((f.pos.x - 250.0).abs() < 0.5 && (f.center().y - 150.0).abs() < 4.0, "at the cursor: {:?}", f.pos);
+        // Into the floor: stood on it instead.
+        let mut m = staged([Character::Austin, Character::Classic, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
+        let a = Action { special: true, cursor: Some(vec2(200.0, 268.0)), ..Action::default() };
+        m.step_with([&z; N_FIGHTERS], Some((0, a)));
+        assert_eq!(m.f[0].pos.y, crate::sim::FLOOR_Y);
     }
 
     #[test]
     fn thrown_sushi_splats_and_is_gone() {
         let z = zero_brain();
-        let mut m = justin_and(100.0, 200.0);
+        let mut m = justin_and(100.0, 165.0);
         step_idle(&mut m, &z, true);
+        // Justin takes a piece off his table.
+        let k = m.items.iter().position(|it| it.kind == crate::sim::ItemKind::Sushi).unwrap();
+        m.items[k].held_by = Some(0);
+        m.f[0].holding = Some(crate::sim::ItemKind::Sushi);
         for _ in 0..30 {
             step_idle(&mut m, &z, false);
         }
-        // Justin walks to the table and grabs a piece.
-        let grab = Action { mv: 1.0, jump: true, grab: true, ..Action::default() };
-        for _ in 0..60 {
-            if m.f[0].holding.is_some() {
-                break;
-            }
-            m.step_with([&z; N_FIGHTERS], Some((0, grab)));
-        }
-        assert_eq!(m.f[0].holding, Some(crate::sim::ItemKind::Sushi));
-        for _ in 0..40 {
-            step_idle(&mut m, &z, false);
-        }
         // At the fighter to his right.
-        let throw = Action { throw: true, target: Some(vec2(1.0, -0.3)), ..Action::default() };
+        let throw = Action { throw: true, target: Some(vec2(1.0, -0.25)), ..Action::default() };
         m.step_with([&z; N_FIGHTERS], Some((0, throw)));
         let mut splat = false;
         for _ in 0..60 {

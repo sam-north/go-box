@@ -677,6 +677,11 @@ impl Art {
                 Event::Zap { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 10, BOLT, false, 90.0, 0.2, 0.0);
                 }
+                Event::Dash { who, pos } => {
+                    // A puff of dust kicked up behind.
+                    let back = -m.f[who].facing;
+                    self.burst(pos + vec2(0.0, -2.0), vec2(back, -0.3).normalize(), 0.8, 10, SMOKE, false, 70.0, 0.35, 0.0);
+                }
                 Event::RocketLaunch { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 14, SMOKE, false, 40.0, 0.5, -20.0);
                 }
@@ -1160,7 +1165,7 @@ fn draw_dog(d: &Pet) {
 fn draw_cat(c: &Pet, coat: u8) {
     let (x, y, s) = (c.pos.x.round(), c.pos.y.round(), c.dir);
     let (fur, dark) = COATS[coat as usize % COATS.len()];
-    let stride = ((c.pos.x * 0.8).sin() > 0.0) as u8 as f32;
+    let stride = if c.eating { 0.0 } else { ((c.pos.x * 0.8).sin() > 0.0) as u8 as f32 };
     for (lx, up) in [(-2.0, stride), (1.0, 1.0 - stride)] {
         draw_rectangle(x + lx * s, y - 1.0, 1.0, 1.0 - up, dark);
     }

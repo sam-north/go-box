@@ -135,6 +135,7 @@ act.jump = Jump
 act.hand = Grab / throw
 act.melee = Attack
 act.special = Special
+act.dash = Dash
 act.settings = Settings
 act.mute = Mute
 

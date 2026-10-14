@@ -10,7 +10,8 @@ use go_box_protocol::{
 };
 use go_box_sim::brain::Brain;
 use go_box_sim::character::Character;
-use go_box_sim::sim::{Action, ArenaId, DT, Event, Match, MatchConfig, N_FIGHTERS};
+use go_box_sim::glam::vec2;
+use go_box_sim::sim::{Action, ArenaId, DT, Event, H, Match, MatchConfig, N_FIGHTERS, W};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use std::collections::VecDeque;
@@ -72,7 +73,7 @@ impl Player {
             }
             None => {
                 self.starved += 1;
-                if self.starved > STARVED_RELEASE { Action::default() } else { Action { throw: false, special: false, ..self.last_action } }
+                if self.starved > STARVED_RELEASE { Action::default() } else { Action { throw: false, special: false, dash: false, ..self.last_action } }
             }
         }
     }
@@ -390,7 +391,9 @@ fn sanitize(a: Action) -> Action {
     let clamp = |v: f32| if v.is_finite() { v.clamp(-1.0, 1.0) } else { 0.0 };
     // An aim direction must be a real, non-zero direction; only its direction matters.
     let target = a.target.filter(|t| t.is_finite() && t.length_squared() > 1e-6).map(|t| t.normalize());
-    Action { mv: clamp(a.mv), aim: clamp(a.aim), target, ..a }
+    // The cursor: a real point, kept to the arena.
+    let cursor = a.cursor.filter(|c| c.is_finite()).map(|c| vec2(c.x.clamp(0.0, W), c.y.clamp(0.0, H)));
+    Action { mv: clamp(a.mv), aim: clamp(a.aim), target, cursor, ..a }
 }
 
 #[cfg(test)]

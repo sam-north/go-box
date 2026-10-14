@@ -53,6 +53,16 @@ const HASTE: f32 = 1.35;
 /// How fast you can move (and how high you can jump) stuck in glue.
 const GLUED_SPEED: f32 = 0.3;
 const GLUED_JUMP: f32 = 0.55;
+// Wall jumps: off a wall while in the air (a fresh press of jump), up and away from it. Pushing
+// into a wall while falling slides down it slowly.
+const WALL_JUMP_V: f32 = 235.0;
+const WALL_KICK: f32 = 170.0;
+const WALL_JUMP_CD: u32 = 12;
+const WALL_SLIDE: f32 = 70.0;
+// Dash: a quick burst along the ground (or through the air, holding height), then a cooldown.
+pub const DASH_SPEED: f32 = 380.0;
+pub const DASH_TICKS: u32 = 9;
+pub const DASH_COOLDOWN: u32 = 45;
 /// px/s²: getting going (up to walking pace), then building to a run.
 const GROUND_START: f32 = 900.0;
 const GROUND_BUILD: f32 = 290.0;
@@ -172,6 +182,11 @@ pub struct Action {
     /// Where a player is aiming (a direction from their hand, e.g. toward the mouse). Throws
     /// go exactly this way and swings turn to face it; `aim` is ignored. Bots leave it None.
     pub target: Option<Vec2>,
+    /// A dash this tick (a fresh press).
+    pub dash: bool,
+    /// Where a mouse player's cursor is, in the arena (Austin teleports there). None with a
+    /// gamepad, and for bots.
+    pub cursor: Option<Vec2>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -230,6 +245,13 @@ pub struct Fighter {
     pub haste: u32,
     /// Stuck in Sam's glue: slowed right down (ticks left; the glue keeps topping it up).
     pub slowed: u32,
+    /// Dashing: ticks left of the burst, and until the next one is allowed.
+    pub dash_t: u32,
+    pub dash_cd: u32,
+    /// Jump was held last tick (a wall jump needs a fresh press), and ticks before another wall
+    /// jump.
+    pub jump_held: bool,
+    pub wall_cd: u32,
 }
 
 impl Fighter {
@@ -263,6 +285,10 @@ impl Fighter {
             pinned: 0,
             haste: 0,
             slowed: 0,
+            dash_t: 0,
+            dash_cd: 0,
+            jump_held: false,
+            wall_cd: 0,
         }
     }
 
@@ -402,6 +428,8 @@ pub enum Event {
     Hook { pos: Vec2 },
     /// A rocket fired from a rocket launcher.
     RocketLaunch { pos: Vec2 },
+    /// Fighter `who` dashed.
+    Dash { who: usize, pos: Vec2 },
     /// Jake going into his phone (`out`: false) or coming back out of it, at his middle.
     Hologram { pos: Vec2, out: bool },
     /// Robert's lightning striking someone.
@@ -834,6 +862,8 @@ impl Match {
                 aim: out[5],
                 grab: out[6] > 0.0,
                 // (Not during the protected start: it'd be wasted on people who can't be hurt.)
+                dash: false,
+                cursor: None,
                 special: self.f[i].special_cd == 0 && !self.protected() && self.f[i].character.special().is_some_and(|s| s.bot_wants(self, i)),
                 target: None,
             };
@@ -848,8 +878,9 @@ impl Match {
                 continue;
             }
             let was_grounded = self.f[i].grounded;
+            let wall = wall_side(&self.f[i], &props);
             let f = &mut self.f[i];
-            control(f, i, actions[i], &mut self.events);
+            control(f, i, actions[i], wall, &mut self.events);
             collide(f, self.config.arena.def(), &props);
             if f.grounded && !was_grounded {
                 self.events.push(Event::Land { pos: f.pos });
@@ -1230,7 +1261,7 @@ pub fn predict(arena: &Arena, props: &[Aabb], f: &mut Fighter, who: usize, a: Ac
     if f.absent || f.digital > 0 {
         return;
     }
-    control(f, who, a, events);
+    control(f, who, a, wall_side(f, props), events);
     collide(f, arena, props);
     if f.atk_timer > 0 {
         f.atk_timer += 1;
@@ -1322,7 +1353,31 @@ fn accel(v: f32, target: f32, grounded: bool) -> f32 {
     }
 }
 
-fn control(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
+/// Which side a fighter in the air is pressed against a wall (or a table's side) on: -1 left, 1
+/// right, 0 neither. (One-way ledges aren't walls.)
+fn wall_side(f: &Fighter, props: &[Aabb]) -> f32 {
+    if f.grounded {
+        return 0.0;
+    }
+    let b = f.body();
+    let probe = |dx: f32| {
+        let r = Aabb::new(b.x + dx, b.y + 1.0, b.w, b.h - 2.0);
+        SOLIDS.iter().chain(props).any(|s| r.overlaps(s))
+    };
+    if probe(-1.0) {
+        -1.0
+    } else if probe(1.0) {
+        1.0
+    } else {
+        0.0
+    }
+}
+
+fn control(f: &mut Fighter, who: usize, a: Action, wall: f32, events: &mut Vec<Event>) {
+    let fresh_jump = a.jump && !f.jump_held;
+    f.jump_held = a.jump;
+    f.wall_cd = f.wall_cd.saturating_sub(1);
+    f.dash_cd = f.dash_cd.saturating_sub(1);
     let pinned = f.pinned > 0;
     f.pinned = f.pinned.saturating_sub(1);
     let run = if f.haste > 0 { RUN * HASTE } else { RUN };
@@ -1351,6 +1406,26 @@ fn control(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
             f.grounded = false;
             events.push(Event::Jump { who, pos: f.pos });
         }
+        // Off a wall: up and away from it.
+        if fresh_jump && wall != 0.0 && !f.grounded && f.wall_cd == 0 && !pinned {
+            let k = if glued { GLUED_JUMP } else { 1.0 };
+            f.vel = vec2(-wall * WALL_KICK * k, -WALL_JUMP_V * k);
+            f.facing = -wall;
+            f.wall_cd = WALL_JUMP_CD;
+            events.push(Event::Jump { who, pos: f.pos });
+        } else if wall != 0.0 && a.mv * wall > 0.0 && f.vel.y > WALL_SLIDE {
+            // Pushing into a wall while falling: slide down it.
+            f.vel.y = WALL_SLIDE;
+        }
+        // Dash: the way you're pushing, else the way you face.
+        if a.dash && f.dash_cd == 0 && !pinned {
+            if a.mv.abs() >= 0.2 {
+                f.facing = a.mv.signum();
+            }
+            f.dash_t = DASH_TICKS;
+            f.dash_cd = DASH_COOLDOWN;
+            events.push(Event::Dash { who, pos: f.pos });
+        }
         if a.attack && f.atk_timer == 0 && f.cooldown == 0 {
             f.atk_timer = 1;
             f.hit_mask = 0;
@@ -1366,7 +1441,17 @@ fn control(f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
     // Pinned: stuck exactly where they are (in mid-air too), whatever hits them.
     if pinned {
         f.vel = Vec2::ZERO;
+        f.dash_t = 0;
         return;
+    }
+    // Mid-dash: flat out, holding height (cut short by a hit).
+    if f.dash_t > 0 {
+        f.dash_t -= 1;
+        if f.alive() && f.hitstun == 0 {
+            f.vel = vec2(f.facing * DASH_SPEED * if glued { GLUED_SPEED } else { 1.0 }, 0.0);
+            return;
+        }
+        f.dash_t = 0;
     }
     // Releasing jump early cuts the arc short.
     let g = if f.vel.y < 0.0 && !a.jump { GRAVITY * 2.0 } else { GRAVITY };
@@ -1456,9 +1541,9 @@ mod tests {
         }
         assert_eq!(h, CLASSIC_HASH, "classic match fingerprint changed: {h:#018x}");
     }
-    // Last deliberately changed by more grenades and the rocket launcher. It must
+    // Last deliberately changed by wall jumps (bots kick off walls too). It must
     // come out the same on 32-bit targets too: `cargo test -p go-box-sim --target i686-pc-windows-msvc`.
-    const CLASSIC_HASH: u64 = 0x9be8_7e50_1f8f_a1e3;
+    const CLASSIC_HASH: u64 = 0x5537_4048_b7a5_7b90;
 
     /// Everyone on the floor, nothing lying around, nobody thinking (all-zero brains stand still).
     fn quiet_match() -> (Match, Brain) {
@@ -1591,6 +1676,42 @@ mod tests {
             m.items.clear();
         }
         assert!(launchers > 0 && launchers <= 2, "{launchers}");
+    }
+
+    #[test]
+    fn wall_jumps_kick_off_and_up_on_a_fresh_press() {
+        let (mut m, z) = quiet_match();
+        // In the air, pressed against the left wall.
+        m.f[0].pos = vec2(WALL + HALF_W, 200.0);
+        m.f[0].grounded = false;
+        let left = Action { mv: -1.0, ..Action::default() };
+        m.step_with([&z; N_FIGHTERS], Some((0, left)));
+        assert!(m.f[0].vel.y <= WALL_SLIDE, "sliding down the wall");
+        m.step_with([&z; N_FIGHTERS], Some((0, Action { jump: true, ..left })));
+        assert!(m.f[0].vel.y < -150.0 && m.f[0].vel.x > 100.0, "kicked up and away: {}", m.f[0].vel);
+        // Held, not pressed again: no second kick.
+        m.f[0].pos.x = WALL + HALF_W;
+        m.f[0].vel = Vec2::ZERO;
+        for _ in 0..WALL_JUMP_CD + 2 {
+            m.step_with([&z; N_FIGHTERS], Some((0, Action { jump: true, ..left })));
+        }
+        assert!(m.f[0].vel.y > 0.0, "holding jump doesn't climb");
+    }
+
+    #[test]
+    fn a_dash_bursts_ahead_then_cools_down() {
+        let (mut m, z) = quiet_match();
+        m.f[0].facing = 1.0;
+        let x0 = m.f[0].pos.x;
+        m.step_with([&z; N_FIGHTERS], Some((0, Action { dash: true, ..Action::default() })));
+        for _ in 0..DASH_TICKS {
+            m.step_with([&z; N_FIGHTERS], Some((0, Action::default())));
+        }
+        let gone = m.f[0].pos.x - x0;
+        assert!(gone > 45.0, "dashed {gone}px");
+        m.step_with([&z; N_FIGHTERS], Some((0, Action { dash: true, ..Action::default() })));
+        assert_eq!(m.f[0].dash_t, 0, "not again so soon");
+        assert!(!m.events.iter().any(|e| matches!(e, Event::Dash { .. })));
     }
 
     #[test]

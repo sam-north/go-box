@@ -96,6 +96,8 @@ pub fn autopilot(m: &Match, seat: usize, rng: &mut SmallRng) -> Action {
         grab: me.holding.is_none(),
         special: rng.gen_bool(0.01),
         target: None,
+        dash: rng.gen_bool(0.01),
+        cursor: None,
     }
 }
 

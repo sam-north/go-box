@@ -205,7 +205,7 @@ mod tests {
         Snapshot { ack, view: m.view(), events }
     }
 
-    const RIGHT: Action = Action { mv: 1.0, run: true, jump: false, attack: false, throw: false, aim: 0.3, grab: false, special: false, target: None };
+    const RIGHT: Action = Action { mv: 1.0, run: true, jump: false, attack: false, throw: false, aim: 0.3, grab: false, special: false, target: None, dash: false, cursor: None };
 
     #[test]
     fn a_snapshot_behind_your_inputs_is_caught_up_by_replaying_them() {

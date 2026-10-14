@@ -23,7 +23,8 @@ Controls: you always run; **Esc** (Options on a controller) opens Settings, wher
 page shows every binding and lets you change it, separately for keyboard/mouse and controller (PS4,
 PS5 or Xbox pads in Chrome, Edge or Firefox). By default: `A`/`D` move, `W`/`Space` jump, the mouse
 aims, left click grabs (empty-handed) or throws (holding something), right click attacks toward the
-cursor, `Shift` uses your special, `M` mutes. Settings are saved in the browser.
+cursor, `Shift` uses your special, `S` dashes, `M` mutes. Settings are saved in the browser. In the
+air against a wall, press jump to kick off it (and hold toward a wall to slide down it slowly).
 
 The browser only reports a controller after you press a button on it. In menus (lobby, scoreboard,
 settings) the d-pad or left stick moves a highlight and Cross presses it.
@@ -43,11 +44,11 @@ Everyone has the same body; each character adds one special on a cooldown.
 |---|---|---|
 | Classic | none — the hooded fighter the brains were trained as | — |
 | Sam | **Glue Gun**: fires a glob of glue (like Noita's glue gunners) the way he aims. Whoever it hits takes 4 and is stuck for 5s: moving at a third of normal speed, tethered to the nearest surface by an elastic strand that snaps if stretched past 48px. A glob that hits terrain leaves a blob, and anyone who runs into a blob or a strand is stuck too | 8s |
-| Austin | **Pop-Up**: teleports in the direction he's facing, at least 160px ahead (a third of the arena) when there's room, else anywhere ahead; prefers spots 40px from everyone | 15s |
+| Austin | **Pop-Up**: teleports to the mouse cursor (out of walls, onto tables). With a controller, and for bots, it goes the way he's facing, at least 160px ahead (a third of the arena) when there's room, else anywhere ahead; prefers spots 40px from everyone | 15s |
 | Tyler | **Release the Hounds**: three dogs run the floors for 5s, biting anyone but Tyler for 15 (each dog at most twice a second per victim), and Tyler runs 35% faster while they're out | 30s |
 | Seth | **Mini Me**: two smaller (70%) clones hop out in front of him for 15s. They fight like bots (grabbing and throwing too), die to one hit, and their kills count as his; they vanish if he goes down | 30s |
-| Corwin | **Cat Herder**: twenty cats pour out and run the floors for 5s; each scratch is only 2 (once a second per cat per victim) but they come as a swarm | 30s |
-| Justin | **Sushi Table**: a table drops in front of him (onto him, if he's facing a wall) with three pieces of sushi on it. Solid from the sides and on top but never from below, so it can't pin anyone; sushi throws like a rock (10) and splats on whatever it hits. Lasts 15s, one at a time | 10s |
+| Corwin | **Cat Herder**: twenty cats pour out and run the floors for 5s; each scratch is only 2 (once a second per cat per victim) but they come as a swarm. Sushi within 100px distracts them: they crowd round it (hopping up onto a table for it) and scratch nobody | 30s |
+| Justin | **Sushi Table**: a table appears in the air in front of him (over his head, if he's facing a wall) and stays right there as a platform, with three pieces of sushi on top. Solid from the sides and on top but never from below, so it can't pin anyone; sushi throws like a rock (10) and splats on whatever it hits. Lasts 15s, one at a time | 10s |
 | Ryan | **Yanking Your Chain**: throws a chain up to 110px the way he aims; the first foe it hooks takes 6 and is yanked to just in front of him, dazed for 0.4s | 8s |
 | Jake | **Into the Phone**: turns into light and hides inside his phone for 5s, which drops from his head; meanwhile he can't act or be hurt, and anyone can grab and throw the phone (it hits like a rock). Then he pops back out standing on wherever it went, and the phone stays as an ordinary item | 20s |
 | Robert | **Forked Lightning**: a forked bolt strikes every opponent in the arena at once (no line of sight needed): 30 up close, falling off to 5 at 300px and beyond | 25s |

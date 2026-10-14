@@ -39,6 +39,7 @@ pub struct Controls {
     last_mouse: Vec2,
     throw: bool,
     special: bool,
+    dash: bool,
     /// The left stick's menu direction last frame, and when it may step again.
     stick_nav: Option<Vec2>,
     stick_next: f64,
@@ -100,6 +101,7 @@ impl Controls {
     pub fn latch(&mut self, b: &Bindings, holding: bool, mouse_free: bool) {
         self.throw |= holding && b.pressed(Act::Hand, &self.pad, self.pad_prev, mouse_free);
         self.special |= b.pressed(Act::Special, &self.pad, self.pad_prev, mouse_free);
+        self.dash |= b.pressed(Act::Dash, &self.pad, self.pad_prev, mouse_free);
     }
 
     /// This tick's action for fighter `me`. `mouse_arena` is the mouse in arena coordinates.
@@ -119,9 +121,13 @@ impl Controls {
             grab: me.holding.is_none() && down(Act::Hand),
             special: self.special,
             target: self.target(me, mouse_arena),
+            dash: self.dash,
+            // (Austin teleports to the cursor; with a gamepad there isn't one.)
+            cursor: (!self.using_pad).then_some(mouse_arena),
         };
         self.throw = false;
         self.special = false;
+        self.dash = false;
         a
     }
 

@@ -52,6 +52,7 @@ go_box_sim::enum_all! {
         Zap,
         Organize,
         RocketLaunch,
+        Dash,
         Start,
         Win,
         Lose,
@@ -238,6 +239,8 @@ impl Sfx {
                 s.noise(0.0, 0.5, 2500.0, 900.0, 0.01, 5.0, 0.4);
                 s.swell(0.0, 0.4, 600.0, 3000.0, 0.15);
             }
+            // A dash: a short, airy whoosh.
+            Sfx::Dash => s.noise(0.0, 0.16, 900.0, 3800.0, 0.01, 16.0, 0.3),
             Sfx::Start => {
                 s.tone(0.0, 0.12, 440.0, 440.0, Wave::Square, 0.003, 10.0, 0.14);
                 s.tone(0.16, 0.3, 660.0, 660.0, Wave::Square, 0.003, 6.0, 0.16);
@@ -501,6 +504,8 @@ impl Sounds {
                 Event::Splat { pos } => self.at(Sfx::Splat, pos, ear, 1.0),
                 Event::Hook { pos } => self.at(Sfx::Hook, pos, ear, 1.0),
                 Event::RocketLaunch { pos } => self.at(Sfx::RocketLaunch, pos, ear, 1.0),
+                Event::Dash { who, pos } if Some(who) != own => self.at(Sfx::Dash, pos, ear, 0.6),
+                Event::Dash { .. } => {}
                 Event::Zap { pos } => self.at(Sfx::Zap, pos, ear, 0.8),
                 Event::Hologram { pos, out } => self.at(if out { Sfx::Materialize } else { Sfx::Digitize }, pos, ear, 1.0),
                 Event::Clatter { pos, kind } => {
@@ -524,6 +529,7 @@ impl Sounds {
             match e {
                 Event::Jump { .. } => self.play(Sfx::Jump, 0.3),
                 Event::Swing { .. } => self.play(Sfx::Swing, 0.3),
+                Event::Dash { .. } => self.play(Sfx::Dash, 0.5),
                 _ => {}
             }
         }
