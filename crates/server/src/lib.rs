@@ -130,6 +130,12 @@ pub async fn serve(listener: tokio::net::TcpListener, config: Config, shutdown: 
         .layer(SetResponseHeaderLayer::overriding(header::CACHE_CONTROL, HeaderValue::from_static("no-cache")))
         .service(ServeDir::new(web).precompressed_br().precompressed_gzip());
     let app = Router::new().route(WS_PATH, get(ws_handler)).route("/healthz", get(healthz)).fallback_service(files).with_state(hub);
+    // Game messages are small and time-critical: send each at once rather than letting TCP hold
+    // it back to batch with the next (Nagle's algorithm).
+    use axum::serve::ListenerExt;
+    let listener = listener.tap_io(|tcp| {
+        let _ = tcp.set_nodelay(true);
+    });
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).with_graceful_shutdown(shutdown).await.unwrap();
 }
 

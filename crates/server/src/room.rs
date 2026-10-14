@@ -32,10 +32,14 @@ pub struct Joined {
     pub reply: oneshot::Sender<Result<(), Refusal>>,
 }
 
-/// Inputs waiting to be applied, per player. A little backlog smooths out network jitter; a
-/// big one means added lag, so it's trimmed.
-const INPUT_BACKLOG_MAX: usize = 8;
-const INPUT_BACKLOG_KEEP: usize = 3;
+/// Inputs waiting to be applied, per player. A little backlog (about INPUT_TARGET) smooths out
+/// network jitter; more is added lag. When it stays deeper than that for INPUT_CATCHUP ticks, two
+/// inputs are applied in one tick to drain it gently (rather than dropping a chunk, which the
+/// client had already predicted: a visible snap). INPUT_BACKLOG_MAX is only a backstop.
+const INPUT_TARGET: usize = 2;
+const INPUT_CATCHUP: u32 = 10;
+const INPUT_BACKLOG_MAX: usize = 30;
+const INPUT_BACKLOG_KEEP: usize = INPUT_TARGET;
 /// After this many ticks without input, a player's fighter releases all buttons.
 const STARVED_RELEASE: u32 = 10;
 
@@ -52,6 +56,8 @@ struct Player {
     last_action: Action,
     /// Ticks in a row with no input (the tab is in the background, the network stalled...).
     starved: u32,
+    /// Ticks in a row the backlog has been deeper than INPUT_TARGET.
+    deep: u32,
 }
 
 impl Player {
@@ -64,6 +70,15 @@ impl Player {
     /// one held, minus one-shot presses so a stall never repeats a throw or special. After a
     /// longer gap (a hidden browser tab sends nothing) the fighter lets go of everything.
     fn next_action(&mut self) -> Action {
+        // Behind for a while: take two this tick (the earlier one's presses kept).
+        self.deep = if self.inputs.len() > INPUT_TARGET { self.deep + 1 } else { 0 };
+        if self.deep >= INPUT_CATCHUP
+            && let Some((_, early)) = self.inputs.pop_front()
+            && let Some(next) = self.inputs.front_mut()
+        {
+            next.1 = merged(early, next.1);
+            self.deep = 0;
+        }
         match self.inputs.pop_front() {
             Some((seq, a)) => {
                 self.ack = seq;
@@ -208,6 +223,7 @@ impl Room {
                     ack: 0,
                     last_action: Action::default(),
                     starved: 0,
+                    deep: 0,
                 });
                 let _ = j.reply.send(Ok(()));
                 tracing::info!(room = %self.code, players = self.players.len(), "player joined");
@@ -281,8 +297,12 @@ impl Room {
                 p.last_seq = seq;
                 p.inputs.push_back((seq, sanitize(action)));
                 if p.inputs.len() > INPUT_BACKLOG_MAX {
+                    // (A long stall's worth: keep the newest few, and any presses in what's dropped.)
                     let drop = p.inputs.len() - INPUT_BACKLOG_KEEP;
-                    p.inputs.drain(..drop);
+                    let presses = p.inputs.drain(..drop).fold(Action::default(), |acc, (_, a)| merged(acc, Action { mv: 0.0, ..a }));
+                    if let Some(next) = p.inputs.front_mut() {
+                        next.1 = merged(presses, next.1);
+                    }
                 }
             }
             _ => {}
@@ -388,6 +408,18 @@ fn results(r: &Running) -> Results {
 }
 
 /// Inputs come off the network: never let a NaN or an out-of-range value into the sim.
+/// `later`, plus any one-off presses from `earlier` (so merging two inputs never loses an attack,
+/// a throw, a special or a dash).
+fn merged(earlier: Action, later: Action) -> Action {
+    Action {
+        attack: later.attack || earlier.attack,
+        throw: later.throw || earlier.throw,
+        special: later.special || earlier.special,
+        dash: later.dash || earlier.dash,
+        ..later
+    }
+}
+
 fn sanitize(a: Action) -> Action {
     let clamp = |v: f32| if v.is_finite() { v.clamp(-1.0, 1.0) } else { 0.0 };
     // An aim direction must be a real, non-zero direction; only its direction matters.
@@ -538,6 +570,30 @@ mod tests {
         let p = &r.players[0];
         assert!(p.inputs.len() <= INPUT_BACKLOG_MAX, "backlog of {}", p.inputs.len());
         assert_eq!(p.inputs.back().unwrap().0, 20, "a stale input was dropped, the newest kept");
+    }
+
+    #[test]
+    fn a_deep_backlog_drains_gently_and_keeps_its_presses() {
+        let mut r = room();
+        let _a = join(&mut r, 1);
+        r.on_msg(1, ClientMsg::Start);
+        for seq in 1..=12 {
+            let action = Action { attack: seq == 4, ..Action::default() };
+            r.on_msg(1, ClientMsg::Input { seq, action });
+        }
+        // Inputs keep arriving one a tick, as in a real match: only catching up shrinks it.
+        let (mut attacked, mut ticks) = (false, 0);
+        while r.players[0].inputs.len() > INPUT_TARGET {
+            r.on_msg(1, ClientMsg::Input { seq: 13 + ticks, action: Action::default() });
+            let p = &mut r.players[0];
+            let before = p.inputs.len();
+            attacked |= p.next_action().attack;
+            assert!(before - p.inputs.len() <= 2, "never more than one extra a tick");
+            ticks += 1;
+            assert!(ticks < 400, "it drains");
+        }
+        assert!(attacked, "the attack press survived");
+        assert!(ticks > 40 && ticks < 150, "gradually, in about a second or two ({ticks} ticks)");
     }
 
     #[test]

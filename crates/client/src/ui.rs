@@ -94,6 +94,8 @@ pub struct Ui {
     prev_targets: Vec<(Rect, bool)>,
     /// The focused control, by where it was drawn.
     nav_focus: Option<Rect>,
+    /// The UI scale and screen DPI the text glyphs were last pre-rendered for.
+    warmed: (f32, f32),
 }
 
 fn same_rect(a: Rect, b: Rect) -> bool {
@@ -112,6 +114,7 @@ impl Ui {
             targets: Vec::new(),
             prev_targets: Vec::new(),
             nav_focus: None,
+            warmed: (0.0, 0.0),
         }
     }
 
@@ -121,6 +124,7 @@ impl Ui {
         self.prev_targets = std::mem::take(&mut self.targets);
         self.navigate(nav);
         self.s = (screen_height() / 720.0).clamp(0.6, 2.5).min(screen_width() / 900.0).max(0.5);
+        self.warm_glyphs();
         self.mouse = mouse_position().into();
         self.clicked = is_mouse_button_pressed(MouseButton::Left);
         self.hot = false;
@@ -202,6 +206,29 @@ impl Ui {
         }
         if !is_mouse_button_down(MouseButton::Left) {
             self.text_drag = None;
+        }
+    }
+
+    /// Pre-renders every glyph the game draws, at every size it draws them, whenever the UI scale
+    /// or screen DPI changes (and on the first frame). Drawing a character at a size for the first
+    /// time rasterises it and re-uploads the whole glyph atlas, which hitched each beat of the
+    /// first 3-2-1 (and again after a resize).
+    fn warm_glyphs(&mut self) {
+        let dpi = macroquad::miniquad::window::dpi_scale();
+        if self.warmed == (self.s, dpi) {
+            return;
+        }
+        self.warmed = (self.s, dpi);
+        let ascii: String = (32u8..127).map(char::from).collect();
+        // Every size the UI uses; the huge ones (the countdown, GO!) only for what they show.
+        // (Buttons and text boxes size their text from their height: 17-24.)
+        let sizes = [12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 26.0, 28.0, 30.0, 32.0, 34.0, 36.0, 64.0];
+        let big = [(90.0, "0123456789"), (100.0, "GO!0123456789")];
+        let glyphs = sizes.iter().map(|&s| (s, ascii.as_str())).chain(big);
+        for (size, text) in glyphs {
+            // Drawing scales the size by the DPI, so warm that size.
+            let px = (self.px(size) * dpi).ceil() as u16;
+            measure_text(text, None, px, 1.0);
         }
     }
 

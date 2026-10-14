@@ -62,6 +62,9 @@ async fn main() {
         .collect();
 
     let mut attract = Attract::new();
+    // Which portraits are drawn, for whom (their colours follow your seat), and the next to refresh.
+    let mut portraits_for: Option<usize> = None;
+    let mut portrait_next = 0usize;
     let mut app = App {
         net: None,
         hello_name: None,
@@ -199,10 +202,15 @@ async fn main() {
             draw_you(m, seat);
         }
 
-        // Character portraits for the picker.
+        // Character portraits for the picker: all of them when you arrive (or your seat changes),
+        // then just one a frame in turn (so the scarves still sway) rather than every one, every
+        // frame (a dozen render-target switches a frame is heavy on phones).
         if app.room.as_ref().is_some_and(|r| r.phase == Phase::Lobby) {
             let my_index = app.room.as_ref().and_then(|r| r.players.iter().position(|p| Some(p.id) == app.me)).unwrap_or(0);
-            for (k, c) in Character::ALL.into_iter().enumerate() {
+            let all = portraits_for != Some(my_index);
+            portraits_for = Some(my_index);
+            portrait_next = (portrait_next + 1) % Character::ALL.len();
+            for (k, c) in Character::ALL.into_iter().enumerate().filter(|&(k, _)| all || k == portrait_next) {
                 let mut pc = Camera2D { target: vec2(0.0, -10.0), zoom: vec2(2.0 / 24.0, 2.0 / 30.0), ..Default::default() };
                 pc.render_target = Some(portraits[k].clone());
                 set_camera(&pc);

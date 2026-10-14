@@ -559,12 +559,17 @@ struct FighterVis {
 pub struct Art {
     bg: Texture2D,
     terrain: Texture2D,
+    /// Every map's terrain, built once at startup (building one takes long enough to hitch, and
+    /// it used to happen right as a match's countdown began).
+    terrains: Vec<Texture2D>,
     /// The map the terrain texture shows.
     arena: ArenaId,
     vignette: Texture2D,
     stain_img: Image,
     stain_tex: Texture2D,
-    stain_dirty: bool,
+    /// The part of the stain image changed since it was last uploaded (min x, min y, max x, max y),
+    /// so only that goes to the GPU, not the whole half-megabyte image every frame of a fight.
+    stain_dirty: Option<(u32, u32, u32, u32)>,
     particles: Vec<Particle>,
     rain: Vec<Drop>,
     vis: [FighterVis; N_BODIES],
@@ -588,18 +593,20 @@ fn tex(img: &Image) -> Texture2D {
 
 impl Art {
     pub fn new() -> Self {
+        let terrains: Vec<Texture2D> = ArenaId::ALL.iter().map(|a| tex(&make_terrain(a.def()))).collect();
         let stain_img = Image::gen_image_color(W as u16, H as u16, Color::new(0.0, 0.0, 0.0, 0.0));
         let rain = (0..200)
             .map(|i| Drop { pos: vec2(hash(i, 0, 1) * W, hash(i, 1, 1) * H), speed: 200.0 + hash(i, 2, 1) * 120.0 })
             .collect();
         Self {
             bg: tex(&make_background()),
-            terrain: tex(&make_terrain(ArenaId::default().def())),
+            terrain: terrains[ArenaId::default() as usize].clone(),
+            terrains,
             arena: ArenaId::default(),
             vignette: tex(&make_vignette()),
             stain_tex: tex(&stain_img),
             stain_img,
-            stain_dirty: false,
+            stain_dirty: None,
             particles: Vec::new(),
             rain,
             vis: Default::default(),
@@ -621,14 +628,14 @@ impl Art {
     pub fn set_arena(&mut self, arena: ArenaId) {
         if arena != self.arena {
             self.arena = arena;
-            self.terrain = tex(&make_terrain(arena.def()));
+            self.terrain = self.terrains[arena as usize].clone();
             self.reset();
         }
     }
 
     pub fn reset(&mut self) {
         self.stain_img = Image::gen_image_color(W as u16, H as u16, Color::new(0.0, 0.0, 0.0, 0.0));
-        self.stain_dirty = true;
+        self.stain_dirty = Some((0, 0, W as u32 - 1, H as u32 - 1));
         self.particles.clear();
         self.blasts.clear();
         self.flags.clear();
@@ -812,8 +819,12 @@ impl Art {
         for (pos, c) in stains {
             let (x, y) = (pos.x as i32, pos.y as i32);
             if x >= 0 && y >= 0 && x < W as i32 && y < H as i32 && !solid_px(arena, x, y) {
-                self.stain_img.set_pixel(x as u32, y as u32, c);
-                self.stain_dirty = true;
+                let (x, y) = (x as u32, y as u32);
+                self.stain_img.set_pixel(x, y, c);
+                self.stain_dirty = Some(match self.stain_dirty {
+                    Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+                    None => (x, y, x, y),
+                });
             }
         }
         for (f, v) in m.f.iter().zip(self.vis.iter_mut()) {
@@ -857,9 +868,10 @@ impl Art {
     }
 
     pub fn draw(&mut self, m: &Match) {
-        if self.stain_dirty {
-            self.stain_tex.update(&self.stain_img);
-            self.stain_dirty = false;
+        if let Some((x0, y0, x1, y1)) = self.stain_dirty.take() {
+            let (w, h) = (x1 - x0 + 1, y1 - y0 + 1);
+            let part = self.stain_img.sub_image(Rect::new(x0 as f32, y0 as f32, w as f32, h as f32));
+            self.stain_tex.update_part(&part, x0 as i32, y0 as i32, w as i32, h as i32);
         }
         draw_texture(&self.bg, 0.0, 0.0, WHITE);
         for d in &self.rain {
