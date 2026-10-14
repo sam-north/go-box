@@ -125,9 +125,9 @@ grenade's fuse (1s) lights when thrown; a live one can be grabbed and thrown bac
 holding a grenade drops it armed: it goes off half a second later.
 
 Items: 4 grenades, 2 spears and one rock at the start (the only rock all match, a nod to how the game
-began); a new item appears every 4-7s: half the time a grenade (while there are fewer than eight),
-else a spear (22%), a Molotov (10%), a giant sword (8%), a rocket launcher (6%, at most two a match)
-or an air-strike radio (4%, at most two). A **rocket launcher** fires one homing rocket (it curves
+began); a new item appears every 4-7s: a Molotov (26%), a grenade (24%, while there are fewer than
+eight), a rocket launcher (17%, at most six a match), an air-strike radio (13%, at most four), a
+giant sword (10%) or a spear (10%). A **rocket launcher** fires one homing rocket (it curves
 toward the nearest opponent and explodes for up to 60), then it's spent. The **giant sword** slashes
 in a wide arc (22, reach 19) and flies tip first when thrown (32). A **Molotov** shatters on whatever
 it hits and sets the surface below burning for 4s (5 every half second to anyone standing in it, the
