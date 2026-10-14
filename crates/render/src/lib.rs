@@ -974,13 +974,14 @@ fn draw_heal(p: Vec2, time: f32) {
 /// A soft glow pulsing under a rare item lying on the ground, so it's easy to spot.
 fn item_glow(p: Vec2, c: Color, time: f32) {
     let pulse = 0.5 + 0.5 * (time * 4.0 + p.x * 0.1).sin();
-    draw_circle(p.x, p.y - 3.0, 9.0 + pulse * 2.0, Color::new(c.r, c.g, c.b, 0.06 + 0.06 * pulse));
-    draw_circle(p.x, p.y - 3.0, 5.0 + pulse, Color::new(c.r, c.g, c.b, 0.10 + 0.08 * pulse));
+    draw_circle(p.x, p.y - 2.0, 7.0 + pulse * 2.0, Color::new(c.r, c.g, c.b, 0.06 + 0.06 * pulse));
+    draw_circle(p.x, p.y - 2.0, 4.0 + pulse, Color::new(c.r, c.g, c.b, 0.10 + 0.08 * pulse));
 }
 
-/// A filled rectangle with a dark 1px outline round it (so a small item reads on any backdrop).
+/// A filled rectangle with a soft 1px outline round it (a dark shade of its own colour, partly
+/// see-through), so a small item reads on any backdrop without a hard black border.
 fn outlined(x: f32, y: f32, w: f32, h: f32, c: Color) {
-    draw_rectangle(x - 1.0, y - 1.0, w + 2.0, h + 2.0, Color::new(0.03, 0.03, 0.04, 0.9));
+    draw_rectangle(x - 1.0, y - 1.0, w + 2.0, h + 2.0, Color::new(c.r * 0.3, c.g * 0.3, c.b * 0.3, 0.6));
     draw_rectangle(x, y, w, h, c);
 }
 
@@ -1039,13 +1040,13 @@ fn draw_item(it: &Item, time: f32) {
                 item_glow(p, FLAME, time);
             }
             let glass = Color::new(0.24, 0.40, 0.24, 1.0);
-            outlined(bx - 2.0, by - 5.0, 4.0, 5.0, glass);
-            outlined(bx - 1.0, by - 7.0, 2.0, 2.0, glass);
-            draw_rectangle(bx - 1.0, by - 4.0, 1.0, 3.0, Color::new(0.42, 0.58, 0.40, 1.0));
-            draw_rectangle(bx - 2.0, by - 3.0, 4.0, 1.0, Color::new(0.62, 0.50, 0.30, 1.0));
-            draw_rectangle(bx - 1.0, by - 9.0, 1.0, 2.0, Color::new(0.70, 0.62, 0.48, 1.0));
-            let flick = ((time * 13.0 + p.x).sin() * 0.5 + 0.5) * 2.0;
-            draw_rectangle(bx - 1.0, by - 10.0 - flick.round(), 2.0, 1.0 + flick.round(), FLAME_TIP);
+            outlined(bx - 1.0, by - 4.0, 3.0, 4.0, glass);
+            outlined(bx, by - 5.0, 1.0, 1.0, glass);
+            draw_rectangle(bx - 1.0, by - 3.0, 1.0, 2.0, Color::new(0.42, 0.58, 0.40, 1.0));
+            draw_rectangle(bx - 1.0, by - 2.0, 3.0, 1.0, Color::new(0.62, 0.50, 0.30, 1.0));
+            draw_rectangle(bx, by - 7.0, 1.0, 2.0, Color::new(0.70, 0.62, 0.48, 1.0));
+            let flick = ((time * 13.0 + p.x).sin() * 0.5 + 0.5).round();
+            draw_rectangle(bx, by - 8.0 - flick, 1.0, 1.0 + flick, FLAME_TIP);
         }
         ItemKind::AirStrike => {
             let (bx, by) = (p.x.round(), p.y.round() + 1.0);
@@ -1054,14 +1055,14 @@ fn draw_item(it: &Item, time: f32) {
                 item_glow(p, Color::new(0.95, 0.35, 0.25, 1.0), time);
             }
             // A field radio: a squat box with a speaker grille, a whip antenna and a blinking light.
-            outlined(bx - 3.0, by - 5.0, 6.0, 5.0, Color::new(0.30, 0.33, 0.26, 1.0));
-            draw_rectangle(bx - 2.0, by - 4.0, 2.0, 1.0, Color::new(0.14, 0.15, 0.13, 1.0));
-            draw_rectangle(bx - 2.0, by - 2.0, 2.0, 1.0, Color::new(0.14, 0.15, 0.13, 1.0));
-            draw_rectangle(bx + 2.0, by - 10.0, 1.0, 5.0, Color::new(0.10, 0.10, 0.10, 1.0));
+            outlined(bx - 2.0, by - 4.0, 5.0, 4.0, Color::new(0.30, 0.33, 0.26, 1.0));
+            draw_rectangle(bx - 1.0, by - 3.0, 2.0, 1.0, Color::new(0.14, 0.15, 0.13, 1.0));
+            draw_rectangle(bx - 1.0, by - 1.0, 2.0, 1.0, Color::new(0.14, 0.15, 0.13, 1.0));
+            draw_rectangle(bx + 2.0, by - 8.0, 1.0, 4.0, Color::new(0.10, 0.10, 0.10, 1.0));
             let light = if blink { Color::new(1.0, 0.30, 0.20, 1.0) } else { Color::new(0.40, 0.14, 0.10, 1.0) };
-            draw_rectangle(bx + 1.0, by - 4.0, 1.0, 1.0, light);
+            draw_rectangle(bx + 1.0, by - 3.0, 1.0, 1.0, light);
             if blink {
-                draw_circle(bx + 1.5, by - 3.5, 2.5, Color::new(1.0, 0.3, 0.2, 0.25));
+                draw_circle(bx + 1.5, by - 2.5, 2.0, Color::new(1.0, 0.3, 0.2, 0.25));
             }
         }
         ItemKind::RocketLauncher => {
@@ -1070,11 +1071,11 @@ fn draw_item(it: &Item, time: f32) {
                 item_glow(p, Color::new(0.95, 0.82, 0.40, 1.0), time);
             }
             // A battered olive tube with a yellow warning band, a dark muzzle and a grip.
-            outlined(bx - 6.0, by - 4.0, 12.0, 3.0, Color::new(0.34, 0.38, 0.26, 1.0));
-            draw_rectangle(bx - 6.0, by - 4.0, 12.0, 1.0, Color::new(0.46, 0.50, 0.36, 1.0));
-            draw_rectangle(bx - 1.0, by - 4.0, 2.0, 3.0, Color::new(0.82, 0.68, 0.26, 1.0));
-            draw_rectangle(bx + 5.0, by - 4.0, 1.0, 3.0, Color::new(0.06, 0.06, 0.06, 1.0));
-            draw_rectangle(bx - 3.0, by - 1.0, 1.0, 2.0, Color::new(0.20, 0.18, 0.15, 1.0));
+            outlined(bx - 5.0, by - 3.0, 10.0, 2.0, Color::new(0.34, 0.38, 0.26, 1.0));
+            draw_rectangle(bx - 5.0, by - 3.0, 10.0, 1.0, Color::new(0.46, 0.50, 0.36, 1.0));
+            draw_rectangle(bx - 1.0, by - 3.0, 2.0, 2.0, Color::new(0.82, 0.68, 0.26, 1.0));
+            draw_rectangle(bx + 4.0, by - 3.0, 1.0, 2.0, Color::new(0.06, 0.06, 0.06, 1.0));
+            draw_rectangle(bx - 3.0, by - 1.0, 1.0, 1.0, Color::new(0.20, 0.18, 0.15, 1.0));
         }
         ItemKind::Sushi => {
             // A piece of salmon nigiri: rice, fish on top, a band of nori.

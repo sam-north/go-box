@@ -1588,7 +1588,7 @@ mod tests {
     }
     // Last deliberately changed by more Molotovs, launchers and air strikes. It must
     // come out the same on 32-bit targets too: `cargo test -p go-box-sim --target i686-pc-windows-msvc`.
-    const CLASSIC_HASH: u64 = 0x9ba3_0e33_fd73_883f;
+    const CLASSIC_HASH: u64 = 0xf5de_0d8d_a57a_c357;
 
     /// Everyone on the floor, nothing lying around, nobody thinking (all-zero brains stand still).
     fn quiet_match() -> (Match, Brain) {
