@@ -136,8 +136,10 @@ thrower included). The **air-strike radio** calls in a jet that crosses the top 
 dropping 5-7 bombs (up to 55 in a 46px radius) at random points. **Health pickups** (glowing blue bulbs) restore 50 HP
 and are taken by touch when hurt; 1-2 appear per match.
 
-A match ends with the **last one standing**, or after 45s, when the fighter with the most health
-wins. Only an exact tie is a draw.
+A match ends with the **last one standing**, or after 45s, when the survivor with the most health
+wins (level on health: the most kills, then damage dealt, then headshots). Only a tie on all of
+those is a draw. The scoreboard ranks everyone the same way: the winner, then survivors by health,
+then those who went down by how long they lasted.
 
 ## The bots
 

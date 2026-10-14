@@ -622,13 +622,22 @@ impl Mode {
                 if !last_standing && m.play_ticks() < m.config.max_ticks {
                     return None;
                 }
-                // Last one standing, or the most health at the timeout. An exact tie is a draw.
+                // Last one standing; at the timeout, the survivor with the most health, then (to break
+                // a tie) the most kills, damage dealt, headshots. A tie on all of those is a draw.
+                let rank = |j: usize| {
+                    let f = &m.f[j];
+                    (f.hp, f.kills, f.dmg_dealt, f.headshots)
+                };
+                let better = |a: usize, b: usize| {
+                    let (x, y) = (rank(a), rank(b));
+                    x.0.total_cmp(&y.0).then(x.1.cmp(&y.1)).then(x.2.total_cmp(&y.2)).then(x.3.cmp(&y.3))
+                };
                 Some(match alive.len() {
                     0 => None,
                     1 => Some(alive[0]),
                     _ => {
-                        let best = alive.iter().copied().max_by(|&a, &b| m.f[a].hp.total_cmp(&m.f[b].hp)).unwrap();
-                        let tied = alive.iter().filter(|&&j| m.f[j].hp == m.f[best].hp).count() > 1;
+                        let best = alive.iter().copied().max_by(|&a, &b| better(a, b)).unwrap();
+                        let tied = alive.iter().filter(|&&j| better(j, best).is_eq()).count() > 1;
                         (!tied).then_some(best)
                     }
                 })
@@ -1852,6 +1861,23 @@ mod tests {
             m.step([&z; N_FIGHTERS]);
         }
         assert!(MAX_HP - m.f[1].hp >= 22.0, "a slash from 20px away: {}", m.f[1].hp);
+    }
+
+    #[test]
+    fn at_the_time_limit_health_wins_then_kills_damage_headshots() {
+        let finish = |set: &dyn Fn(&mut Match)| {
+            let (mut m, _) = quiet_match();
+            m.remove(2);
+            m.remove(3);
+            set(&mut m);
+            m.end_now();
+            m.winner
+        };
+        assert_eq!(finish(&|m| m.f[1].hp = 60.0), Some(0), "more health");
+        assert_eq!(finish(&|m| m.f[1].kills = 1), Some(1), "level on health: more kills");
+        assert_eq!(finish(&|m| m.f[0].dmg_dealt = 30.0), Some(0), "then damage");
+        assert_eq!(finish(&|m| m.f[1].headshots = 2), Some(1), "then headshots");
+        assert_eq!(finish(&|_| {}), None, "level on everything: a draw");
     }
 
     #[test]

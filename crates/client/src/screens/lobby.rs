@@ -83,9 +83,8 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
             ui.text(head, r.x + pad + cols[k] * tw, y, 18.0, DIM);
         }
         y += ui.px(8.0);
-        // First to last: the winner, always; then whoever lasted longest (survivors first, by the
-        // health they ended on, as the win is decided at the time limit), then kills, damage dealt,
-        // headshots.
+        // First to last, as the win is decided: the winner; then survivors by the health they ended
+        // on, and those who went down by how long they lasted; then kills, damage dealt, headshots.
         let mut order: Vec<usize> = (0..res.seats.len()).collect();
         order.sort_by(|&ia, &ib| {
             let (a, b) = (&res.seats[ia], &res.seats[ib]);
