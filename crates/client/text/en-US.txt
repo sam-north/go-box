@@ -82,6 +82,8 @@ character.jake = Jake
 character.robert = Robert
 character.kyle = Kyle
 character.vid = Vid
+character.doug = Doug
+character.travis = Travis
 special.glue_gun = Glue Gun
 special.pop_up = Pop-Up
 special.hounds = Release the Hounds
@@ -93,6 +95,8 @@ special.into_the_phone = Into the Phone
 special.forked_lightning = Forked Lightning
 special.organize = Organize
 special.chosen_one = The Chosen One
+special.judo_throw = Judo Throw
+special.leg_day = Leg Day
 
 # Maps (by id)
 arena.tiers = Tiers
@@ -212,3 +216,5 @@ about.jake = Turns into light and hides inside his phone for 5 seconds; anyone c
 about.robert = Lightning forks out to every opponent in the arena at once. It hits hardest up close (30) and still stings from across the map (5).
 about.kyle = Pins every opponent right where they are, even in mid-air, for 3 seconds. They can still swing and throw, but they can't move.
 about.vid = Goes inside the opponent nearest your cursor and takes over their body for 3 seconds: you move, jump, attack and throw for them, then step back out beside them.
+about.doug = Black-belt judo: lunges forward into a grab, and whoever he gets hold of is thrown like a ragdoll. Wherever they land they slam down (12) and lie stunned for a second, getting up. A lunge that catches nobody is ready again in a second.
+about.travis = Straps on a weighted vest and bulks up for 5 seconds: every step he takes sends a shockwave along the ground that hurts anyone standing near him (4), and landing from a jump a bigger one (8). Jump to dodge it.

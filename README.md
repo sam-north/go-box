@@ -55,13 +55,15 @@ Everyone has the same body; each character adds one special on a cooldown.
 | Robert | **Forked Lightning**: a forked bolt strikes every opponent in the arena at once (no line of sight needed): 30 up close, falling off to 5 at 300px and beyond | 25s |
 | Kyle | **Organize**: pins every opponent exactly where they are (even in mid-air) for 3s, with a glow at their feet; they can still swing and throw, just not move or jump | 20s |
 | Vid | **The Chosen One**: goes inside the opponent nearest the mouse cursor (for bots, nearest him) and drives their body for 3s, while it's drawn as a silhouette of falling green code; he can't be hurt meanwhile, then steps back out beside them | 20s |
+| Doug | **Judo Throw**: lunges forward (about 40px) into a grab; the first foe he gets hold of (whatever they hold goes flying) is thrown and throws them over his shoulder like a ragdoll, spinning; wherever they land they slam down for 12 and lie stunned for 1s, getting up. A lunge that catches nobody is ready again in 1s | 7s |
+| Travis | **Leg Day**: bulks up in a weighted vest for 5s; every step (each 26px run) sends a shockwave along the ground hurting foes on the ground within 28px for 4, and landing from a jump one within 42px for 8 (each person at most every 0.4s). Jump to dodge it | 20s |
 
 Bots playing a character use its special by a simple rule (the brains never trained with
 specials), and never during the protected start: Sam fires the glue at someone ahead of him, near his level; Austin pops away from incoming projectiles, grenades
 about to blow, or a crowd when hurt; Tyler releases the hounds at someone on his level ahead; Seth splits when a foe is close; Corwin lets the cats go at someone on his level ahead; Justin
 serves a table when he has nothing to throw; Ryan throws the chain at someone level with him, in reach; Jake hides in his phone when Austin would
 pop away; Robert casts when the bolts would do 30 all told or finish someone; Kyle organizes when someone's
-within arm's reach. Tuning lives at the top of `crates/sim/src/character.rs`.
+within arm's reach; Doug lunges when someone is within a lunge ahead; Travis bulks up when someone's on his level within 90px. Tuning lives at the top of `crates/sim/src/character.rs`.
 
 **Adding a map** is a variant in `ArenaId` with its platforms (`crates/sim/src/arena.rs`) and its
 name in the text file; check the bots cope with it using `--example tournament 400 <map id>`.

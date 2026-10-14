@@ -122,6 +122,44 @@ const LIGHTNING_TICKS: u32 = 20;
 const ORGANIZE_COOLDOWN: u32 = 20 * SECOND;
 pub const PIN_TICKS: u32 = 3 * SECOND;
 
+// Doug — Judo Throw: lunges forward into a grab, and the first foe he gets hold of is thrown like
+// a ragdoll; wherever they land they slam down (taking the damage) and lie there a second,
+// getting back up.
+const JUDO_COOLDOWN: u32 = 7 * SECOND;
+/// Lunging at nobody costs only this much cooldown.
+const JUDO_WHIFF_COOLDOWN: u32 = SECOND;
+/// How far past the front of his body his hands reach (all through the lunge).
+const JUDO_REACH: f32 = 12.0;
+/// The lunge: a dash this many ticks long (about 38px), so he can grab someone up to about
+/// 50px ahead.
+const LUNGE_TICKS: u32 = 6;
+/// The throw: up and over, the way he faces (px/s).
+const JUDO_THROW: Vec2 = vec2(240.0, -230.0);
+const JUDO_DAMAGE: f32 = 12.0;
+/// Down on the ground after landing, getting up.
+pub const JUDO_DOWN: u32 = SECOND;
+/// If they somehow never land (pinned in mid-air), they count as landed after this long.
+const JUDO_MAX_FLIGHT: u32 = 3 * SECOND;
+
+// Travis — Leg Day: he bulks up in a weighted vest for a few seconds, and every step he takes
+// sends a shockwave along the ground that hurts anyone standing near him (landing from a jump,
+// a bigger one). Jump to dodge it: it only hits people on the ground.
+const BULK_COOLDOWN: u32 = 20 * SECOND;
+pub const BULK_TICKS: u32 = 5 * SECOND;
+/// A step every this many px of running.
+const STRIDE: f32 = 26.0;
+/// A step's reach along the ground (either side of him), its damage, and the same for a landing.
+pub const QUAKE_R: f32 = 28.0;
+const QUAKE_DAMAGE: f32 = 4.0;
+pub const QUAKE_BIG_R: f32 = 42.0;
+const QUAKE_BIG_DAMAGE: f32 = 8.0;
+/// How far above or below his feet someone can stand and still feel it.
+const QUAKE_LEVEL: f32 = 8.0;
+/// One person is hurt by his steps at most this often.
+const QUAKE_EVERY: u32 = SECOND * 2 / 5;
+/// How long a shockwave ripples out (for drawing).
+pub const QUAKE_TICKS: u32 = 15;
+
 crate::enum_all! {
     /// Who you play. Everyone has the same body; a character adds a special (see `def`).
     #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
@@ -140,6 +178,8 @@ crate::enum_all! {
         Robert,
         Kyle,
         Vid,
+        Doug,
+        Travis,
     }
 }
 
@@ -170,6 +210,8 @@ impl Character {
             Character::Robert => &CharacterDef { id: "robert", special: Some(&ForkedLightning) },
             Character::Kyle => &CharacterDef { id: "kyle", special: Some(&Organize) },
             Character::Vid => &CharacterDef { id: "vid", special: Some(&ChosenOne) },
+            Character::Doug => &CharacterDef { id: "doug", special: Some(&JudoThrow) },
+            Character::Travis => &CharacterDef { id: "travis", special: Some(&LegDay) },
         }
     }
 
@@ -665,6 +707,145 @@ impl Special for IntoThePhone {
     }
 }
 
+/// Where Doug can grab someone: just past the front of his body, about his height.
+fn judo_grip(f: &Fighter) -> Aabb {
+    let b = f.body();
+    let x = if f.facing > 0.0 { b.x + b.w } else { b.x - JUDO_REACH };
+    Aabb::new(x, b.y + 1.0, JUDO_REACH, b.h - 2.0)
+}
+
+/// The foe Doug would grab: the nearest one in his grip.
+fn judo_target(m: &Match, who: usize) -> Option<usize> {
+    let me = &m.f[who];
+    let grip = judo_grip(me);
+    (0..N_BODIES).filter(|&j| m.foes(who, j) && grip.overlaps(&m.f[j].body())).min_by(|&a, &b| m.f[a].pos.distance(me.pos).total_cmp(&m.f[b].pos.distance(me.pos)))
+}
+
+/// Doug gets hold of `j`: lifted up over his shoulder, then thrown the way he faces (whatever
+/// they were holding goes flying).
+fn judo_throw(m: &mut Match, who: usize, j: usize) {
+    if let Some(k) = m.held_item(j) {
+        m.items[k].held_by = None;
+        m.items[k].vel = vec2(0.0, -60.0);
+    }
+    let f = &mut m.f[who];
+    // He stops dead (if he was lunging) to throw.
+    f.dash_t = 0;
+    f.vel.x *= 0.3;
+    let (dir, me) = (f.facing, f.pos);
+    let v = &mut m.f[j];
+    v.holding = None;
+    v.atk_timer = 0;
+    v.dash_t = 0;
+    v.pos = vec2(me.x, (me.y - 6.0).max(crate::sim::WALL + v.height() + 1.0));
+    v.vel = vec2(dir * JUDO_THROW.x, JUDO_THROW.y);
+    v.grounded = false;
+    v.hitstun = 2;
+    m.effects.push(Effect::Judo(Judo { at: v.center(), owner: who, victim: j, dir, flown: 0, down: 0, ticks: JUDO_MAX_FLIGHT + JUDO_DOWN }));
+}
+
+/// Doug lunging into a grab: the first foe in his hands while it lasts is thrown.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Lunge {
+    /// His middle.
+    pub at: Vec2,
+    pub owner: usize,
+    pub ticks: u32,
+}
+
+struct JudoThrow;
+
+impl Special for JudoThrow {
+    fn id(&self) -> &'static str {
+        "judo_throw"
+    }
+    fn cooldown(&self) -> u32 {
+        JUDO_COOLDOWN
+    }
+    fn activate(&self, m: &mut Match, who: usize) {
+        // A player turns to lunge the way they aim (a bot, and a stick, the way he faces).
+        if let Some(t) = m.f[who].action.target.filter(|t| t.x.abs() > 1e-3) {
+            m.f[who].facing = t.x.signum();
+        }
+        // Someone already in his hands is thrown at once; otherwise he lunges in after them.
+        if let Some(j) = judo_target(m, who).filter(|_| !m.protected()) {
+            judo_throw(m, who, j);
+            return;
+        }
+        let f = &mut m.f[who];
+        f.dash_t = LUNGE_TICKS;
+        let (at, pos) = (f.center(), f.pos);
+        m.events.push(Event::Dash { who, pos });
+        m.effects.push(Effect::Lunge(Lunge { at, owner: who, ticks: LUNGE_TICKS + 1 }));
+    }
+    /// Someone within a lunge.
+    fn bot_wants(&self, m: &Match, who: usize) -> bool {
+        let me = &m.f[who];
+        let mut reach = judo_grip(me);
+        let lunge = crate::sim::DASH_SPEED * DT * LUNGE_TICKS as f32;
+        reach.w += lunge;
+        if me.facing < 0.0 {
+            reach.x -= lunge;
+        }
+        foes(m, who).any(|f| reach.overlaps(&f.body()))
+    }
+}
+
+/// Someone Doug threw: tumbling through the air, then down on the ground getting up.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Judo {
+    /// Their middle.
+    pub at: Vec2,
+    pub owner: usize,
+    pub victim: usize,
+    /// Which way they were thrown (1: to the right).
+    pub dir: f32,
+    /// Ticks in the air so far.
+    pub flown: u32,
+    /// Landed: ticks left lying there (0 while still in the air).
+    pub down: u32,
+    pub ticks: u32,
+}
+
+impl Judo {
+    pub fn landed(&self) -> bool {
+        self.down > 0
+    }
+}
+
+struct LegDay;
+
+impl Special for LegDay {
+    fn id(&self) -> &'static str {
+        "leg_day"
+    }
+    fn cooldown(&self) -> u32 {
+        BULK_COOLDOWN
+    }
+    fn activate(&self, m: &mut Match, who: usize) {
+        let f = &mut m.f[who];
+        f.bulked = BULK_TICKS;
+        // The first step comes quickly.
+        f.stride = STRIDE * 0.6;
+    }
+    /// Someone on his level, close enough to run at.
+    fn bot_wants(&self, m: &Match, who: usize) -> bool {
+        let me = &m.f[who];
+        me.grounded && foes(m, who).any(|f| (f.pos.y - me.pos.y).abs() < 10.0 && (f.pos.x - me.pos.x).abs() < 90.0)
+    }
+}
+
+/// One of Travis's steps rippling out along the ground (for drawing; the damage is done the
+/// moment he steps).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Quake {
+    /// At his feet.
+    pub at: Vec2,
+    pub owner: usize,
+    pub radius: f32,
+    pub ticks: u32,
+}
+
 /// Ryan's chain: flying out, reeling back after a miss, or hauling in whoever it hooked.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Chain {
@@ -978,6 +1159,9 @@ impl Match {
                 Effect::Fire(f) => self.step_fire(f),
                 Effect::Plane(p) => self.step_plane(p),
                 Effect::AirBomb(b) => self.step_air_bomb(b),
+                Effect::Judo(j) => self.step_judo(j),
+                Effect::Lunge(l) => self.step_lunge(l),
+                Effect::Quake(q) => q.ticks = q.ticks.saturating_sub(1),
             }
             self.effects[e] = effect;
         }
@@ -1087,6 +1271,114 @@ impl Match {
                     c.back = true;
                 }
             }
+        }
+    }
+
+    /// Doug mid-lunge: grabs (and throws) the first foe he reaches. Reaching nobody, or knocked
+    /// out of it, the lunge was a miss and he's soon ready to try again.
+    fn step_lunge(&mut self, l: &mut Lunge) {
+        let who = l.owner;
+        l.ticks = l.ticks.saturating_sub(1);
+        l.at = self.f[who].center();
+        let f = &self.f[who];
+        if !f.present() || f.hitstun > 0 {
+            l.ticks = 0;
+        } else if let Some(j) = judo_target(self, who).filter(|_| !self.protected()) {
+            judo_throw(self, who, j);
+            l.ticks = 0;
+            return;
+        }
+        if l.ticks == 0 {
+            let f = &mut self.f[who];
+            f.special_cd = f.special_cd.min(JUDO_WHIFF_COOLDOWN);
+        }
+    }
+
+    /// Someone Doug threw: helpless in the air until they come down on something; then they slam
+    /// down (that's the damage) and lie there, stunned, getting back up.
+    fn step_judo(&mut self, judo: &mut Judo) {
+        judo.ticks = judo.ticks.saturating_sub(1);
+        let j = judo.victim;
+        if !self.f[j].present() {
+            judo.ticks = 0;
+            return;
+        }
+        if !judo.landed() {
+            judo.flown += 1;
+            let f = &mut self.f[j];
+            f.hitstun = f.hitstun.max(2);
+            if (f.grounded && judo.flown > 2) || judo.flown >= JUDO_MAX_FLIGHT {
+                judo.down = JUDO_DOWN;
+                judo.ticks = JUDO_DOWN;
+                let pos = f.center();
+                self.events.push(Event::Slam { pos });
+                self.damage(judo.owner, j, JUDO_DAMAGE, Vec2::ZERO, JUDO_DOWN, judo.dir, Source::Special, false);
+            }
+        } else {
+            judo.down -= 1;
+            let f = &mut self.f[j];
+            // Stuck where they landed, whatever they press (a hit can still knock them about).
+            f.hitstun = f.hitstun.max(judo.down);
+            if f.grounded {
+                f.vel.x = 0.0;
+            }
+            if judo.down == 0 {
+                judo.ticks = 0;
+            }
+        }
+        judo.at = self.f[j].center();
+    }
+
+    /// Travis bulked up: counts down, and each step he takes (every so far run along the ground,
+    /// and every landing) sends out a shockwave. Everyone's shaken cooldown counts down too.
+    pub(crate) fn step_bulk(&mut self, landed: [bool; N_BODIES]) {
+        for f in self.f.iter_mut() {
+            f.shaken = f.shaken.saturating_sub(1);
+        }
+        for i in 0..N_FIGHTERS {
+            let f = &mut self.f[i];
+            if f.bulked == 0 {
+                continue;
+            }
+            f.bulked = if f.present() { f.bulked - 1 } else { 0 };
+            if !f.present() {
+                continue;
+            }
+            let big = landed[i];
+            let mut step = big;
+            if f.grounded && !big {
+                f.stride += f.vel.x.abs() * DT;
+                if f.stride >= STRIDE {
+                    f.stride -= STRIDE;
+                    step = true;
+                }
+            }
+            if big {
+                f.stride = 0.0;
+            }
+            if step {
+                self.quake(i, big);
+            }
+        }
+    }
+
+    /// One of Travis's steps: everyone on the ground near his feet, on his level, is hurt and
+    /// bounced up a little (not more than once in a short while).
+    fn quake(&mut self, who: usize, big: bool) {
+        let (radius, dmg) = if big { (QUAKE_BIG_R, QUAKE_BIG_DAMAGE) } else { (QUAKE_R, QUAKE_DAMAGE) };
+        let at = self.f[who].pos;
+        self.events.push(Event::Quake { pos: at, big });
+        self.effects.push(Effect::Quake(Quake { at, owner: who, radius, ticks: QUAKE_TICKS }));
+        for j in 0..N_BODIES {
+            let f = &self.f[j];
+            let d = f.pos - at;
+            if !self.foes(who, j) || !f.grounded || f.shaken > 0 || d.x.abs() > radius || d.y.abs() > QUAKE_LEVEL {
+                continue;
+            }
+            self.f[j].shaken = QUAKE_EVERY;
+            let dir = if d.x < 0.0 { -1.0 } else { 1.0 };
+            let pop = if big { vec2(dir * 110.0, -170.0) } else { vec2(dir * 60.0, -110.0) };
+            self.damage(who, j, dmg, pop, if big { 10 } else { 6 }, dir, Source::Special, false);
         }
     }
 
@@ -1285,6 +1577,12 @@ pub enum Effect {
     /// An air strike's jet, and a bomb it dropped.
     Plane(Plane),
     AirBomb(AirBomb),
+    /// Someone Doug threw, in the air or down on the ground.
+    Judo(Judo),
+    /// Doug lunging into a grab.
+    Lunge(Lunge),
+    /// One of Travis's steps shaking the ground.
+    Quake(Quake),
 }
 
 impl Effect {
@@ -1301,6 +1599,9 @@ impl Effect {
             Effect::Fire(f) => f.owner,
             Effect::Plane(p) => p.owner,
             Effect::AirBomb(b) => b.owner,
+            Effect::Judo(j) => j.owner,
+            Effect::Lunge(l) => l.owner,
+            Effect::Quake(q) => q.owner,
         }
     }
 
@@ -1317,6 +1618,9 @@ impl Effect {
             Effect::Fire(f) => Some(f.at),
             Effect::Plane(_) => None,
             Effect::AirBomb(b) => Some(b.pos),
+            Effect::Judo(_) => None,
+            Effect::Lunge(_) => None,
+            Effect::Quake(_) => None,
         }
     }
 
@@ -1333,6 +1637,9 @@ impl Effect {
             Effect::Fire(f) => f.at,
             Effect::Plane(p) => p.pos,
             Effect::AirBomb(b) => b.pos,
+            Effect::Judo(j) => j.at,
+            Effect::Lunge(l) => l.at,
+            Effect::Quake(q) => q.at,
         }
     }
 
@@ -1349,6 +1656,9 @@ impl Effect {
             Effect::Fire(f) => &mut f.at,
             Effect::Plane(p) => &mut p.pos,
             Effect::AirBomb(b) => &mut b.pos,
+            Effect::Judo(j) => &mut j.at,
+            Effect::Lunge(l) => &mut l.at,
+            Effect::Quake(q) => &mut q.at,
         }
     }
 
@@ -1364,6 +1674,9 @@ impl Effect {
             Effect::Fire(f) => f.ticks == 0,
             Effect::Plane(p) => p.ticks == 0,
             Effect::AirBomb(b) => b.ticks == 0,
+            Effect::Judo(j) => j.ticks == 0,
+            Effect::Lunge(l) => l.ticks == 0,
+            Effect::Quake(q) => q.ticks == 0,
         }
     }
 }
@@ -2030,6 +2343,139 @@ mod tests {
             }
             assert!(up, "{who:?}'s pets never got up onto a ledge");
         }
+    }
+
+    #[test]
+    fn doug_throws_whoever_is_in_front_and_they_lie_stunned_where_they_land() {
+        let z = zero_brain();
+        let mut m = staged([Character::Doug, Character::Classic, Character::Classic, Character::Classic], [100.0, 110.0, 300.0, 400.0]);
+        m.f[0].facing = 1.0;
+        step_idle(&mut m, &z, true);
+        assert_eq!(m.f[0].special_cd, JUDO_COOLDOWN, "a real throw: full cooldown");
+        assert!(m.f[1].vel.y < 0.0 && m.f[1].vel.x > 0.0, "thrown up and forward: {:?}", m.f[1].vel);
+        // Helpless in the air; once down they're stuck where they landed, whatever they press.
+        let run = Action { mv: 1.0, run: true, jump: true, ..Action::default() };
+        let mut slam_at = None;
+        for t in 0..JUDO_MAX_FLIGHT {
+            m.step_with([&z; N_FIGHTERS], Some((1, run)));
+            if m.events.iter().any(|e| matches!(e, Event::Slam { .. })) {
+                slam_at = Some(t);
+                break;
+            }
+        }
+        assert!(slam_at.is_some(), "came down");
+        let landed = m.f[1].pos.x;
+        assert!(landed > 160.0, "thrown a good way: landed at x {landed}");
+        assert_eq!(m.f[1].hp, MAX_HP - JUDO_DAMAGE, "the slam hurts");
+        for _ in 0..JUDO_DOWN - 2 {
+            m.step_with([&z; N_FIGHTERS], Some((1, run)));
+        }
+        assert!((m.f[1].pos.x - landed).abs() < 1.0, "still down where they landed: {}", m.f[1].pos.x);
+        for _ in 0..30 {
+            m.step_with([&z; N_FIGHTERS], Some((1, run)));
+        }
+        assert!(m.f[1].pos.x > landed + 10.0, "up and running again");
+        assert!(m.effects.iter().all(|e| !matches!(e, Effect::Judo(_))));
+        assert_eq!(m.f[0].hp, MAX_HP);
+    }
+
+    #[test]
+    fn doug_lunging_at_nobody_is_soon_ready_again() {
+        let z = zero_brain();
+        let mut m = staged([Character::Doug, Character::Classic, Character::Classic, Character::Classic], [100.0, 200.0, 300.0, 400.0]);
+        m.f[0].facing = 1.0;
+        step_idle(&mut m, &z, true);
+        for _ in 0..LUNGE_TICKS + 2 {
+            step_idle(&mut m, &z, false);
+        }
+        assert!(m.f[0].pos.x > 130.0, "lunged forward: {}", m.f[0].pos.x);
+        assert!(m.f[0].special_cd <= JUDO_WHIFF_COOLDOWN && m.f[0].special_cd > 0);
+        assert!(m.effects.is_empty() && m.f[1].vel == Vec2::ZERO);
+    }
+
+    #[test]
+    fn doug_lunges_into_a_grab_on_someone_a_little_way_off() {
+        let z = zero_brain();
+        let mut m = staged([Character::Doug, Character::Classic, Character::Classic, Character::Classic], [100.0, 145.0, 300.0, 400.0]);
+        m.f[0].facing = 1.0;
+        let wants = JudoThrow.bot_wants(&m, 0);
+        assert!(wants, "a bot sees them in lunging range");
+        step_idle(&mut m, &z, true);
+        let mut thrown = false;
+        for _ in 0..LUNGE_TICKS + 2 {
+            step_idle(&mut m, &z, false);
+            thrown |= m.effects.iter().any(|e| matches!(e, Effect::Judo(j) if j.victim == 1));
+        }
+        assert!(thrown, "grabbed and thrown");
+        assert_eq!(m.f[0].special_cd > JUDO_WHIFF_COOLDOWN, true, "a real throw: full cooldown");
+        assert!(m.f[0].pos.x < 140.0, "stopped to throw: {}", m.f[0].pos.x);
+    }
+
+    #[test]
+    fn travis_steps_shake_those_on_the_ground_near_him() {
+        let z = zero_brain();
+        let mut m = staged([Character::Travis, Character::Classic, Character::Classic, Character::Classic], [100.0, 140.0, 300.0, 440.0]);
+        m.f[2].pos.y = 150.0;
+        m.f[2].grounded = false;
+        m.f[0].facing = 1.0;
+        step_idle(&mut m, &z, true);
+        assert_eq!(m.f[0].bulked, BULK_TICKS);
+        // Standing still: no steps, nothing shakes.
+        for _ in 0..20 {
+            step_idle(&mut m, &z, false);
+        }
+        assert_eq!(m.f[1].hp, MAX_HP);
+        // Running at the fighter at 140: every step he's near enough hurts them.
+        let run = Action { mv: 1.0, run: true, ..Action::default() };
+        let mut quakes = 0;
+        for _ in 0..SECOND {
+            m.step_with([&z; N_FIGHTERS], Some((0, run)));
+            quakes += m.events.iter().filter(|e| matches!(e, Event::Quake { .. })).count();
+        }
+        assert!(quakes >= 3, "a shockwave each step: {quakes}");
+        assert!(m.f[1].hp < MAX_HP, "the one he ran at was shaken");
+        assert!(m.f[1].hp >= MAX_HP - QUAKE_DAMAGE * 3.0, "but not too often: {}", m.f[1].hp);
+        assert_eq!(m.f[3].hp, MAX_HP, "nobody far away");
+        assert_eq!(m.f[0].hp, MAX_HP);
+        // It wears off.
+        for _ in 0..BULK_TICKS {
+            step_idle(&mut m, &z, false);
+        }
+        assert_eq!(m.f[0].bulked, 0);
+        let hp = m.f[1].hp;
+        m.f[0].pos.x = m.f[1].pos.x - 30.0;
+        for _ in 0..30 {
+            m.step_with([&z; N_FIGHTERS], Some((0, run)));
+            assert!(!m.events.iter().any(|e| matches!(e, Event::Quake { .. })));
+        }
+        assert_eq!(m.f[1].hp, hp - 0.0, "no more quakes");
+    }
+
+    #[test]
+    fn travis_landing_makes_a_big_quake_that_a_jump_dodges() {
+        let z = zero_brain();
+        let mut m = staged([Character::Travis, Character::Classic, Character::Classic, Character::Classic], [200.0, 230.0, 170.0, 440.0]);
+        step_idle(&mut m, &z, true);
+        // Travis hops; the fighter at 170 is up in the air when he comes down.
+        m.step_with([&z; N_FIGHTERS], Some((0, Action { jump: true, ..Action::default() })));
+        let mut big = false;
+        let mut lifted = false;
+        for _ in 0..SECOND {
+            if m.f[0].vel.y > 0.0 && !lifted {
+                lifted = true;
+                m.f[2].pos.y -= 40.0;
+                m.f[2].grounded = false;
+            }
+            step_idle(&mut m, &z, false);
+            big |= m.events.iter().any(|e| matches!(e, Event::Quake { big: true, .. }));
+            if big {
+                break;
+            }
+        }
+        assert!(!m.f[2].grounded);
+        assert!(big, "landing shook the ground");
+        assert_eq!(m.f[1].hp, MAX_HP - QUAKE_BIG_DAMAGE, "the one standing next to him was hurt");
+        assert_eq!(m.f[2].hp, MAX_HP, "the one in the air wasn't");
     }
 
     #[test]

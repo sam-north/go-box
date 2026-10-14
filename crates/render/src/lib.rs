@@ -67,6 +67,18 @@ const GLUE: Color = Color::new(0.96, 0.93, 0.78, 1.0);
 const SMOKE: Color = Color::new(0.75, 0.74, 0.70, 0.8);
 /// The protected-start shield.
 const SHIELD: Color = Color::new(0.55, 0.85, 1.0, 1.0);
+/// Travis's weighted vest, its strap and a pouch; Doug's black belt.
+const VEST: Color = Color::new(0.16, 0.17, 0.15, 1.0);
+const VEST_STRAP: Color = Color::new(0.48, 0.42, 0.30, 1.0);
+const VEST_POUCH: Color = Color::new(0.26, 0.28, 0.22, 1.0);
+const BELT: Color = Color::new(0.06, 0.06, 0.07, 1.0);
+/// Dust kicked up by Travis's steps (and a landing from Doug's throw).
+const DUST: Color = Color::new(0.62, 0.56, 0.46, 0.85);
+/// Travis's quake rings: moss green and earth brown.
+const QUAKE_MOSS: Color = Color::new(0.52, 0.68, 0.30, 1.0);
+const QUAKE_EARTH: Color = Color::new(0.62, 0.46, 0.26, 1.0);
+/// How fast someone Doug threw spins in the air (radians a tick).
+const TUMBLE_SPIN: f32 = 0.24;
 /// The full-size picture a mini is drawn into (pixels), and how far down it its feet sit (0..1).
 const MINI_SPRITE: (u32, u32) = (40, 48);
 const MINI_FEET: f32 = 38.0 / 48.0;
@@ -90,6 +102,8 @@ pub struct Look {
     pub glasses: bool,
     /// A long goatee hanging off the chin (Vid).
     pub goatee: bool,
+    pub stubble: Option<Color>,
+    pub belt: bool,
 }
 
 /// How hair is cut (drawn over a bare head).
@@ -105,6 +119,8 @@ pub enum HairStyle {
     Emo,
     /// Shaved to stubble (Robert).
     Shaved,
+    /// Clipped very short, close to the head all round (Doug).
+    Buzz,
     /// Wild and swept back, thin on top (Vid).
     Wild,
 }
@@ -125,14 +141,18 @@ pub struct CharacterArt {
     pub glasses: bool,
     /// A long goatee hanging off the chin (Vid).
     pub goatee: bool,
+    /// A shadow of short beard along the jaw, in this colour (blended into the skin).
+    pub stubble: Option<Color>,
+    /// A black belt round the waist (Doug's judo gi).
+    pub belt: bool,
     /// Played when it uses its special (None: the special's own effects make the sound).
     pub special_sound: Option<Sfx>,
 }
 
 pub fn art(c: Character) -> &'static CharacterArt {
     match c {
-        Character::Classic => &CharacterArt { color: None, body: CLOAK, legs: [HOOD, CLOAK], arms: HOOD, hair: None, headband: false, skin: SKIN, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false, special_sound: None },
-        // Brown hair, green-grey jacket; forest green.
+        Character::Classic => &CharacterArt { color: None, body: CLOAK, legs: [HOOD, CLOAK], arms: HOOD, hair: None, headband: false, skin: SKIN, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false, stubble: None, belt: false, special_sound: None },
+        // Brown hair and stubble, green-grey jacket; forest green.
         Character::Sam => {
             const ART: CharacterArt = CharacterArt {
                 color: Some(Color::new(0.16, 0.50, 0.24, 1.0)),
@@ -146,11 +166,13 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 beard: false,
                 glasses: false,
                 goatee: false,
+                stubble: Some(rgb(96, 62, 36)),
+                belt: false,
                 special_sound: Some(Sfx::GlueShot),
             };
             &ART
         }
-        // Reddish-brown hair, work jacket; gold. (The pop-up's poof is its sound.)
+        // Reddish-brown hair and stubble, work jacket; gold. (The pop-up's poof is its sound.)
         Character::Austin => {
             const ART: CharacterArt = CharacterArt {
                 color: Some(Color::new(0.93, 0.72, 0.18, 1.0)),
@@ -164,6 +186,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 beard: false,
                 glasses: false,
                 goatee: false,
+                stubble: Some(rgb(122, 60, 36)),
+                belt: false,
                 special_sound: None,
             };
             &ART
@@ -182,24 +206,28 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 beard: false,
                 glasses: false,
                 goatee: false,
+                stubble: None,
+                belt: false,
                 special_sound: Some(Sfx::Hounds),
             };
             &ART
         }
-        // Near-black hair, charcoal hoodie; teal. (His minis are drawn from the same look.)
+        // Dark chestnut hair (between brown and red) and stubble, charcoal hoodie; teal. (His minis are drawn from the same look.)
         Character::Seth => {
             const ART: CharacterArt = CharacterArt {
                 color: Some(Color::new(0.20, 0.78, 0.85, 1.0)),
                 body: rgb(58, 60, 66),
                 legs: [rgb(30, 32, 38), rgb(42, 44, 52)],
                 arms: rgb(50, 52, 58),
-                hair: Some(rgb(34, 28, 24)),
+                hair: Some(rgb(84, 48, 34)),
                 headband: false,
                 skin: SKIN,
                 hair_style: HairStyle::Short,
                 beard: false,
                 glasses: false,
                 goatee: false,
+                stubble: Some(rgb(84, 48, 34)),
+                belt: false,
                 special_sound: Some(Sfx::Split),
             };
             &ART
@@ -218,6 +246,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 beard: true,
                 glasses: false,
                 goatee: false,
+                stubble: None,
+                belt: false,
                 special_sound: Some(Sfx::Meow),
             };
             &ART
@@ -236,6 +266,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 beard: false,
                 glasses: false,
                 goatee: false,
+                stubble: None,
+                belt: false,
                 special_sound: Some(Sfx::Serve),
             };
             &ART
@@ -254,11 +286,13 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 beard: false,
                 glasses: true,
                 goatee: false,
+                stubble: None,
+                belt: false,
                 special_sound: Some(Sfx::ChainThrow),
             };
             &ART
         }
-        // Shaved head, a dark work jacket; electric blue.
+        // Shaved head and stubble, a dark work jacket; electric blue.
         Character::Robert => {
             const ART: CharacterArt = CharacterArt {
                 color: Some(Color::new(0.38, 0.62, 1.0, 1.0)),
@@ -272,11 +306,13 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 beard: false,
                 glasses: false,
                 goatee: false,
+                stubble: Some(rgb(104, 84, 68)),
+                belt: false,
                 special_sound: Some(Sfx::Thunder),
             };
             &ART
         }
-        // Dirty-blonde hair, a tidy polo; mint.
+        // Dirty-blonde hair and stubble, a tidy polo; mint.
         Character::Kyle => {
             const ART: CharacterArt = CharacterArt {
                 color: Some(Color::new(0.45, 0.95, 0.70, 1.0)),
@@ -290,6 +326,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 beard: false,
                 glasses: false,
                 goatee: false,
+                stubble: Some(rgb(150, 116, 70)),
+                belt: false,
                 special_sound: Some(Sfx::Organize),
             };
             &ART
@@ -308,6 +346,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 beard: false,
                 glasses: false,
                 goatee: true,
+                stubble: None,
+                belt: false,
                 special_sound: None,
             };
             &ART
@@ -326,7 +366,50 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 beard: false,
                 glasses: false,
                 goatee: false,
+                stubble: None,
+                belt: false,
                 special_sound: None,
+            };
+            &ART
+        }
+        // Very short blackish-brown hair and stubble, a white judo gi with a black belt; ivory.
+        Character::Doug => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(0.95, 0.92, 0.80, 1.0)),
+                body: rgb(226, 224, 214),
+                legs: [rgb(198, 196, 186), rgb(214, 212, 202)],
+                arms: rgb(210, 208, 198),
+                hair: Some(rgb(38, 30, 26)),
+                headband: false,
+                skin: SKIN,
+                hair_style: HairStyle::Buzz,
+                beard: false,
+                glasses: false,
+                goatee: false,
+                stubble: Some(rgb(44, 34, 28)),
+                belt: true,
+                special_sound: Some(Sfx::JudoGrab),
+            };
+            &ART
+        }
+        // Short brown hair, a grey gym tank (bare arms) and joggers; magenta. Bulked up, he wears
+        // a weighted vest over it.
+        Character::Travis => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(0.90, 0.26, 0.92, 1.0)),
+                body: rgb(128, 128, 134),
+                legs: [rgb(28, 28, 32), rgb(40, 40, 46)],
+                arms: SKIN,
+                hair: Some(rgb(104, 70, 42)),
+                headband: false,
+                skin: SKIN,
+                hair_style: HairStyle::Short,
+                beard: false,
+                glasses: false,
+                goatee: false,
+                stubble: None,
+                belt: false,
+                special_sound: Some(Sfx::Flex),
             };
             &ART
         }
@@ -341,7 +424,7 @@ pub fn character_color(c: Character) -> Color {
 
 pub fn look(c: Character, seat: usize) -> Look {
     let a = art(c);
-    Look { body: a.body, legs: a.legs, arms: a.arms, hair: a.hair, accent: a.color.unwrap_or(ACCENTS[seat]), headband: a.headband, skin: a.skin, hair_style: a.hair_style, beard: a.beard, glasses: a.glasses, goatee: a.goatee }
+    Look { body: a.body, legs: a.legs, arms: a.arms, hair: a.hair, accent: a.color.unwrap_or(ACCENTS[seat]), headband: a.headband, skin: a.skin, hair_style: a.hair_style, beard: a.beard, glasses: a.glasses, goatee: a.goatee, stubble: a.stubble, belt: a.belt }
 }
 
 const fn rgb(r: u8, g: u8, b: u8) -> Color {
@@ -576,6 +659,8 @@ pub struct Art {
     /// Seth's minis are drawn full size into these, then shrunk onto the arena (drawing them
     /// straight at a smaller size would lose their 1px limbs).
     minis: Vec<RenderTarget>,
+    /// Someone Doug threw is drawn into one of these (one per seat), then turned as they tumble.
+    tumblers: Vec<RenderTarget>,
     /// Recent explosions (position, seconds since) for the flash.
     blasts: Vec<(Vec2, f32, f32)>,
     /// Jake's hologram beams and Vid's code: (middle, seconds since, coming out?, Vid's code?).
@@ -614,6 +699,13 @@ impl Art {
                 .map(|_| {
                     let t = render_target(MINI_SPRITE.0, MINI_SPRITE.1);
                     t.texture.set_filter(FilterMode::Linear);
+                    t
+                })
+                .collect(),
+            tumblers: (0..N_FIGHTERS)
+                .map(|_| {
+                    let t = render_target(MINI_SPRITE.0, MINI_SPRITE.1);
+                    t.texture.set_filter(FilterMode::Nearest);
                     t
                 })
                 .collect(),
@@ -727,6 +819,18 @@ impl Art {
                     self.holos.push((pos, 0.0, out, false));
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 18, HOLO, false, 40.0, 0.5, -20.0);
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 8, HOLO_PINK, false, 30.0, 0.4, -20.0);
+                }
+                Event::Slam { pos } => {
+                    self.burst(pos + vec2(0.0, 5.0), vec2(-1.0, -0.4).normalize(), 0.7, 8, DUST, false, 60.0, 0.4, 150.0);
+                    self.burst(pos + vec2(0.0, 5.0), vec2(1.0, -0.4).normalize(), 0.7, 8, DUST, false, 60.0, 0.4, 150.0);
+                }
+                Event::Quake { pos, big } => {
+                    // Dust thrown out both ways along the ground, and grit kicked up.
+                    let n = if big { 14 } else { 6 };
+                    for side in [-1.0, 1.0] {
+                        self.burst(pos + vec2(side * 2.0, -1.0), vec2(side, -0.35).normalize(), 0.6, n, DUST, false, if big { 110.0 } else { 70.0 }, 0.4, 200.0);
+                    }
+                    self.burst(pos + vec2(0.0, -1.0), vec2(0.0, -1.0), 1.2, n / 2, Color::new(0.40, 0.36, 0.30, 1.0), false, if big { 110.0 } else { 60.0 }, 0.5, 420.0);
                 }
                 Event::Zap { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 10, BOLT, false, 90.0, 0.2, 0.0);
@@ -842,28 +946,60 @@ impl Art {
         }
     }
 
-    /// Draws each of Seth's minis full size into its own picture, for `draw` to shrink onto the
-    /// arena. Call before setting the arena camera (it sets its own).
-    pub fn draw_minis(&self, m: &Match) {
-        for (k, f) in m.f[N_FIGHTERS..].iter().enumerate() {
+    /// Draws each of Seth's minis, and anyone Doug has thrown, full size into its own picture, for
+    /// `draw` to shrink (a mini) or turn (a tumbling body) onto the arena. Call before setting the
+    /// arena camera (it sets its own).
+    pub fn draw_sprites(&self, m: &Match) {
+        for (i, f) in m.f.iter().enumerate() {
+            let target = if i >= N_FIGHTERS {
+                &self.minis[i - N_FIGHTERS]
+            } else if tumble(m, i).is_some() {
+                &self.tumblers[i]
+            } else {
+                continue;
+            };
             if f.absent {
                 continue;
             }
             let (w, h) = (MINI_SPRITE.0 as f32, MINI_SPRITE.1 as f32);
             let mut cam = Camera2D { target: vec2(0.0, h * (0.5 - MINI_FEET)), zoom: vec2(2.0 / w, 2.0 / h), ..Default::default() };
-            cam.render_target = Some(self.minis[k].clone());
+            cam.render_target = Some(target.clone());
             set_camera(&cam);
             clear_background(Color::new(0.0, 0.0, 0.0, 0.0));
             // The same fighter at full size, standing on the picture's origin.
             let mut big = f.clone();
             big.pos = Vec2::ZERO;
             big.scale = 1.0;
-            let mut v = self.vis[N_FIGHTERS + k].clone();
+            let mut v = self.vis[i].clone();
             for p in v.scarf.iter_mut() {
                 *p -= f.pos;
             }
-            let flash = f.hitstun > 0 && (f.hitstun / 2) % 2 == 0;
-            draw_human(&v, &big, &look(f.character, f.team(N_FIGHTERS + k)), flash);
+            // (Not flashing all the while they're down: that's a long stun.)
+            let flash = f.hitstun > 0 && (f.hitstun / 2) % 2 == 0 && tumble(m, i).is_none();
+            draw_human(&v, &big, &look(f.character, f.team(i)), flash);
+        }
+    }
+
+    /// A body drawn into its own picture (a mini, or someone Doug threw), placed on the arena at
+    /// its size and turned as it tumbles.
+    fn draw_sprite(&self, m: &Match, i: usize) {
+        let f = &m.f[i];
+        let tex = if i >= N_FIGHTERS { &self.minis[i - N_FIGHTERS].texture } else { &self.tumblers[i].texture };
+        let (w, h) = (MINI_SPRITE.0 as f32 * f.scale, MINI_SPRITE.1 as f32 * f.scale);
+        let (angle, drop) = tumble(m, i).unwrap_or((0.0, 0.0));
+        let at = vec2(f.pos.x - w / 2.0, f.pos.y - h * MINI_FEET + drop * f.scale);
+        let pivot = f.center() + vec2(0.0, drop * f.scale);
+        let params = DrawTextureParams { dest_size: Some(vec2(w, h)), rotation: angle, pivot: Some(pivot), ..Default::default() };
+        draw_texture_ex(tex, at.x, at.y, WHITE, params);
+        // Down after a throw: stars going round their head.
+        if let Some(j) = judo_of(m, i).filter(|j| j.landed()) {
+            let head = pivot + vec2(angle.sin(), -angle.cos()) * 7.0 * f.scale;
+            for k in 0..3 {
+                let a = self.time * 7.0 + k as f32 * std::f32::consts::TAU / 3.0;
+                let p = head + vec2(a.cos() * 3.5, a.sin() * 1.2 - 2.0);
+                let fade = (j.down as f32 / 10.0).min(1.0);
+                draw_rectangle(p.x.round(), p.y.round(), 1.0, 1.0, Color::new(1.0, 0.92, 0.45, fade));
+            }
         }
     }
 
@@ -902,6 +1038,10 @@ impl Art {
                 Effect::Fire(fire) => draw_fire(fire, self.time),
                 Effect::Plane(p) => draw_plane(p, self.time),
                 Effect::AirBomb(b) => draw_air_bomb(b),
+                // (Drawn as the thrown fighter tumbling.)
+                Effect::Judo(_) => {}
+                Effect::Lunge(_) => {}
+                Effect::Quake(q) => draw_quake(q, self.time),
             }
         }
         // Loose and flying items (held spears and swords are drawn with their holder).
@@ -937,6 +1077,9 @@ impl Art {
                     draw_rectangle(x.round(), (f.pos.y - h).round(), 1.0, h.round(), Color::new(PIN.r, PIN.g, PIN.b, 0.75 * fade));
                 }
             }
+            if f.bulked > 0 && f.grounded {
+                draw_bulk_reach(f, self.time);
+            }
             if f.haste > 0 && f.vel.x.abs() > 60.0 {
                 let a = look(f.character, 0).accent;
                 let back = -f.vel.x.signum();
@@ -953,11 +1096,10 @@ impl Art {
         order.sort_by_key(|&i| m.f[i].alive());
         for i in order {
             let f = &m.f[i];
-            if i >= N_FIGHTERS {
-                // A mini: its full-size picture (from `update`), shrunk to its size.
-                let (w, h) = (MINI_SPRITE.0 as f32 * f.scale, MINI_SPRITE.1 as f32 * f.scale);
-                let params = DrawTextureParams { dest_size: Some(vec2(w, h)), ..Default::default() };
-                draw_texture_ex(&self.minis[i - N_FIGHTERS].texture, f.pos.x - w / 2.0, f.pos.y - h * MINI_FEET, WHITE, params);
+            // A mini (shrunk to its size) or someone tumbling from Doug's throw: their own picture
+            // (from `draw_sprites`).
+            if i >= N_FIGHTERS || tumble(m, i).is_some() {
+                self.draw_sprite(m, i);
                 continue;
             }
             let flash = f.hitstun > 0 && (f.hitstun / 2) % 2 == 0;
@@ -1146,6 +1288,64 @@ fn draw_item(it: &Item, time: f32) {
     }
 }
 
+/// The throw fighter `i` is in the middle of, if Doug has thrown them.
+fn judo_of(m: &Match, i: usize) -> Option<&Judo> {
+    m.effects.iter().find_map(|e| match e {
+        Effect::Judo(j) if j.victim == i => Some(j),
+        _ => None,
+    })
+}
+
+/// Someone Doug threw: how far they're turned (radians, clockwise) and how far down to draw them
+/// (lying flat, so they're on the ground and not floating at waist height). Spinning in the air;
+/// landed, flat on their back, then getting up over the last part.
+fn tumble(m: &Match, i: usize) -> Option<(f32, f32)> {
+    let j = judo_of(m, i)?;
+    if !m.f[i].alive() {
+        return None;
+    }
+    let angle = if j.landed() {
+        let lying = (j.down as f32 / (JUDO_DOWN as f32 * 0.4)).min(1.0);
+        j.dir * std::f32::consts::FRAC_PI_2 * lying
+    } else {
+        j.dir * j.flown as f32 * TUMBLE_SPIN
+    };
+    Some((angle, if j.landed() { 5.0 * angle.sin().abs() } else { 0.0 }))
+}
+
+/// One of Travis's steps: like Kyle's pin glow but softer and in earth colours, a flat ring
+/// on the ground that runs out from his feet to exactly how far the step reaches, with tufts of
+/// moss and grit thrown up around its edge.
+fn draw_quake(q: &Quake, time: f32) {
+    let t = 1.0 - q.ticks as f32 / QUAKE_TICKS as f32;
+    let fade = 1.0 - t * t;
+    let (x, y) = (q.at.x, q.at.y - 0.5);
+    let reach = q.radius * (0.35 + 0.65 * t.sqrt());
+    let tall = 2.5 + q.radius * 0.05;
+    draw_ellipse(x, y, reach, tall, 0.0, Color::new(QUAKE_MOSS.r, QUAKE_MOSS.g, QUAKE_MOSS.b, 0.16 * fade));
+    draw_ellipse_lines(x, y, reach, tall, 0.0, 1.0, Color::new(QUAKE_MOSS.r, QUAKE_MOSS.g, QUAKE_MOSS.b, 0.75 * fade));
+    draw_ellipse_lines(x, y, reach * 0.7, tall * 0.7, 0.0, 1.0, Color::new(QUAKE_EARTH.r, QUAKE_EARTH.g, QUAKE_EARTH.b, 0.55 * fade));
+    // Tufts thrown up at the edge of the ring, both ways.
+    for side in [-1.0, 1.0] {
+        for k in 0..2 {
+            let d = reach - k as f32 * 4.0;
+            let h = (1.0 + 2.0 * fade * ((time * 9.0 + k as f32 * 1.7 + side).sin() * 0.5 + 0.5)).round();
+            let c = if k == 0 { QUAKE_MOSS } else { QUAKE_EARTH };
+            draw_rectangle((x + side * d).round(), (q.at.y - h).round(), 1.0, h, Color::new(c.r, c.g, c.b, 0.8 * fade));
+        }
+    }
+}
+
+/// Travis bulked up: a faint ring on the ground showing how far each step reaches.
+fn draw_bulk_reach(f: &Fighter, time: f32) {
+    let pulse = 0.5 + 0.5 * (time * 4.0).sin();
+    let fade = (f.bulked as f32 / 20.0).min(1.0);
+    let (x, y) = (f.pos.x, f.pos.y - 0.5);
+    let tall = 2.5 + QUAKE_R * 0.05;
+    draw_ellipse(x, y, QUAKE_R, tall, 0.0, Color::new(QUAKE_MOSS.r, QUAKE_MOSS.g, QUAKE_MOSS.b, (0.05 + 0.03 * pulse) * fade));
+    draw_ellipse_lines(x, y, QUAKE_R, tall, 0.0, 1.0, Color::new(QUAKE_EARTH.r, QUAKE_EARTH.g, QUAKE_EARTH.b, (0.22 + 0.12 * pulse) * fade));
+}
+
 fn init_vis(v: &mut FighterVis, f: &Fighter) {
     v.init = true;
     v.since_throw = 10.0;
@@ -1189,6 +1389,11 @@ fn line(a: Vec2, b: Vec2, t: f32, c: Color) {
     draw_line(a.x, a.y, b.x, b.y, t, c);
 }
 
+/// `a`, `t` of the way to `b`.
+fn mix(a: Color, b: Color, t: f32) -> Color {
+    Color::new(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, a.a + (b.a - a.a) * t)
+}
+
 fn tint(c: Color, flash: bool) -> Color {
     if flash { Color::new(1.0, 0.95, 0.9, c.a) } else { c }
 }
@@ -1211,6 +1416,9 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
     let neck = vec2(x + lean, fy - 11.0);
     let shoulder = neck + vec2(0.0, 1.0);
     let head = neck + vec2(s * 0.5, -2.5);
+    // Travis bulked up: thick arms and legs, a broad chest, and a weighted vest.
+    let bulk = f.bulked > 0;
+    let limb = if bulk { 2.0 } else { 1.0 };
 
     // Scarf behind everything.
     for k in 1..6 {
@@ -1227,13 +1435,24 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
         };
         let knee = ik(hip, foot, 3.4, 3.4, -s);
         let c = tint(look.legs[k], flash);
-        line(hip, knee, 1.0, c);
-        line(knee, foot, 1.0, c);
+        line(hip, knee, limb, c);
+        line(knee, foot, limb, c);
     }
-    // Torso as a soft blob.
+    // Torso as a soft blob (broad in the chest, bulked up).
     for t in [0.0, 0.5, 1.0] {
         let p = hip.lerp(neck, t);
-        draw_circle(p.x, p.y, 1.8, tint(look.body, flash));
+        draw_circle(p.x, p.y, if bulk { 1.8 + 0.8 * t } else { 1.8 }, tint(look.body, flash));
+    }
+    if bulk {
+        // The weighted vest: a dark plate front and back, a strap across, and a pouch in front.
+        let (vx, vy) = ((neck.x - 3.0).round(), (neck.y + 0.5).round());
+        draw_rectangle(vx, vy, 6.0, 4.0, tint(VEST, flash));
+        draw_rectangle(vx, vy + 2.0, 6.0, 1.0, tint(VEST_STRAP, flash));
+        draw_rectangle(if s > 0.0 { vx + 4.0 } else { vx }, vy + 1.0, 2.0, 2.0, tint(VEST_POUCH, flash));
+    }
+    if look.belt {
+        draw_rectangle((hip.x - 2.0).round(), (hip.y - 1.0).round(), 5.0, 1.0, tint(BELT, flash));
+        draw_rectangle((hip.x + s * 2.0).round(), hip.y.round(), 1.0, 2.0, tint(BELT, flash));
     }
     let hand = match f.holding {
         Some(ItemKind::Spear) => draw_spear(f, neck, flash),
@@ -1241,8 +1460,8 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
         _ => free_hand(f, v, neck),
     };
     let elbow = ik(shoulder, hand, 3.0, 3.5, s);
-    line(shoulder, elbow, 1.0, tint(look.arms, flash));
-    line(elbow, hand, 1.0, tint(look.arms, flash));
+    line(shoulder, elbow, limb, tint(look.arms, flash));
+    line(elbow, hand, limb, tint(look.arms, flash));
     // A punch (fists, nothing in hand): a comically big boxing glove on the end of the arm.
     if f.holding.is_none() && f.atk_timer > 0 && f.atk_timer <= ATK_WINDUP + ATK_ACTIVE {
         draw_glove(hand, s, f.atk_timer > ATK_WINDUP, flash);
@@ -1264,7 +1483,7 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
             match look.hair_style {
                 // Thin on top: just a wisp.
                 HairStyle::Wild => px(-2.0, -3.0, 3.0, 1.0, hair),
-                HairStyle::Shaved => px(-2.0, -3.0, 5.0, 1.0, hair),
+                HairStyle::Shaved | HairStyle::Buzz => px(-2.0, -3.0, 5.0, 1.0, hair),
                 _ => px(-2.0, -3.0, 5.0, 2.0, hair),
             }
             match look.hair_style {
@@ -1279,6 +1498,7 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
                     px(2.0, -2.0, 1.0, 1.0, hair);
                 }
                 HairStyle::Shaved => {}
+                HairStyle::Buzz => px(-3.0, -2.0, 1.0, 2.0, hair),
                 HairStyle::Wild => {
                     px(-4.0, -3.0, 2.0, 3.0, hair);
                     px(-5.0, -4.0, 2.0, 1.0, hair);
@@ -1293,6 +1513,12 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
                     px(-1.0, -2.0, 4.0, 2.0, hair);
                     px(2.0, 0.0, 1.0, 1.0, hair);
                 }
+            }
+            if let Some(stubble) = look.stubble {
+                // Along the jaw from the ear to the chin, a shade darker than the skin.
+                let c = tint(mix(look.skin, stubble, 0.45), flash);
+                px(-1.0, 1.0, 4.0, 1.0, c);
+                px(0.0, 2.0, 3.0, 1.0, c);
             }
             if look.goatee {
                 px(1.0, 2.0, 2.0, 2.0, hair);
@@ -1420,7 +1646,7 @@ fn draw_order(o: &Order, kyle: &Fighter, time: f32) {
 /// it, bright at the head of each stream.
 fn draw_ridden(v: &FighterVis, f: &Fighter, time: f32) {
     let black = Color::new(0.02, 0.03, 0.02, 1.0);
-    let dark = Look { body: black, legs: [black, black], arms: black, hair: Some(black), accent: Color::new(0.05, 0.25, 0.08, 1.0), headband: false, skin: black, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false };
+    let dark = Look { body: black, legs: [black, black], arms: black, hair: Some(black), accent: Color::new(0.05, 0.25, 0.08, 1.0), headband: false, skin: black, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false, stubble: None, belt: false };
     draw_human(v, f, &dark, false);
     let (x0, top, h) = (f.pos.x.round() - 3.0, (f.pos.y - f.height()).round() - 1.0, f.height() + 1.0);
     for col in 0..4 {

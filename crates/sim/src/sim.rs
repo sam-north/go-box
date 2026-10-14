@@ -257,6 +257,14 @@ pub struct Fighter {
     pub haste: u32,
     /// Stuck in Sam's glue: slowed right down (ticks left; the glue keeps topping it up).
     pub slowed: u32,
+    /// Travis bulked up in his weighted vest: ticks left. Every step shakes the ground.
+    pub bulked: u32,
+    /// Bulked: how far he's run since his last step.
+    #[serde(skip)]
+    pub stride: f32,
+    /// Just shaken by one of Travis's steps: ticks before another can hurt them.
+    #[serde(skip)]
+    pub shaken: u32,
     /// Dashing: ticks left of the burst, and until the next one is allowed.
     pub dash_t: u32,
     pub dash_cd: u32,
@@ -304,6 +312,9 @@ impl Fighter {
             pinned: 0,
             haste: 0,
             slowed: 0,
+            bulked: 0,
+            stride: 0.0,
+            shaken: 0,
             dash_t: 0,
             dash_cd: 0,
             jump_held: false,
@@ -465,6 +476,10 @@ pub enum Event {
     Matrix { pos: Vec2, out: bool },
     /// Robert's lightning striking someone.
     Zap { pos: Vec2 },
+    /// Someone Doug threw hitting the ground.
+    Slam { pos: Vec2 },
+    /// One of Travis's steps shaking the ground, at his feet (`big`: landing from a jump).
+    Quake { pos: Vec2, big: bool },
     /// A thrown item hitting terrain hard.
     Clatter { pos: Vec2, kind: ItemKind },
 }
@@ -941,6 +956,7 @@ impl Match {
 
         // 2. Move.
         let props = props(&self.effects);
+        let mut landed = [false; N_BODIES];
         for i in 0..N_BODIES {
             if self.f[i].absent || self.f[i].digital > 0 {
                 continue;
@@ -951,9 +967,12 @@ impl Match {
             control(f, i, actions[i], wall, &mut self.events);
             collide(f, self.config.arena.def(), &props);
             if f.grounded && !was_grounded {
+                landed[i] = true;
                 self.events.push(Event::Land { pos: f.pos });
             }
         }
+        // Travis's steps shake the ground.
+        self.step_bulk(landed);
 
         // 2b. Specials.
         self.step_specials(actions.map(|a| a.special));

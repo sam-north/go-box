@@ -191,7 +191,7 @@ async fn main() {
             }
         };
         art.update(dt, m);
-        art.draw_minis(m);
+        art.draw_sprites(m);
         set_camera(&cam);
         clear_background(BLACK);
         art.draw(m);

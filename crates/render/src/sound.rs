@@ -62,6 +62,11 @@ go_box_sim::enum_all! {
         Whistle,
         Possess,
         Release,
+        JudoGrab,
+        Slam,
+        Flex,
+        Stomp,
+        BigStomp,
         Start,
         Win,
         Lose,
@@ -313,6 +318,35 @@ impl Sfx {
                 for (k, f) in [990.0, 1568.0, 1320.0, 2093.0, 1760.0].into_iter().enumerate() {
                     s.tone(0.1 + k as f32 * 0.035, 0.03, f, f, Wave::Square, 0.001, 50.0, 0.08);
                 }
+            }
+            // Doug's grab: a snap of cloth gripped, then the whoosh of someone going over.
+            Sfx::JudoGrab => {
+                s.noise(0.0, 0.04, 3500.0, 1500.0, 0.001, 60.0, 0.4);
+                s.tone(0.0, 0.05, 220.0, 160.0, Wave::Tri, 0.001, 40.0, 0.2);
+                s.noise(0.05, 0.25, 500.0, 2600.0, 0.03, 10.0, 0.35);
+            }
+            // ...and them hitting the mat: a heavy, flat body thud.
+            Sfx::Slam => {
+                s.tone(0.0, 0.25, 95.0, 40.0, Wave::Sine, 0.001, 12.0, 0.9);
+                s.noise(0.0, 0.18, 1200.0, 200.0, 0.001, 20.0, 0.6);
+                s.tone(0.0, 0.06, 240.0, 120.0, Wave::Square, 0.001, 45.0, 0.15);
+            }
+            // Travis bulking up: a low, straining swell rising to a grunt.
+            Sfx::Flex => {
+                s.tone(0.0, 0.35, 70.0, 130.0, Wave::Saw, 0.08, 4.0, 0.3);
+                s.tone(0.0, 0.35, 140.0, 260.0, Wave::Square, 0.08, 5.0, 0.08);
+                s.noise(0.2, 0.15, 600.0, 300.0, 0.01, 20.0, 0.3);
+            }
+            // Each of his steps: a deep boom with a rattle of grit...
+            Sfx::Stomp => {
+                s.tone(0.0, 0.22, 70.0, 32.0, Wave::Sine, 0.001, 12.0, 0.75);
+                s.noise(0.0, 0.12, 700.0, 150.0, 0.001, 25.0, 0.35);
+            }
+            // ...and landing from a jump: bigger, with a rumble rolling off.
+            Sfx::BigStomp => {
+                s.tone(0.0, 0.45, 60.0, 26.0, Wave::Sine, 0.001, 6.0, 0.95);
+                s.noise(0.0, 0.5, 900.0, 90.0, 0.001, 7.0, 0.55);
+                s.wobble(0.05, 0.35, 45.0, 18.0, 0.2);
             }
             Sfx::Start => {
                 s.tone(0.0, 0.12, 440.0, 440.0, Wave::Square, 0.003, 10.0, 0.14);
@@ -591,6 +625,8 @@ impl Sounds {
                 Event::JetPass { .. } => self.play(Sfx::Jet, 0.9),
                 Event::BombDrop { pos } => self.at(Sfx::Whistle, pos, ear, 0.8),
                 Event::Zap { pos } => self.at(Sfx::Zap, pos, ear, 0.8),
+                Event::Slam { pos } => self.at(Sfx::Slam, pos, ear, 1.0),
+                Event::Quake { pos, big } => self.at(if big { Sfx::BigStomp } else { Sfx::Stomp }, pos, ear, if big { 1.0 } else { 0.7 }),
                 Event::Hologram { pos, out } => self.at(if out { Sfx::Materialize } else { Sfx::Digitize }, pos, ear, 1.0),
                 Event::Matrix { pos, out } => self.at(if out { Sfx::Release } else { Sfx::Possess }, pos, ear, 1.0),
                 Event::Clatter { pos, kind } => {
