@@ -87,19 +87,6 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
         ui.text_centered(&mmss(left as f32), sw / 2.0, ui.px(70.0), 28.0, INK);
     }
 
-    // The protected start: "Invulnerable" under the clock, with a pie running down until it ends.
-    if !m.counting_down() && m.protected() {
-        let left = (m.config.countdown + m.config.spawn_grace - m.tick) as f32 / m.config.spawn_grace.max(1) as f32;
-        let shield = Color::new(0.55, 0.85, 1.0, 1.0);
-        let label = t("hud.invulnerable");
-        let lw = ui.text_width(label, 20.0);
-        let r = ui.px(8.0);
-        let x0 = sw / 2.0 - (lw + r * 2.0 + ui.px(8.0)) / 2.0;
-        let y = ui.px(100.0);
-        ui.text(label, x0, y, 20.0, shield);
-        special_pie(vec2(x0 + lw + ui.px(8.0) + r, y - ui.px(6.0)), r, left.min(0.999), shield);
-    }
-
     // 3, 2, 1 in the middle of the screen, then GO! for a moment.
     let sh = screen_height();
     if m.counting_down() {
@@ -120,7 +107,8 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
                 let color = render::character_color(f.character);
                 let w = ui.px(260.0);
                 let x = (sw - w) / 2.0;
-                let y = sh - ui.px(46.0);
+                // Up under the clock (down at the bottom it hid the floor).
+                let y = ui.px(84.0);
                 let ready = f.special_cd == 0;
                 let frac = 1.0 - f.special_cd as f32 / sp.cooldown() as f32;
                 draw_rectangle(x, y, w, ui.px(10.0), Color::new(0.0, 0.0, 0.0, 0.6));
@@ -128,7 +116,7 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
                 let key = app.settings.bindings.short_label(Act::Special, app.controls.using_pad);
                 let secs = format!("{:.0}", (f.special_cd as f32 * DT).ceil());
                 let label = if ready { tf("hud.special_ready", &[("key", &key), ("special", special_name(sp))]) } else { tf("hud.special_cooling", &[("special", special_name(sp)), ("secs", &secs)]) };
-                ui.text_centered(&label, sw / 2.0, y + ui.px(32.0), 20.0, if ready { color } else { DIM });
+                ui.text_centered(&label, sw / 2.0, y + ui.px(30.0), 20.0, if ready { color } else { DIM });
             } else {
                 ui.text_centered(&app.controls_help(), sw / 2.0, sh - ui.px(16.0), 18.0, DIM);
             }
@@ -204,6 +192,22 @@ fn names_over_heads(ui: &Ui, app: &App, m: &Match) {
                 ui.text_centered(who, pc.x + dx, pc.y + dy, 13.0, Color::new(0.0, 0.0, 0.0, 0.7));
             }
             ui.text_centered(who, pc.x, pc.y, 13.0, Color::new(0.80, 0.81, 0.84, 0.75));
+            // The protected start: "Invulnerable" just over your name, with a pie running down until
+            // it ends.
+            if !m.counting_down() && m.protected() {
+                let left = (m.config.countdown + m.config.spawn_grace - m.tick) as f32 / m.config.spawn_grace.max(1) as f32;
+                let shield = Color::new(0.55, 0.85, 1.0, 1.0);
+                let label = t("hud.invulnerable");
+                let r = ui.px(6.0);
+                let lw = ui.text_width(label, 16.0);
+                let x0 = p.x - (lw + ui.px(6.0) + r * 2.0) / 2.0;
+                let y = p.y - ui.px(26.0);
+                for (dx, dy) in [(-o, 0.0), (o, 0.0), (0.0, -o), (0.0, o)] {
+                    ui.text(label, x0 + dx, y + dy, 16.0, Color::new(0.0, 0.0, 0.0, 0.8));
+                }
+                ui.text(label, x0, y, 16.0, shield);
+                special_pie(vec2(x0 + lw + ui.px(6.0) + r, y - ui.px(5.0)), r, left.min(0.999), shield);
+            }
         } else {
             let p = to_screen(f.pos - vec2(0.0, 25.0));
             ui.text_centered(&name, p.x, p.y, 14.0, Color::new(0.85, 0.86, 0.88, 0.5));
