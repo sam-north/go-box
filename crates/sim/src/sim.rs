@@ -92,6 +92,8 @@ pub const GRENADE_RADIUS: f32 = crate::item::GRENADE_BLAST.radius;
 pub const ITEM_R: f32 = 1.5;
 const LETHAL_SPEED: f32 = 110.0;
 const OWN_GRACE: u32 = 15;
+/// How close a foe has to be for one of Seth's minis to throw what it's holding at them.
+const MINI_THROW_RANGE: f32 = 170.0;
 
 // Items lying around.
 const START_SPEARS: usize = 2;
@@ -917,6 +919,9 @@ impl Match {
                 target: None,
             };
             self.f[i].memory.copy_from_slice(&out[OUT_MEM..]);
+            if i >= N_FIGHTERS {
+                self.mini_uses_its_item(i, &mut actions[i]);
+            }
             self.f[i].action = actions[i];
         }
 
@@ -1006,6 +1011,28 @@ impl Match {
         if let Some(winner) = self.config.mode.outcome(self) {
             self.over = true;
             self.winner = winner;
+        }
+    }
+
+    /// Seth's minis think with the brain, which (trained full size, with long lives) tends to carry
+    /// a weapon around rather than use it. So a mini holding something uses it on the nearest
+    /// foe in range: a weapon swung up close, anything else thrown at them (lobbed a little high
+    /// so arcing things land).
+    fn mini_uses_its_item(&self, i: usize, a: &mut Action) {
+        let me = &self.f[i];
+        if me.holding.is_none() || me.hand_cd > 0 {
+            return;
+        }
+        let hand = me.hand();
+        let Some(foe) = (0..N_BODIES).filter(|&j| self.foes(i, j)).map(|j| self.f[j].center()).min_by(|a, b| a.distance(hand).total_cmp(&b.distance(hand))) else { return };
+        let d = foe - hand;
+        let dist = d.length();
+        if me.holding.is_some_and(|k| k.def().melee.is_some()) && d.x.abs() < me.melee_reach() + 6.0 && d.y.abs() < 12.0 {
+            a.attack = true;
+            a.target = Some(d);
+        } else if dist < MINI_THROW_RANGE {
+            a.throw = true;
+            a.target = Some(d + vec2(0.0, -dist * 0.3));
         }
     }
 

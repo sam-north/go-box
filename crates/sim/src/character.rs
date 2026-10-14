@@ -2031,4 +2031,28 @@ mod tests {
             assert!(up, "{who:?}'s pets never got up onto a ledge");
         }
     }
+
+    #[test]
+    fn seths_minis_use_what_they_pick_up() {
+        use crate::sim::{Item, ItemKind};
+        let z = zero_brain();
+        let mut m = staged([Character::Seth, Character::Classic, Character::Classic, Character::Classic], [100.0, 220.0, 400.0, 440.0]);
+        m.f[0].facing = 1.0;
+        step_idle(&mut m, &z, true);
+        let mini = (N_FIGHTERS..N_BODIES).find(|&j| !m.f[j].absent).unwrap();
+        for _ in 0..30 {
+            step_idle(&mut m, &z, false);
+        }
+        // Hand it a rock: with a foe in range, it throws it (the brain alone just stands there).
+        let mut rock = Item::new(ItemKind::Rock, m.f[mini].hand());
+        rock.held_by = Some(mini);
+        m.items.push(rock);
+        m.f[mini].holding = Some(ItemKind::Rock);
+        let mut thrown = false;
+        for _ in 0..10 {
+            step_idle(&mut m, &z, false);
+            thrown |= m.events.iter().any(|e| matches!(e, Event::Throw { who } if *who == mini));
+        }
+        assert!(thrown, "the mini threw its rock");
+    }
 }
