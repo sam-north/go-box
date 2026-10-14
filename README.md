@@ -50,7 +50,7 @@ Everyone has the same body; each character adds one special on a cooldown.
 | Corwin | **Cat Herder**: twenty cats pour out and run the floors for 5s; each scratch is only 2 (once a second per cat per victim) but they come as a swarm. Sushi within 100px distracts them: they crowd round it (hopping up onto a table for it) and scratch nobody | 30s |
 | Justin | **Sushi Table**: a table appears in the air in front of him (over his head, if he's facing a wall) and stays right there as a platform, with three pieces of sushi on top. Solid from the sides and on top but never from below, so it can't pin anyone; sushi throws like a rock (10) and splats on whatever it hits. Lasts 15s, one at a time | 10s |
 | Ryan | **Yanking Your Chain**: throws a chain up to 110px the way he aims; the first foe it hooks takes 6 and is yanked to just in front of him, dazed for 0.4s | 8s |
-| Jake | **Into the Phone**: turns into light and hides inside his phone for 5s, which drops from his head; meanwhile he can't act or be hurt, and anyone can grab and throw the phone (it hits like a rock). Then he pops back out standing on wherever it went, and the phone stays as an ordinary item | 20s |
+| Jake | **Into the Phone**: turns into light and hides inside his phone for 5s, which drops from his head; meanwhile he can't act or be hurt, and anyone can grab and throw the phone (it hits like a rock). Then he pops back out standing on wherever it went, and the phone stays as an ordinary item. Every phone stays all match: while inside, left/right hops him to the next phone that way (any Jake's, if it's free), marked by a chevron, and he comes out of whichever he's in | 20s |
 | Robert | **Forked Lightning**: a forked bolt strikes every opponent in the arena at once (no line of sight needed): 30 up close, falling off to 5 at 300px and beyond | 25s |
 | Kyle | **Organize**: pins every opponent exactly where they are (even in mid-air) for 3s, with a glow at their feet; they can still swing and throw, just not move or jump | 20s |
 
@@ -124,10 +124,15 @@ a jump or down from a ledge. Thrown items land where they stop and can be picked
 grenade's fuse (1s) lights when thrown; a live one can be grabbed and thrown back. A fighter who dies
 holding a grenade drops it armed: it goes off half a second later.
 
-Items: 4 grenades, 2 spears and 2 rocks at the start; a new item appears every 4-7s (62% a grenade,
-while there are fewer than eight; else mostly spears and rocks, and rarely a rocket launcher, at most
-two a match). A **rocket launcher** fires one homing rocket (it curves toward the nearest opponent
-and explodes for up to 60), then it's spent. **Health pickups** (glowing blue bulbs) restore 50 HP
+Items: 4 grenades, 2 spears and one rock at the start (the only rock all match, a nod to how the game
+began); a new item appears every 4-7s: half the time a grenade (while there are fewer than eight),
+else a spear (22%), a Molotov (10%), a giant sword (8%), a rocket launcher (6%, at most two a match)
+or an air-strike radio (4%, at most two). A **rocket launcher** fires one homing rocket (it curves
+toward the nearest opponent and explodes for up to 60), then it's spent. The **giant sword** slashes
+in a wide arc (22, reach 19) and flies tip first when thrown (32). A **Molotov** shatters on whatever
+it hits and sets the surface below burning for 4s (5 every half second to anyone standing in it, the
+thrower included). The **air-strike radio** calls in a jet that crosses the top of the arena once,
+dropping 5-7 bombs (up to 55 in a 46px radius) at random points. **Health pickups** (glowing blue bulbs) restore 50 HP
 and are taken by touch when hurt; 1-2 appear per match.
 
 A match ends with the **last one standing**, or after 45s, when the fighter with the most health

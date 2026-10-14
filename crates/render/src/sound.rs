@@ -53,6 +53,13 @@ go_box_sim::enum_all! {
         Organize,
         RocketLaunch,
         Dash,
+        SwordSwing,
+        Slash,
+        Shatter,
+        Crackle,
+        Radio,
+        Jet,
+        Whistle,
         Start,
         Win,
         Lose,
@@ -241,6 +248,54 @@ impl Sfx {
             }
             // A dash: a short, airy whoosh.
             Sfx::Dash => s.noise(0.0, 0.16, 900.0, 3800.0, 0.01, 16.0, 0.3),
+            // The giant sword: a heavy, rising whoosh with a low hum of the blade...
+            Sfx::SwordSwing => {
+                s.noise(0.0, 0.24, 500.0, 4200.0, 0.03, 9.0, 0.42);
+                s.tone(0.0, 0.2, 260.0, 520.0, Wave::Sine, 0.02, 10.0, 0.12);
+            }
+            // ...and a sharp, ringing cut when it lands.
+            Sfx::Slash => {
+                s.noise(0.0, 0.1, 7000.0, 2500.0, 0.001, 30.0, 0.55);
+                s.tone(0.0, 0.3, 1650.0, 1600.0, Wave::Tri, 0.001, 12.0, 0.12);
+                s.tone(0.0, 0.1, 180.0, 90.0, Wave::Sine, 0.001, 25.0, 0.4);
+            }
+            // A Molotov breaking: glass, then the whump of the fire catching.
+            Sfx::Shatter => {
+                s.noise(0.0, 0.2, 9000.0, 4000.0, 0.001, 18.0, 0.45);
+                for (k, f) in [2600.0, 3300.0, 4100.0].into_iter().enumerate() {
+                    s.tone(k as f32 * 0.02, 0.12, f, f * 0.97, Wave::Tri, 0.001, 30.0, 0.07);
+                }
+                s.noise(0.05, 0.4, 500.0, 200.0, 0.03, 6.0, 0.4);
+            }
+            // Fire: a few quiet crackles (played over and over while anything burns).
+            Sfx::Crackle => {
+                for (t, v) in [(0.0, 0.25), (0.05, 0.12), (0.11, 0.2), (0.19, 0.1)] {
+                    s.noise(t, 0.012, 6000.0, 2500.0, 0.0005, 100.0, v);
+                }
+                s.noise(0.0, 0.25, 400.0, 300.0, 0.05, 6.0, 0.06);
+            }
+            // Calling in the air strike over a crackly ham radio: a squelch, a burst of garbled
+            // talk, and a "roger" beep.
+            Sfx::Radio => {
+                s.noise(0.0, 0.05, 7000.0, 5000.0, 0.001, 30.0, 0.3);
+                let syllables = [(0.08, 240.0), (0.17, 300.0), (0.24, 220.0), (0.36, 280.0), (0.44, 330.0), (0.52, 250.0), (0.66, 300.0), (0.74, 210.0), (0.83, 270.0)];
+                for (t, f) in syllables {
+                    s.tone(t, 0.07, f, f * 0.85, Wave::Square, 0.008, 14.0, 0.11);
+                    s.tone(t, 0.07, f * 3.1, f * 2.8, Wave::Saw, 0.008, 18.0, 0.04);
+                    s.noise(t, 0.07, 2600.0, 1800.0, 0.008, 16.0, 0.12);
+                }
+                s.noise(0.0, 1.0, 3000.0, 3000.0, 0.01, 1.0, 0.04);
+                s.tone(0.96, 0.09, 1100.0, 1100.0, Wave::Sine, 0.003, 4.0, 0.12);
+                s.noise(1.05, 0.06, 7000.0, 5000.0, 0.001, 30.0, 0.25);
+            }
+            // The jet: a roar swelling in and passing over, with a high whine.
+            Sfx::Jet => {
+                s.swell(0.0, 1.6, 300.0, 3200.0, 0.35);
+                s.noise(1.5, 1.2, 2500.0, 400.0, 0.02, 2.5, 0.3);
+                s.tone(0.2, 2.2, 2100.0, 1300.0, Wave::Saw, 0.6, 1.5, 0.04);
+            }
+            // A bomb falling: the classic descending whistle.
+            Sfx::Whistle => s.tone(0.0, 1.0, 1900.0, 650.0, Wave::Sine, 0.05, 1.2, 0.16),
             Sfx::Start => {
                 s.tone(0.0, 0.12, 440.0, 440.0, Wave::Square, 0.003, 10.0, 0.14);
                 s.tone(0.16, 0.3, 660.0, 660.0, Wave::Square, 0.003, 6.0, 0.16);
@@ -419,6 +474,7 @@ pub struct Sounds {
     now: f64,
     step_dist: [f32; N_BODIES],
     fuse_acc: f32,
+    fire_acc: f32,
     special_cd: Option<u32>,
     /// The countdown number last shown (3, 2, 1), to beep on each.
     count: Option<u32>,
@@ -439,7 +495,7 @@ impl Sounds {
                 }
             }
         });
-        Self { sounds, muted: false, master: 0.8, effects: 1.0, last: vec![-1.0; Sfx::ALL.len()], now: 0.0, step_dist: [0.0; N_BODIES], fuse_acc: 0.0, special_cd: None, count: None, ending: None }
+        Self { sounds, muted: false, master: 0.8, effects: 1.0, last: vec![-1.0; Sfx::ALL.len()], now: 0.0, step_dist: [0.0; N_BODIES], fuse_acc: 0.0, fire_acc: 0.0, special_cd: None, count: None, ending: None }
     }
 
     /// Plays `s` at `vol` (0..1, before the master volume).
@@ -473,6 +529,9 @@ impl Sounds {
                         Source::Stab => Sfx::Stab,
                         Source::SpearThrow => Sfx::SpearHit,
                         Source::Rock => Sfx::RockHit,
+                        Source::Slash => Sfx::Slash,
+                        // (The fire's own crackle is the sound.)
+                        Source::Fire => Sfx::Punch,
                         Source::Sushi => Sfx::Splat,
                         // The blast or the bite is the sound; just add a thump.
                         Source::Grenade | Source::Special => Sfx::Punch,
@@ -484,7 +543,10 @@ impl Sounds {
                 }
                 Event::Death { pos, .. } => self.at(Sfx::Death, pos, ear, 1.0),
                 Event::Jump { who, pos } if Some(who) != own => self.at(Sfx::Jump, pos, ear, 0.25),
-                Event::Swing { who } if Some(who) != own => self.at(Sfx::Swing, m.f[who].center(), ear, 0.2),
+                Event::Swing { who } if Some(who) != own => {
+                    let sword = m.f[who].holding == Some(ItemKind::Sword);
+                    self.at(if sword { Sfx::SwordSwing } else { Sfx::Swing }, m.f[who].center(), ear, if sword { 0.6 } else { 0.2 });
+                }
                 Event::Jump { .. } | Event::Swing { .. } => {}
                 Event::Land { pos } => self.at(Sfx::Land, pos, ear, 0.4),
                 Event::Throw { who } => self.at(Sfx::Throw, m.f[who].center(), ear, 0.9),
@@ -506,6 +568,10 @@ impl Sounds {
                 Event::RocketLaunch { pos } => self.at(Sfx::RocketLaunch, pos, ear, 1.0),
                 Event::Dash { who, pos } if Some(who) != own => self.at(Sfx::Dash, pos, ear, 0.6),
                 Event::Dash { .. } => {}
+                Event::Ignite { pos } => self.at(Sfx::Shatter, pos, ear, 1.0),
+                Event::RadioCall { pos } => self.at(Sfx::Radio, pos, ear, 1.0),
+                Event::JetPass { .. } => self.play(Sfx::Jet, 0.9),
+                Event::BombDrop { pos } => self.at(Sfx::Whistle, pos, ear, 0.8),
                 Event::Zap { pos } => self.at(Sfx::Zap, pos, ear, 0.8),
                 Event::Hologram { pos, out } => self.at(if out { Sfx::Materialize } else { Sfx::Digitize }, pos, ear, 1.0),
                 Event::Clatter { pos, kind } => {
@@ -516,6 +582,9 @@ impl Sounds {
                         ItemKind::Sushi => Sfx::Splat,
                         ItemKind::Phone => Sfx::ClatterGrenade,
                         ItemKind::RocketLauncher => Sfx::ClatterSpear,
+                        ItemKind::Sword => Sfx::ClatterSpear,
+                        ItemKind::Molotov => Sfx::ClatterGrenade,
+                        ItemKind::AirStrike => Sfx::ClatterGrenade,
                     };
                     self.at(s, pos, ear, 0.7);
                 }
@@ -524,10 +593,12 @@ impl Sounds {
     }
 
     /// Your own predicted jumps and swings, played without waiting for the server.
-    pub fn local(&mut self, events: &[Event]) {
+    /// `holding`: what you've got in hand (a sword swings with its own whoosh).
+    pub fn local(&mut self, events: &[Event], holding: Option<ItemKind>) {
         for e in events {
             match e {
                 Event::Jump { .. } => self.play(Sfx::Jump, 0.3),
+                Event::Swing { .. } if holding == Some(ItemKind::Sword) => self.play(Sfx::SwordSwing, 0.7),
                 Event::Swing { .. } => self.play(Sfx::Swing, 0.3),
                 Event::Dash { .. } => self.play(Sfx::Dash, 0.5),
                 _ => {}
@@ -586,6 +657,18 @@ impl Sounds {
                 }
             }
             None => self.fuse_acc = 0.0,
+        }
+        // Anything burning crackles (louder the closer it is).
+        let fire = m.effects.iter().filter(|e| matches!(e, go_box_sim::character::Effect::Fire(_))).map(|e| e.pos()).min_by(|a, b| a.distance(ear).total_cmp(&b.distance(ear)));
+        match fire {
+            Some(p) => {
+                self.fire_acc += dt;
+                if self.fire_acc >= 0.22 {
+                    self.fire_acc = 0.0;
+                    self.at(Sfx::Crackle, p, ear, 0.5);
+                }
+            }
+            None => self.fire_acc = 0.0,
         }
         let cd = own.map(|s| &m.f[s]).filter(|f| f.alive() && f.character.special().is_some()).map(|f| f.special_cd);
         if let (Some(prev), Some(0)) = (self.special_cd, cd)

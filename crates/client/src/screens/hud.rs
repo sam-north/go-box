@@ -168,6 +168,11 @@ fn names_over_heads(ui: &Ui, app: &App, m: &Match) {
     let Some(g) = &app.game else { return };
     let (origin, scale) = app.view;
     let to_screen = |p: Vec2| origin + p * scale;
+    // Kyle's pin: a pie in its colour beside each pinned fighter's feet, running down until they're free.
+    for f in m.f.iter().filter(|f| f.pinned > 0 && f.present()) {
+        let left = f.pinned as f32 / go_box_sim::character::PIN_TICKS as f32;
+        special_pie(to_screen(f.pos + vec2(13.0 * f.scale, -3.0)), ui.px(4.0), left.min(0.999), Color::new(0.55, 1.0, 0.75, 1.0));
+    }
     for i in 0..N_FIGHTERS {
         let f = &m.f[i];
         if !f.alive() {

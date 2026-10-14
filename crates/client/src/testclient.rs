@@ -161,5 +161,8 @@ fn effect_kind(e: &go_box_sim::character::Effect) -> &'static str {
         Effect::Lightning(_) => "lightning",
         Effect::Order(_) => "order",
         Effect::Rocket(_) => "rocket",
+        Effect::Fire(_) => "fire",
+        Effect::Plane(_) => "plane",
+        Effect::AirBomb(_) => "plane",
     }
 }

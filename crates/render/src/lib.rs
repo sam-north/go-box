@@ -40,6 +40,13 @@ const HOLO: Color = Color::new(0.35, 0.95, 1.0, 1.0);
 const PIN: Color = Color::new(0.55, 1.0, 0.75, 1.0);
 const BOLT: Color = Color::new(0.75, 0.85, 1.0, 1.0);
 const HOLO_PINK: Color = Color::new(1.0, 0.45, 0.85, 1.0);
+/// Fire: the base of the flames, and their tips.
+const FLAME: Color = Color::new(0.80, 0.36, 0.12, 1.0);
+const FLAME_TIP: Color = Color::new(0.95, 0.72, 0.32, 1.0);
+const EMBER_BASE: Color = Color::new(0.48, 0.15, 0.07, 1.0);
+/// The giant sword's steel.
+const STEEL: Color = Color::new(0.68, 0.70, 0.72, 1.0);
+const STEEL_DARK: Color = Color::new(0.42, 0.44, 0.47, 1.0);
 const HOLO_SECS: f32 = 0.45;
 const SALMON: Color = Color::new(1.0, 0.52, 0.34, 1.0);
 const NORI: Color = Color::new(0.10, 0.16, 0.12, 1.0);
@@ -677,6 +684,11 @@ impl Art {
                 Event::Zap { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 10, BOLT, false, 90.0, 0.2, 0.0);
                 }
+                Event::Ignite { pos } => {
+                    self.burst(pos, vec2(0.0, -1.0), 2.5, 24, FLAME, false, 90.0, 0.5, 120.0);
+                    self.burst(pos, vec2(0.0, -1.0), 3.0, 10, Color::new(0.55, 0.62, 0.50, 0.9), false, 110.0, 0.3, 380.0);
+                }
+                Event::RadioCall { .. } | Event::JetPass { .. } | Event::BombDrop { .. } => {}
                 Event::Dash { who, pos } => {
                     // A puff of dust kicked up behind.
                     let back = -m.f[who].facing;
@@ -717,6 +729,17 @@ impl Art {
             h.1 += dt;
         }
         self.holos.retain(|h| h.1 < HOLO_SECS);
+        // Fires throw up embers and a little smoke.
+        for e in &m.effects {
+            if let Effect::Fire(fire) = e {
+                let seed = (self.time * 1000.0) as i32;
+                if hash(seed, fire.at.x as i32, 77) < dt * 30.0 {
+                    let x = fire.at.x + (hash(seed, 3, 78) - 0.5) * fire.half_w * 2.0;
+                    let (c, life) = if hash(seed, 4, 79) < 0.7 { (FLAME_TIP, 0.5) } else { (Color::new(0.35, 0.33, 0.32, 0.5), 1.0) };
+                    self.particles.push(Particle { pos: vec2(x, fire.at.y - 4.0), vel: vec2((hash(seed, 5, 80) - 0.5) * 10.0, -25.0), color: c, life, stick: false, gravity: -15.0 });
+                }
+            }
+        }
         // Rockets leave a smoke trail.
         for e in &m.effects {
             if let Effect::Rocket(r) = e {
@@ -824,11 +847,26 @@ impl Art {
                 Effect::Lightning(_) => {}
                 Effect::Order(_) => {}
                 Effect::Rocket(r) => draw_rocket(r, self.time),
+                Effect::Fire(fire) => draw_fire(fire, self.time),
+                Effect::Plane(p) => draw_plane(p, self.time),
+                Effect::AirBomb(b) => draw_air_bomb(b),
             }
         }
-        // Loose and flying items (held spears are drawn with their holder).
-        for it in m.items.iter().filter(|it| !(it.held_by.is_some() && it.kind == ItemKind::Spear)) {
+        // Loose and flying items (held spears and swords are drawn with their holder).
+        for it in m.items.iter().filter(|it| !(it.held_by.is_some() && matches!(it.kind, ItemKind::Spear | ItemKind::Sword))) {
             draw_item(it, self.time);
+        }
+        // Jake inside a phone: a chevron over the one he's in, and faint ones over the others he could
+        // hop to.
+        if m.f.iter().any(|f| f.digital > 0) {
+            for it in m.items.iter().filter(|it| it.kind == ItemKind::Phone) {
+                let bob = ((self.time * 5.0).sin() * 1.0).round();
+                let c = if it.carries.is_some() { HOLO_PINK } else { Color::new(HOLO_PINK.r, HOLO_PINK.g, HOLO_PINK.b, 0.3) };
+                let (x, y) = (it.pos.x.round(), it.pos.y.round() - 7.0 + bob);
+                for (k, w) in [5.0, 3.0, 1.0].into_iter().enumerate() {
+                    draw_rectangle(x - (w - 1.0) / 2.0, y + k as f32, w, 1.0, c);
+                }
+            }
         }
 
         // Kyle's pin: a glowing ring at the feet of everyone stuck. Tyler's haste: speed streaks.
@@ -974,6 +1012,30 @@ fn draw_item(it: &Item, time: f32) {
             };
             draw_rectangle(x + 1.0, y, 1.0, 2.0, screen);
         }
+        ItemKind::Sword => {
+            // Lying flat, or flying tip first.
+            let dir = if it.vel.length() > 20.0 { it.vel.normalize() } else { vec2(1.0, 0.0) };
+            let base = if it.vel.length() > 20.0 { p } else { p + vec2(0.0, ITEM_R - 0.5) };
+            draw_blade(base - dir * 7.0, dir, false);
+        }
+        ItemKind::Molotov => {
+            // A dark green bottle with a rag stuffed in the neck, smouldering.
+            draw_rectangle(x - 0.5, y - 1.0, 3.0, 4.0, Color::new(0.20, 0.30, 0.20, 1.0));
+            draw_rectangle(x, y - 1.0, 1.0, 2.0, Color::new(0.34, 0.46, 0.32, 1.0));
+            draw_rectangle(x + 0.5, y - 3.0, 1.0, 2.0, Color::new(0.62, 0.55, 0.42, 1.0));
+            if (time * 13.0 + p.x).sin() > -0.3 {
+                draw_rectangle(x + 0.5, y - 4.0, 1.0, 1.0, FLAME_TIP);
+            }
+        }
+        ItemKind::AirStrike => {
+            // A field radio: a dark box with a whip antenna and a blinking light.
+            draw_rectangle(x - 1.0, y - 1.0, 4.0, 4.0, Color::new(0.24, 0.26, 0.22, 1.0));
+            draw_rectangle(x - 1.0, y - 1.0, 4.0, 1.0, Color::new(0.34, 0.36, 0.30, 1.0));
+            draw_rectangle(x + 2.0, y - 4.0, 1.0, 3.0, Color::new(0.12, 0.12, 0.12, 1.0));
+            if (time * 4.0).sin() > 0.0 {
+                draw_rectangle(x, y + 1.0, 1.0, 1.0, Color::new(0.85, 0.25, 0.18, 1.0));
+            }
+        }
         ItemKind::RocketLauncher => {
             // A battered olive tube with a dark muzzle and a grip underneath.
             draw_rectangle(x - 3.0, y, 8.0, 2.0, Color::new(0.30, 0.33, 0.24, 1.0));
@@ -1079,7 +1141,11 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
         let p = hip.lerp(neck, t);
         draw_circle(p.x, p.y, 1.8, tint(look.body, flash));
     }
-    let hand = if f.holding == Some(ItemKind::Spear) { draw_spear(f, neck, flash) } else { free_hand(f, v, neck) };
+    let hand = match f.holding {
+        Some(ItemKind::Spear) => draw_spear(f, neck, flash),
+        Some(ItemKind::Sword) => draw_sword(f, neck, flash),
+        _ => free_hand(f, v, neck),
+    };
     let elbow = ik(shoulder, hand, 3.0, 3.5, s);
     line(shoulder, elbow, 1.0, tint(look.arms, flash));
     line(elbow, hand, 1.0, tint(look.arms, flash));
@@ -1362,6 +1428,109 @@ fn draw_glove(hand: Vec2, s: f32, out: bool, flash: bool) {
             px(-6.0, dy, 3.0, 1.0, Color::new(0.75, 0.74, 0.70, 0.25));
         }
     }
+}
+
+/// The giant sword from its grip `at`, pointing `dir`: a leather hilt, a guard across, then a
+/// long, broad blade with a darker edge. (`flash`: tinted when its holder is hit.)
+fn draw_blade(at: Vec2, dir: Vec2, flash: bool) {
+    let side = vec2(-dir.y, dir.x);
+    line(at - dir * 3.0, at, 1.0, tint(Color::new(0.30, 0.22, 0.16, 1.0), flash));
+    line(at - side * 2.5, at + side * 2.5, 1.0, tint(Color::new(0.55, 0.46, 0.26, 1.0), flash));
+    line(at + dir, at + dir * 15.0, 3.0, tint(STEEL_DARK, flash));
+    line(at + dir, at + dir * 15.0, 1.5, tint(STEEL, flash));
+    line(at + dir * 15.0, at + dir * 17.5, 1.0, tint(STEEL, flash));
+}
+
+/// A held giant sword for the current swing phase (returns where the hand is): resting up over
+/// the shoulder, drawn back on the wind-up, then a big arc over and down in front (with a pale
+/// trail through the air), settling back after.
+fn draw_sword(f: &Fighter, neck: Vec2, flash: bool) -> Vec2 {
+    let s = f.facing;
+    let (x, fy) = (f.pos.x, f.pos.y);
+    // Angle in degrees: 90 straight up, 0 straight ahead, negative pointing down in front.
+    let dir = |deg: f32| {
+        let a = deg.to_radians();
+        vec2(s * a.cos(), -a.sin())
+    };
+    let rest = (neck + vec2(s * 1.0, 3.0), 110.0);
+    let (hand, deg) = match f.atk_timer {
+        0 => rest,
+        t if t <= ATK_WINDUP => {
+            let k = t as f32 / ATK_WINDUP as f32;
+            (rest.0.lerp(vec2(x - s * 2.0, fy - 10.0), k), 110.0 + 45.0 * k)
+        }
+        t if t <= ATK_WINDUP + ATK_ACTIVE => {
+            let k = (t - ATK_WINDUP) as f32 / ATK_ACTIVE as f32;
+            let deg = 155.0 - 200.0 * k;
+            // The trail: where the blade swept through, fading behind it.
+            for j in 1..6 {
+                let d = dir(deg + j as f32 * 14.0);
+                let h = vec2(x + s * 4.0, fy - 9.0);
+                let a = 0.35 - j as f32 * 0.06;
+                line(h + d * 6.0, h + d * 17.0, 1.0, Color::new(0.85, 0.88, 0.92, a));
+            }
+            (vec2(x + s * 4.0, fy - 9.0), deg)
+        }
+        t => {
+            let k = (t - ATK_WINDUP - ATK_ACTIVE) as f32 / (ATK_TOTAL - ATK_WINDUP - ATK_ACTIVE) as f32;
+            (vec2(x + s * 4.0, fy - 9.0).lerp(rest.0, k), -45.0 + (rest.1 + 45.0) * k)
+        }
+    };
+    draw_blade(hand, dir(deg), flash);
+    hand
+}
+
+/// Burning ground: a strip of flickering flames, dark at the roots and yellow at the tips, with
+/// a low glow; it dies down at the end.
+fn draw_fire(fire: &Fire, time: f32) {
+    let fade = (fire.ticks as f32 * DT / 0.6).min(1.0);
+    let x0 = (fire.at.x - fire.half_w).round();
+    let y = fire.at.y.round();
+    draw_rectangle(x0, y - 1.0, (fire.half_w * 2.0).round(), 1.0, Color::new(EMBER_BASE.r, EMBER_BASE.g, EMBER_BASE.b, fade));
+    draw_ellipse(fire.at.x, y - 3.0, fire.half_w + 4.0, 6.0, 0.0, Color::new(FLAME.r, FLAME.g, FLAME.b, 0.10 * fade));
+    let n = (fire.half_w * 2.0 / 2.0) as i32;
+    let frame = (time * 14.0) as i32;
+    for k in 0..n {
+        let x = x0 + k as f32 * 2.0;
+        let h = ((1.5 + hash(k, frame, 91) * 5.0) * fade).round();
+        if h < 1.0 {
+            continue;
+        }
+        let w = if hash(k, frame, 92) < 0.5 { 1.0 } else { 2.0 };
+        draw_rectangle(x, y - h, w, h, Color::new(FLAME.r, FLAME.g, FLAME.b, fade));
+        draw_rectangle(x, y - h, w, (h * 0.4).ceil(), Color::new(FLAME_TIP.r, FLAME_TIP.g, FLAME_TIP.b, fade));
+    }
+}
+
+/// The air strike's jet: a dark, swept-wing silhouette heading `dir`, with a contrail behind.
+fn draw_plane(p: &Plane, time: f32) {
+    if p.delay > 0 {
+        return;
+    }
+    let (x, y, s) = (p.pos.x.round(), p.pos.y.round(), p.dir);
+    let body = Color::new(0.30, 0.33, 0.37, 1.0);
+    let dark = Color::new(0.18, 0.20, 0.23, 1.0);
+    // A rectangle in jet space (dx forward), mirrored for a jet flying left.
+    let px = |dx: f32, dy: f32, w: f32, h: f32, c: Color| draw_rectangle(if s > 0.0 { x + dx } else { x - dx - w + 1.0 }, y + dy, w, h, c);
+    px(-8.0, -1.0, 15.0, 2.0, body);
+    px(7.0, 0.0, 2.0, 1.0, body);
+    px(-2.0, 1.0, 6.0, 1.0, dark);
+    px(-4.0, 2.0, 4.0, 1.0, dark);
+    px(-8.0, -3.0, 2.0, 2.0, dark);
+    px(3.0, -1.0, 2.0, 1.0, Color::new(0.55, 0.62, 0.66, 1.0));
+    // Exhaust and contrail.
+    let flick = if (time * 40.0).sin() > 0.0 { 1.0 } else { 2.0 };
+    px(-8.0 - flick, -1.0, flick, 1.0, FLAME_TIP);
+    let tail = x - s * 10.0;
+    draw_line(tail, y, tail - s * 60.0, y, 1.0, Color::new(0.85, 0.85, 0.82, 0.18));
+}
+
+/// An air-strike bomb: a dark olive casing with fins, nose down along its fall.
+fn draw_air_bomb(b: &AirBomb) {
+    let d = b.vel.normalize_or(vec2(0.0, 1.0));
+    line(b.pos - d * 3.0, b.pos + d * 2.0, 2.0, Color::new(0.28, 0.30, 0.22, 1.0));
+    let side = vec2(-d.y, d.x);
+    line(b.pos - d * 3.0 - side * 1.5, b.pos - d * 3.0 + side * 1.5, 1.0, Color::new(0.20, 0.21, 0.17, 1.0));
 }
 
 /// Draws a held spear for the current swing phase and returns where the hand is.

@@ -20,6 +20,12 @@ crate::enum_all! {
         Phone,
         /// Fires one homing rocket, then it's spent. Rare: at most a couple a match.
         RocketLauncher,
+        /// A huge sword: a wide, hard-hitting slash, and thrown it flies tip first like a spear.
+        Sword,
+        /// A bottle of fire: thrown, it shatters on whatever it hits and leaves the ground burning.
+        Molotov,
+        /// A radio: "throwing" it calls in an air strike (a jet passes over dropping bombs).
+        AirStrike,
     }
 }
 
@@ -51,6 +57,17 @@ pub struct Blast {
     pub edge: f32,
 }
 
+/// What "throwing" an item does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OnThrow {
+    /// It's thrown.
+    Throw,
+    /// It fires a homing rocket, and is used up.
+    Rocket,
+    /// It calls in an air strike, and is used up.
+    AirStrike,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct ItemDef {
     pub sensed_as: Sensed,
@@ -74,8 +91,10 @@ pub struct ItemDef {
     pub splats: Option<u32>,
     /// At most this many spawn in a whole match.
     pub per_match: Option<u32>,
-    /// "Throwing" it fires a homing rocket instead, and the launcher is used up.
-    pub launches: bool,
+    /// What throwing it does (most things are simply thrown).
+    pub on_throw: OnThrow,
+    /// Thrown, it shatters on whatever it hits and sets the ground burning (a Molotov).
+    pub ignites: bool,
 }
 
 // Headshots multiply damage: rocks "hitting the right spot" are devastating.
@@ -91,11 +110,12 @@ const SPEAR: ItemDef = ItemDef {
     melee: Some((14.0, Hit { damage: 16.0, headshot_mult: HEADSHOT_MULT, source: Source::Stab })),
     fuse: None,
     blast: None,
-    spawn_chance: 0.18,
+    spawn_chance: 0.22,
     max_alive: None,
     splats: None,
     per_match: None,
-    launches: false,
+    on_throw: OnThrow::Throw,
+    ignites: false,
 };
 
 const ROCK: ItemDef = ItemDef {
@@ -107,12 +127,13 @@ const ROCK: ItemDef = ItemDef {
     melee: None,
     fuse: None,
     blast: None,
-    // Whatever's left over.
-    spawn_chance: 0.14,
+    // Only the one, lying there at the start (a nod to how the game began): it never spawns.
+    spawn_chance: 0.0,
     max_alive: None,
     splats: None,
     per_match: None,
-    launches: false,
+    on_throw: OnThrow::Throw,
+    ignites: false,
 };
 
 const GRENADE: ItemDef = ItemDef {
@@ -124,11 +145,12 @@ const GRENADE: ItemDef = ItemDef {
     melee: None,
     fuse: Some(secs(1)),
     blast: Some(Blast { radius: 34.0, damage: 85.0, edge: 0.35 }),
-    spawn_chance: 0.62,
+    spawn_chance: 0.50,
     max_alive: Some(8),
     splats: None,
     per_match: None,
-    launches: false,
+    on_throw: OnThrow::Throw,
+    ignites: false,
 };
 
 const SUSHI: ItemDef = ItemDef {
@@ -145,7 +167,8 @@ const SUSHI: ItemDef = ItemDef {
     max_alive: None,
     splats: Some(secs(15)),
     per_match: None,
-    launches: false,
+    on_throw: OnThrow::Throw,
+    ignites: false,
 };
 
 const PHONE: ItemDef = ItemDef {
@@ -162,7 +185,8 @@ const PHONE: ItemDef = ItemDef {
     max_alive: None,
     splats: None,
     per_match: None,
-    launches: false,
+    on_throw: OnThrow::Throw,
+    ignites: false,
 };
 
 const ROCKET_LAUNCHER: ItemDef = ItemDef {
@@ -179,8 +203,63 @@ const ROCKET_LAUNCHER: ItemDef = ItemDef {
     max_alive: Some(1),
     splats: None,
     per_match: Some(2),
-    launches: true,
+    on_throw: OnThrow::Rocket,
+    ignites: false,
 };
+
+const SWORD: ItemDef = ItemDef {
+    sensed_as: Sensed::Spear,
+    throw_speed: 260.0,
+    flight_gravity: 0.35,
+    bounce: 0.1,
+    thrown: Some(Hit { damage: 32.0, headshot_mult: HEADSHOT_MULT, source: Source::Slash }),
+    melee: Some((19.0, Hit { damage: 22.0, headshot_mult: HEADSHOT_MULT, source: Source::Slash })),
+    fuse: None,
+    blast: None,
+    spawn_chance: 0.08,
+    max_alive: Some(2),
+    splats: None,
+    per_match: None,
+    on_throw: OnThrow::Throw,
+    ignites: false,
+};
+
+const MOLOTOV: ItemDef = ItemDef {
+    sensed_as: Sensed::Rock,
+    throw_speed: 180.0,
+    flight_gravity: 0.8,
+    bounce: 0.0,
+    thrown: None,
+    melee: None,
+    fuse: None,
+    blast: None,
+    spawn_chance: 0.10,
+    max_alive: Some(3),
+    splats: None,
+    per_match: None,
+    on_throw: OnThrow::Throw,
+    ignites: true,
+};
+
+const AIR_STRIKE: ItemDef = ItemDef {
+    sensed_as: Sensed::Spear,
+    throw_speed: 0.0,
+    flight_gravity: 0.8,
+    bounce: 0.2,
+    thrown: None,
+    melee: None,
+    fuse: None,
+    blast: None,
+    spawn_chance: 0.04,
+    max_alive: Some(1),
+    splats: None,
+    per_match: Some(2),
+    on_throw: OnThrow::AirStrike,
+    ignites: false,
+};
+
+/// An air strike bomb going off: bigger than a grenade.
+pub const AIR_BOMB_BLAST: Blast = Blast { radius: 46.0, damage: 55.0, edge: 0.3 };
 
 /// A rocket's explosion.
 pub const ROCKET_BLAST: Blast = Blast { radius: 26.0, damage: 60.0, edge: 0.4 };
@@ -195,7 +274,7 @@ pub const DROPPED_FUSE: u32 = 30;
 /// The order spawn chances are rolled in: a random number in 0..1 picks the first kind whose
 /// running total of chances it falls under (skipping kinds already at their limit). The chances
 /// add up to 1.
-pub const SPAWN_ORDER: [ItemKind; 4] = [ItemKind::Grenade, ItemKind::RocketLauncher, ItemKind::Spear, ItemKind::Rock];
+pub const SPAWN_ORDER: [ItemKind; 6] = [ItemKind::Grenade, ItemKind::Molotov, ItemKind::Sword, ItemKind::RocketLauncher, ItemKind::AirStrike, ItemKind::Spear];
 
 impl ItemKind {
     pub const fn def(self) -> &'static ItemDef {
@@ -206,6 +285,9 @@ impl ItemKind {
             ItemKind::Sushi => &SUSHI,
             ItemKind::Phone => &PHONE,
             ItemKind::RocketLauncher => &ROCKET_LAUNCHER,
+            ItemKind::Sword => &SWORD,
+            ItemKind::Molotov => &MOLOTOV,
+            ItemKind::AirStrike => &AIR_STRIKE,
         }
     }
 }

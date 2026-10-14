@@ -658,6 +658,90 @@ impl Rocket {
     }
 }
 
+// Molotovs: the burning strip they leave, and what standing in it costs.
+const FIRE_HALF: f32 = 20.0;
+pub const FIRE_H: f32 = 7.0;
+const FIRE_TICKS: u32 = 4 * SECOND;
+const FIRE_DAMAGE: f32 = 5.0;
+/// How often the fire burns each fighter standing in it.
+const FIRE_EVERY: u32 = SECOND / 2;
+
+/// Burning ground: a strip along the surface a Molotov came down on.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Fire {
+    /// Middle of the strip, on the surface.
+    pub at: Vec2,
+    pub half_w: f32,
+    pub owner: usize,
+    pub ticks: u32,
+    #[serde(skip)]
+    burn_cd: [u32; N_BODIES],
+}
+
+impl Fire {
+    /// The fire from a Molotov shattering at `pos`: on whatever surface is below (or under) it,
+    /// spread along it but not past its ends.
+    pub fn at(arena: &Arena, props: &[Aabb], pos: Vec2, owner: usize) -> Self {
+        let probe = vec2(pos.x, pos.y - 2.0);
+        let mut y = probe.y + crate::sim::terrain_ray(arena, probe, vec2(0.0, 1.0), crate::sim::H);
+        for p in props.iter().filter(|p| pos.x >= p.x && pos.x <= p.x + p.w && p.y >= probe.y) {
+            y = y.min(p.y);
+        }
+        let ledge = arena.platforms.iter().chain(props).find(|p| (p.y - y).abs() < 0.5 && pos.x >= p.x && pos.x <= p.x + p.w);
+        let (lo, hi) = match ledge {
+            Some(p) => (p.x, p.x + p.w),
+            None => (crate::sim::WALL, W - crate::sim::WALL),
+        };
+        let (x0, x1) = ((pos.x - FIRE_HALF).max(lo), (pos.x + FIRE_HALF).min(hi));
+        Self { at: vec2((x0 + x1) / 2.0, y), half_w: (x1 - x0) / 2.0, owner, ticks: FIRE_TICKS, burn_cd: [0; N_BODIES] }
+    }
+
+    pub fn area(&self) -> Aabb {
+        Aabb::new(self.at.x - self.half_w, self.at.y - FIRE_H, self.half_w * 2.0, FIRE_H)
+    }
+}
+
+// Air strikes: the jet crosses the top of the arena once, dropping bombs at random points.
+const PLANE_SPEED: f32 = 210.0;
+pub const PLANE_Y: f32 = 24.0;
+/// The radio call before the jet arrives.
+const PLANE_DELAY: u32 = SECOND;
+const AIR_BOMB_GRAVITY: f32 = 420.0;
+
+/// An air strike's jet: on its way after the radio call, then one pass across.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Plane {
+    pub pos: Vec2,
+    pub dir: f32,
+    pub owner: usize,
+    /// Ticks until it arrives.
+    pub delay: u32,
+    /// Where (x) it still has to drop bombs, in the order it reaches them.
+    #[serde(skip)]
+    drops: Vec<f32>,
+    pub ticks: u32,
+}
+
+impl Plane {
+    /// A strike called in by `owner`: from a random side, with 5-7 bombs at random points.
+    pub fn new(rng: &mut impl rand::Rng, owner: usize) -> Self {
+        let dir = if rng.gen_bool(0.5) { 1.0 } else { -1.0 };
+        let mut drops: Vec<f32> = (0..rng.gen_range(5..=7)).map(|_| rng.gen_range(40.0..W - 40.0)).collect();
+        drops.sort_by(|a, b| (a * dir).total_cmp(&(b * dir)));
+        let x = if dir > 0.0 { -30.0 } else { W + 30.0 };
+        Self { pos: vec2(x, PLANE_Y), dir, owner, delay: PLANE_DELAY, drops, ticks: 30 * SECOND }
+    }
+}
+
+/// A bomb falling from the jet: it explodes on whatever it hits.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AirBomb {
+    pub pos: Vec2,
+    pub vel: Vec2,
+    pub owner: usize,
+    pub ticks: u32,
+}
+
 /// The solid things specials have put in the arena (Justin's tables), for `sim::collide`.
 pub fn props(effects: &[Effect]) -> Vec<Aabb> {
     effects.iter().filter_map(|e| if let Effect::Table(t) = e { Some(t.body()) } else { None }).collect()
@@ -724,7 +808,7 @@ impl Match {
                 f.special_cd -= 1;
                 continue;
             }
-            if wants[i] && f.alive() && f.hitstun == 0 {
+            if wants[i] && f.present() && f.hitstun == 0 {
                 f.special_cd = special.cooldown();
                 self.events.push(Event::Special { who: i });
                 special.activate(self, i);
@@ -764,6 +848,24 @@ impl Match {
             if self.f[i].digital == 0 {
                 continue;
             }
+            // A fresh press of left or right hops to the next phone that way (wrapping round): any
+            // phone in the match, his or another Jake's, that nobody else is inside.
+            let mv = self.f[i].action.mv;
+            let dir: i8 = if mv > 0.2 { 1 } else if mv < -0.2 { -1 } else { 0 };
+            let pressed = dir != 0 && dir != self.f[i].phone_mv;
+            self.f[i].phone_mv = dir;
+            if pressed {
+                let mut phones: Vec<usize> = (0..self.items.len()).filter(|&k| self.items[k].kind == crate::sim::ItemKind::Phone && self.items[k].carries.is_none_or(|c| c == i)).collect();
+                phones.sort_by(|&a, &b| self.items[a].pos.x.total_cmp(&self.items[b].pos.x));
+                if let Some(at) = phones.iter().position(|&k| self.items[k].carries == Some(i))
+                    && phones.len() > 1
+                {
+                    let n = phones.len() as i32;
+                    let next = phones[((at as i32 + dir as i32).rem_euclid(n)) as usize];
+                    self.items[phones[at]].carries = None;
+                    self.items[next].carries = Some(i);
+                }
+            }
             let phone = self.items.iter().position(|it| it.carries == Some(i));
             let at = phone.map_or(self.f[i].pos, |k| self.items[k].pos + vec2(0.0, crate::sim::ITEM_R));
             let f = &mut self.f[i];
@@ -794,6 +896,9 @@ impl Match {
                 Effect::Lightning(l) => l.ticks = l.ticks.saturating_sub(1),
                 Effect::Order(o) => o.ticks = o.ticks.saturating_sub(1),
                 Effect::Rocket(r) => self.step_rocket(r),
+                Effect::Fire(f) => self.step_fire(f),
+                Effect::Plane(p) => self.step_plane(p),
+                Effect::AirBomb(b) => self.step_air_bomb(b),
             }
             self.effects[e] = effect;
         }
@@ -902,6 +1007,64 @@ impl Match {
                     c.back = true;
                 }
             }
+        }
+    }
+
+    /// Burning ground: anyone standing in it (the thrower too) is burnt every so often.
+    fn step_fire(&mut self, fire: &mut Fire) {
+        fire.ticks = fire.ticks.saturating_sub(1);
+        let area = fire.area();
+        for j in 0..N_BODIES {
+            fire.burn_cd[j] = fire.burn_cd[j].saturating_sub(1);
+            let f = &self.f[j];
+            if !f.present() || fire.burn_cd[j] > 0 || !area.overlaps(&f.body()) {
+                continue;
+            }
+            fire.burn_cd[j] = FIRE_EVERY;
+            // A little hop off the flames rather than a knock across the room.
+            let v = vec2(f.vel.x * 0.5, -90.0);
+            let dir = if f.vel.x < 0.0 { -1.0 } else { 1.0 };
+            self.damage(fire.owner, j, FIRE_DAMAGE, v, 0, dir, Source::Fire, false);
+        }
+    }
+
+    /// The jet: waits out the radio call, then crosses once, dropping its bombs as it reaches
+    /// each point.
+    fn step_plane(&mut self, p: &mut Plane) {
+        if p.delay > 0 {
+            p.delay -= 1;
+            if p.delay == 0 {
+                self.events.push(Event::JetPass { dir: p.dir });
+            }
+            return;
+        }
+        p.pos.x += p.dir * PLANE_SPEED * DT;
+        while p.drops.first().is_some_and(|&x| (p.pos.x - x) * p.dir >= 0.0) {
+            p.drops.remove(0);
+            let pos = p.pos + vec2(0.0, 4.0);
+            self.events.push(Event::BombDrop { pos });
+            self.effects.push(Effect::AirBomb(AirBomb { pos, vel: vec2(p.dir * PLANE_SPEED * 0.3, 0.0), owner: p.owner, ticks: 10 * SECOND }));
+        }
+        let gone = if p.dir > 0.0 { p.pos.x > W + 40.0 } else { p.pos.x < -40.0 };
+        if gone {
+            p.ticks = 0;
+        }
+    }
+
+    /// A falling bomb: explodes (big) on the ground, a ledge, a table or anyone it hits.
+    fn step_air_bomb(&mut self, b: &mut AirBomb) {
+        let prev = b.pos;
+        b.vel.y += AIR_BOMB_GRAVITY * DT;
+        b.pos += b.vel * DT;
+        b.ticks = b.ticks.saturating_sub(1);
+        let hit = Aabb::around(b.pos, 2.0);
+        let on_someone = (0..N_BODIES).any(|j| self.f[j].present() && hit.overlaps(&self.f[j].body()));
+        let props = props(&self.effects);
+        let solid = SOLIDS.iter().chain(props.iter()).any(|s| s.contains(b.pos));
+        let ledge = self.arena().platforms.iter().any(|p| b.pos.x > p.x && b.pos.x < p.x + p.w && prev.y <= p.y && b.pos.y >= p.y);
+        if on_someone || solid || ledge || b.ticks == 0 {
+            b.ticks = 0;
+            self.explode(b.pos, Some(b.owner), crate::item::AIR_BOMB_BLAST);
         }
     }
 
@@ -1034,6 +1197,11 @@ pub enum Effect {
     Order(Order),
     /// A homing rocket (from a rocket launcher, not a special).
     Rocket(Rocket),
+    /// Burning ground, from a Molotov.
+    Fire(Fire),
+    /// An air strike's jet, and a bomb it dropped.
+    Plane(Plane),
+    AirBomb(AirBomb),
 }
 
 impl Effect {
@@ -1047,6 +1215,9 @@ impl Effect {
             Effect::Lightning(l) => l.owner,
             Effect::Order(o) => o.owner,
             Effect::Rocket(r) => r.owner,
+            Effect::Fire(f) => f.owner,
+            Effect::Plane(p) => p.owner,
+            Effect::AirBomb(b) => b.owner,
         }
     }
 
@@ -1060,6 +1231,9 @@ impl Effect {
             Effect::Lightning(_) => None,
             Effect::Order(_) => None,
             Effect::Rocket(r) => Some(r.pos),
+            Effect::Fire(f) => Some(f.at),
+            Effect::Plane(_) => None,
+            Effect::AirBomb(b) => Some(b.pos),
         }
     }
 
@@ -1073,6 +1247,9 @@ impl Effect {
             Effect::Lightning(l) => l.from,
             Effect::Order(o) => o.at,
             Effect::Rocket(r) => r.pos,
+            Effect::Fire(f) => f.at,
+            Effect::Plane(p) => p.pos,
+            Effect::AirBomb(b) => b.pos,
         }
     }
 
@@ -1086,6 +1263,9 @@ impl Effect {
             Effect::Lightning(l) => &mut l.from,
             Effect::Order(o) => &mut o.at,
             Effect::Rocket(r) => &mut r.pos,
+            Effect::Fire(f) => &mut f.at,
+            Effect::Plane(p) => &mut p.pos,
+            Effect::AirBomb(b) => &mut b.pos,
         }
     }
 
@@ -1098,6 +1278,9 @@ impl Effect {
             Effect::Lightning(l) => l.ticks == 0,
             Effect::Order(o) => o.ticks == 0,
             Effect::Rocket(r) => r.ticks == 0,
+            Effect::Fire(f) => f.ticks == 0,
+            Effect::Plane(p) => p.ticks == 0,
+            Effect::AirBomb(b) => b.ticks == 0,
         }
     }
 }
@@ -1679,5 +1862,35 @@ mod tests {
         }
         let g = glue_of(&m).expect("still there");
         assert!(g.stuck && g.held.is_empty(), "stuck to the terrain: {g:?}");
+    }
+
+    #[test]
+    fn jake_hops_between_phones_with_left_and_right() {
+        use crate::sim::{ItemKind, Item};
+        let z = zero_brain();
+        let mut m = staged([Character::Jake, Character::Classic, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
+        // Two phones already lying about from before.
+        m.items.push(Item::new(ItemKind::Phone, vec2(50.0, crate::sim::FLOOR_Y - crate::sim::ITEM_R)));
+        m.items.push(Item::new(ItemKind::Phone, vec2(250.0, crate::sim::FLOOR_Y - crate::sim::ITEM_R)));
+        step_idle(&mut m, &z, true);
+        assert_eq!(m.items.iter().filter(|it| it.kind == ItemKind::Phone).count(), 3);
+        for _ in 0..20 {
+            step_idle(&mut m, &z, false);
+        }
+        let right = Action { mv: 1.0, ..Action::default() };
+        m.step_with([&z; N_FIGHTERS], Some((0, right)));
+        assert!((m.f[0].pos.x - 250.0).abs() < 1.0, "hopped right to the far phone: {}", m.f[0].pos.x);
+        // Held: no more hopping. Released and pressed again: wraps round to the leftmost.
+        m.step_with([&z; N_FIGHTERS], Some((0, right)));
+        assert!((m.f[0].pos.x - 250.0).abs() < 1.0);
+        step_idle(&mut m, &z, false);
+        m.step_with([&z; N_FIGHTERS], Some((0, right)));
+        assert!((m.f[0].pos.x - 50.0).abs() < 1.0, "wrapped round: {}", m.f[0].pos.x);
+        for _ in 0..PHONE_TICKS {
+            step_idle(&mut m, &z, false);
+        }
+        assert_eq!(m.f[0].digital, 0);
+        assert!((m.f[0].pos.x - 50.0).abs() < 2.0, "came out of the phone he chose");
+        assert_eq!(m.items.iter().filter(|it| it.kind == ItemKind::Phone).count(), 3, "every phone stays");
     }
 }

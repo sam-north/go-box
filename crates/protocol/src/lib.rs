@@ -28,7 +28,7 @@ use go_box_sim::sim::{Action, ArenaId, Event, MatchConfig, MatchView, N_FIGHTERS
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 21;
+pub const PROTOCOL_VERSION: u16 = 22;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -282,6 +282,15 @@ mod tests {
         let mut m = Match::new(2, &MatchConfig::default());
         m.items.push(go_box_sim::sim::Item::new(ItemKind::RocketLauncher, glam_vec(200.0, 250.0)));
         m.effects.push(Effect::Rocket(go_box_sim::character::Rocket::new(glam_vec(100.0, 200.0), glam_vec(1.0, 0.0), 0)));
+        // And the rarer items and what they leave: a sword, a Molotov and a radio lying about, fire,
+        // a jet and one of its bombs.
+        for (k, kind) in [ItemKind::Sword, ItemKind::Molotov, ItemKind::AirStrike].into_iter().enumerate() {
+            m.items.push(go_box_sim::sim::Item::new(kind, glam_vec(260.0 + 20.0 * k as f32, 250.0)));
+        }
+        m.effects.push(Effect::Fire(go_box_sim::character::Fire::at(m.arena(), &[], glam_vec(300.0, 240.0), 1)));
+        let mut rng = <go_box_sim::sim::SimRng as rand::SeedableRng>::seed_from_u64(4);
+        m.effects.push(Effect::Plane(go_box_sim::character::Plane::new(&mut rng, 2)));
+        m.effects.push(Effect::AirBomb(go_box_sim::character::AirBomb { pos: glam_vec(150.0, 60.0), vel: glam_vec(40.0, 90.0), owner: 2, ticks: 300 }));
         let rocket = Snapshot { ack: 3, view: m.view(), events: vec![go_box_sim::sim::Event::RocketLaunch { pos: glam_vec(100.0, 200.0) }] };
         std::iter::once(first).chain(std::iter::once(rocket)).chain(found.into_iter().zip(wanted).map(|(s, (name, _))| s.unwrap_or_else(|| panic!("no {name} in the sample matches")))).collect()
     }
@@ -363,7 +372,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (21, 0x0e6e_dec9_f25e_f6ee);
+    const WIRE: (u16, u64) = (22, 0xff0d_1e0f_08db_bf8c);
 
     #[test]
     fn every_sample_round_trips() {

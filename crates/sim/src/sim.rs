@@ -87,7 +87,7 @@ const AIM_RANGE: f32 = 0.9;
 const GRAB_COOLDOWN: u32 = 10;
 const THROW_COOLDOWN: u32 = 20;
 pub use crate::item::{GRENADE_FUSE, ItemKind};
-use crate::item::{Blast, DROPPED_FUSE, FISTS, Hit, N_SENSED, SPAWN_ORDER};
+use crate::item::{Blast, DROPPED_FUSE, FISTS, Hit, N_SENSED, OnThrow, SPAWN_ORDER};
 pub const GRENADE_RADIUS: f32 = crate::item::GRENADE_BLAST.radius;
 pub const ITEM_R: f32 = 1.5;
 const LETHAL_SPEED: f32 = 110.0;
@@ -95,7 +95,7 @@ const OWN_GRACE: u32 = 15;
 
 // Items lying around.
 const START_SPEARS: usize = 2;
-const START_ROCKS: usize = 2;
+const START_ROCKS: usize = 1;
 const START_GRENADES: usize = 4;
 const ITEM_SPAWN_EVERY: Range<u32> = secs(4)..secs(7);
 const MAX_LOOSE_ITEMS: usize = 12;
@@ -131,6 +131,10 @@ pub enum Source {
     Special,
     /// A piece of Justin's sushi.
     Sushi,
+    /// The giant sword.
+    Slash,
+    /// Burning ground (a Molotov).
+    Fire,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -252,6 +256,9 @@ pub struct Fighter {
     /// jump.
     pub jump_held: bool,
     pub wall_cd: u32,
+    /// Inside a phone: which way left/right was held last tick (a fresh press switches phones).
+    #[serde(skip)]
+    pub phone_mv: i8,
 }
 
 impl Fighter {
@@ -289,6 +296,7 @@ impl Fighter {
             dash_cd: 0,
             jump_held: false,
             wall_cd: 0,
+            phone_mv: 0,
         }
     }
 
@@ -430,6 +438,14 @@ pub enum Event {
     RocketLaunch { pos: Vec2 },
     /// Fighter `who` dashed.
     Dash { who: usize, pos: Vec2 },
+    /// A Molotov shattering (the ground catches fire).
+    Ignite { pos: Vec2 },
+    /// Fighter `who` radioing in an air strike.
+    RadioCall { pos: Vec2 },
+    /// The air strike's jet coming in (flying `dir`: 1 left to right).
+    JetPass { dir: f32 },
+    /// A bomb dropped from the jet.
+    BombDrop { pos: Vec2 },
     /// Jake going into his phone (`out`: false) or coming back out of it, at his middle.
     Hologram { pos: Vec2, out: bool },
     /// Robert's lightning striking someone.
@@ -841,12 +857,16 @@ impl Match {
         let mut actions = [Action::default(); N_BODIES];
         let frozen = self.counting_down();
         for i in 0..N_BODIES {
-            if !self.f[i].present() || frozen {
+            if !self.f[i].alive() || frozen {
                 continue;
             }
+            // (A player inside Jake's phone still steers: left/right picks the phone to come out of.)
             if let Some(a) = humans.get(i).copied().flatten() {
                 actions[i] = a;
                 self.f[i].action = a;
+                continue;
+            }
+            if !self.f[i].present() {
                 continue;
             }
             let input = self.senses(i);
@@ -981,13 +1001,25 @@ impl Match {
             };
             f.holding = None;
             f.hand_cd = THROW_COOLDOWN;
-            // A rocket launcher fires its rocket that way instead, and is used up.
-            if self.items[k].kind.def().launches {
-                let from = f.hand();
-                self.items.swap_remove(k);
-                self.effects.push(Effect::Rocket(crate::character::Rocket::new(from, dir, i)));
-                self.events.push(Event::RocketLaunch { pos: from });
-                return;
+            // A rocket launcher fires its rocket that way instead, and a radio calls in an air
+            // strike; either is used up.
+            match self.items[k].kind.def().on_throw {
+                OnThrow::Throw => {}
+                OnThrow::Rocket => {
+                    let from = f.hand();
+                    self.items.swap_remove(k);
+                    self.effects.push(Effect::Rocket(crate::character::Rocket::new(from, dir, i)));
+                    self.events.push(Event::RocketLaunch { pos: from });
+                    return;
+                }
+                OnThrow::AirStrike => {
+                    let from = f.hand();
+                    self.items.swap_remove(k);
+                    let plane = crate::character::Plane::new(&mut self.rng, i);
+                    self.effects.push(Effect::Plane(plane));
+                    self.events.push(Event::RadioCall { pos: from });
+                    return;
+                }
             }
             let it = &mut self.items[k];
             it.held_by = None;
@@ -1018,6 +1050,19 @@ impl Match {
             } else {
                 let (struck, touched) = step_item(&mut self.items[k], self.config.arena.def(), &props);
                 let it = &self.items[k];
+                // A thrown Molotov shatters on whatever it hits, and the ground below catches fire.
+                if it.kind.def().ignites && it.owner.is_some() {
+                    let ib = Aabb::around(it.pos, ITEM_R);
+                    let on_someone = (0..N_BODIES).any(|j| self.f[j].present() && !(it.owner == Some(j) && it.age < OWN_GRACE) && ib.overlaps(&self.f[j].body()));
+                    if touched || on_someone {
+                        let (pos, owner) = (it.pos, it.owner.unwrap_or(0));
+                        let fire = crate::character::Fire::at(self.arena(), &props, pos, owner);
+                        self.events.push(Event::Ignite { pos });
+                        self.effects.push(Effect::Fire(fire));
+                        gone.push((k, false));
+                        continue;
+                    }
+                }
                 if let Some(spoil) = splats {
                     // Thrown sushi is done the moment it touches anything; uneaten, it spoils.
                     if it.owner.is_some() && touched {
@@ -1541,9 +1586,9 @@ mod tests {
         }
         assert_eq!(h, CLASSIC_HASH, "classic match fingerprint changed: {h:#018x}");
     }
-    // Last deliberately changed by wall jumps (bots kick off walls too). It must
+    // Last deliberately changed by one rock a match and the new items. It must
     // come out the same on 32-bit targets too: `cargo test -p go-box-sim --target i686-pc-windows-msvc`.
-    const CLASSIC_HASH: u64 = 0x5537_4048_b7a5_7b90;
+    const CLASSIC_HASH: u64 = 0x183d_2237_c2dd_a31e;
 
     /// Everyone on the floor, nothing lying around, nobody thinking (all-zero brains stand still).
     fn quiet_match() -> (Match, Brain) {
@@ -1712,6 +1757,77 @@ mod tests {
         m.step_with([&z; N_FIGHTERS], Some((0, Action { dash: true, ..Action::default() })));
         assert_eq!(m.f[0].dash_t, 0, "not again so soon");
         assert!(!m.events.iter().any(|e| matches!(e, Event::Dash { .. })));
+    }
+
+    #[test]
+    fn only_one_rock_a_match() {
+        let (mut m, _) = quiet_match();
+        let m0 = Match::new(3, &MatchConfig::default());
+        assert_eq!(m0.items.iter().filter(|it| it.kind == ItemKind::Rock).count(), 1, "one at the start");
+        for _ in 0..3000 {
+            m.next_item = m.tick;
+            m.spawn_items();
+            assert!(m.items.iter().all(|it| it.kind != ItemKind::Rock), "no rock ever spawns");
+            m.items.clear();
+        }
+    }
+
+    #[test]
+    fn a_molotov_sets_the_ground_burning() {
+        let (mut m, z) = quiet_match();
+        m.items.push(Item { held_by: Some(0), ..Item::new(ItemKind::Molotov, m.f[0].hand()) });
+        m.f[0].holding = Some(ItemKind::Molotov);
+        // Lobbed at the floor just ahead.
+        let a = Action { throw: true, target: Some(vec2(1.0, -0.2)), ..Action::default() };
+        m.step_with([&z; N_FIGHTERS], Some((0, a)));
+        let mut lit = false;
+        for _ in 0..60 {
+            m.step([&z; N_FIGHTERS]);
+            lit |= m.events.iter().any(|e| matches!(e, Event::Ignite { .. }));
+        }
+        assert!(lit, "it shattered");
+        let fire = m.effects.iter().find_map(|e| if let Effect::Fire(f) = e { Some(f.clone()) } else { None }).expect("fire");
+        assert_eq!(fire.at.y, FLOOR_Y, "on the floor");
+        // Someone walks into it and gets burnt.
+        m.f[1].pos.x = fire.at.x;
+        let hp = m.f[1].hp;
+        for _ in 0..30 {
+            m.step([&z; N_FIGHTERS]);
+        }
+        assert!(m.f[1].hp < hp, "burnt");
+    }
+
+    #[test]
+    fn an_air_strike_flies_over_and_bombs_the_arena() {
+        let (mut m, z) = quiet_match();
+        m.items.push(Item { held_by: Some(0), ..Item::new(ItemKind::AirStrike, m.f[0].hand()) });
+        m.f[0].holding = Some(ItemKind::AirStrike);
+        m.step_with([&z; N_FIGHTERS], Some((0, Action { throw: true, ..Action::default() })));
+        assert!(m.events.iter().any(|e| matches!(e, Event::RadioCall { .. })), "radioed in");
+        let (mut drops, mut booms, mut jet) = (0, 0, false);
+        for _ in 0..secs(6) {
+            m.step([&z; N_FIGHTERS]);
+            jet |= m.events.iter().any(|e| matches!(e, Event::JetPass { .. }));
+            drops += m.events.iter().filter(|e| matches!(e, Event::BombDrop { .. })).count();
+            booms += m.events.iter().filter(|e| matches!(e, Event::Explosion { .. })).count();
+        }
+        assert!(jet && (5..=7).contains(&drops), "the jet came and dropped {drops}");
+        assert_eq!(booms, drops, "every bomb went off");
+        assert!(m.effects.is_empty(), "and it's all over");
+    }
+
+    #[test]
+    fn the_sword_reaches_further_and_hits_harder_than_fists() {
+        let (mut m, z) = quiet_match();
+        m.f[0].pos.x = m.f[1].pos.x - 20.0;
+        m.f[0].facing = 1.0;
+        m.items.push(Item { held_by: Some(0), ..Item::new(ItemKind::Sword, m.f[0].hand()) });
+        m.f[0].holding = Some(ItemKind::Sword);
+        m.step_with([&z; N_FIGHTERS], Some((0, Action { attack: true, ..Action::default() })));
+        for _ in 0..ATK_TOTAL {
+            m.step([&z; N_FIGHTERS]);
+        }
+        assert!(MAX_HP - m.f[1].hp >= 22.0, "a slash from 20px away: {}", m.f[1].hp);
     }
 
     #[test]

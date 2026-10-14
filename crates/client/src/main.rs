@@ -153,7 +153,7 @@ async fn main() {
                 app.send(ClientMsg::Input { seq, action });
                 let mut mine = Vec::new();
                 app.game.as_mut().unwrap().local_tick(seq, action, &mut mine);
-                sfx.local(&mine);
+                sfx.local(&mine, me.holding);
             }
         }
 
