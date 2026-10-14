@@ -1147,7 +1147,10 @@ impl Match {
         r.ticks = r.ticks.saturating_sub(1);
         let target = (0..N_BODIES).filter(|&j| self.foes(r.owner, j)).map(|j| self.f[j].center()).min_by(|a, b| a.distance(r.pos).total_cmp(&b.distance(r.pos)));
         if let Some(t) = target {
-            let (have, want) = (r.vel.to_angle(), (t - r.pos).to_angle());
+            // (libm, not std: the platform's own trig differs between Windows and Linux in the last
+            // bits, and matches must play out identically everywhere.)
+            let angle = |v: Vec2| libm::atan2f(v.y, v.x);
+            let (have, want) = (angle(r.vel), angle(t - r.pos));
             let mut turn = want - have;
             while turn > std::f32::consts::PI {
                 turn -= std::f32::consts::TAU;
@@ -1156,7 +1159,7 @@ impl Match {
                 turn += std::f32::consts::TAU;
             }
             let a = have + turn.clamp(-ROCKET_TURN * DT, ROCKET_TURN * DT);
-            r.vel = Vec2::from_angle(a) * ROCKET_SPEED;
+            r.vel = vec2(libm::cosf(a), libm::sinf(a)) * ROCKET_SPEED;
         }
         r.pos += r.vel * DT;
         let hit = Aabb::around(r.pos, 2.0);

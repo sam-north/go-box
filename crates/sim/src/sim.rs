@@ -1611,7 +1611,7 @@ mod tests {
     }
     // Last deliberately changed by items spawning twice as often. It must
     // come out the same on 32-bit targets too: `cargo test -p go-box-sim --target i686-pc-windows-msvc`.
-    const CLASSIC_HASH: u64 = 0x528f_7d0d_9533_0898;
+    const CLASSIC_HASH: u64 = 0xa45c_0610_eaf7_28b5;
 
     /// Everyone on the floor, nothing lying around, nobody thinking (all-zero brains stand still).
     fn quiet_match() -> (Match, Brain) {
