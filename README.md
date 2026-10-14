@@ -44,7 +44,7 @@ Everyone has the same body; each character adds one special on a cooldown.
 |---|---|---|
 | Classic | none — the hooded fighter the brains were trained as | — |
 | Sam | **Glue Gun**: fires a glob of glue (like Noita's glue gunners) the way he aims. Whoever it hits takes 4 and is stuck for 5s: moving at a third of normal speed, tethered to the nearest surface by an elastic strand that snaps if stretched past 48px. A glob that hits terrain leaves a blob, and anyone who runs into a blob or a strand is stuck too | 8s |
-| Austin | **Pop-Up**: teleports to the mouse cursor (out of walls, onto tables). With a controller, and for bots, it goes the way he's facing, at least 160px ahead (a third of the arena) when there's room, else anywhere ahead; prefers spots 40px from everyone | 15s |
+| Austin | **Pop-Up**: teleports to the mouse cursor (out of walls, onto tables). With a controller, and for bots, it goes the way he's facing, at least 160px ahead (a third of the arena) when there's room, else anywhere ahead; prefers spots 40px from everyone | 6s |
 | Tyler | **Release the Hounds**: three dogs run the floors for 5s, biting anyone but Tyler for 15 (each dog at most twice a second per victim), and Tyler runs 35% faster while they're out | 30s |
 | Seth | **Mini Me**: two smaller (70%) clones hop out in front of him for 15s. They fight like bots (grabbing and throwing too), die to one hit, and their kills count as his; they vanish if he goes down | 30s |
 | Corwin | **Cat Herder**: twenty cats pour out and run the floors for 5s; each scratch is only 2 (once a second per cat per victim) but they come as a swarm. Sushi within 100px distracts them: they crowd round it (hopping up onto a table for it) and scratch nobody | 30s |

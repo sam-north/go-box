@@ -30,7 +30,7 @@ const TETHER_SPRING: f32 = 20.0;
 const GLUE_CATCH: f32 = 4.0;
 
 // Austin — Pop-Up.
-const POPUP_COOLDOWN: u32 = 15 * SECOND;
+const POPUP_COOLDOWN: u32 = 6 * SECOND;
 /// Austin never lands closer than this to a living opponent (if anywhere allows it).
 const POPUP_MIN_GAP: f32 = 40.0;
 /// Pop-Up only goes the way Austin is facing: this far ahead (about a third of the arena),

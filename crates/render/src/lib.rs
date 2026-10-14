@@ -971,6 +971,19 @@ fn draw_heal(p: Vec2, time: f32) {
     draw_rectangle(x, y + 1.0, 2.0, 1.0, Color::new(HEAL.r * 0.6, HEAL.g * 0.6, HEAL.b * 0.7, 1.0));
 }
 
+/// A soft glow pulsing under a rare item lying on the ground, so it's easy to spot.
+fn item_glow(p: Vec2, c: Color, time: f32) {
+    let pulse = 0.5 + 0.5 * (time * 4.0 + p.x * 0.1).sin();
+    draw_circle(p.x, p.y - 3.0, 9.0 + pulse * 2.0, Color::new(c.r, c.g, c.b, 0.06 + 0.06 * pulse));
+    draw_circle(p.x, p.y - 3.0, 5.0 + pulse, Color::new(c.r, c.g, c.b, 0.10 + 0.08 * pulse));
+}
+
+/// A filled rectangle with a dark 1px outline round it (so a small item reads on any backdrop).
+fn outlined(x: f32, y: f32, w: f32, h: f32, c: Color) {
+    draw_rectangle(x - 1.0, y - 1.0, w + 2.0, h + 2.0, Color::new(0.03, 0.03, 0.04, 0.9));
+    draw_rectangle(x, y, w, h, c);
+}
+
 fn draw_item(it: &Item, time: f32) {
     let p = it.pos;
     let (x, y) = (p.x.round() - 1.0, p.y.round() - 1.0);
@@ -1018,30 +1031,50 @@ fn draw_item(it: &Item, time: f32) {
             let base = if it.vel.length() > 20.0 { p } else { p + vec2(0.0, ITEM_R - 0.5) };
             draw_blade(base - dir * 7.0, dir, false);
         }
+        // These three are rare and worth grabbing: bigger than the rest, outlined, with a soft glow
+        // while they're lying around.
         ItemKind::Molotov => {
-            // A dark green bottle with a rag stuffed in the neck, smouldering.
-            draw_rectangle(x - 0.5, y - 1.0, 3.0, 4.0, Color::new(0.20, 0.30, 0.20, 1.0));
-            draw_rectangle(x, y - 1.0, 1.0, 2.0, Color::new(0.34, 0.46, 0.32, 1.0));
-            draw_rectangle(x + 0.5, y - 3.0, 1.0, 2.0, Color::new(0.62, 0.55, 0.42, 1.0));
-            if (time * 13.0 + p.x).sin() > -0.3 {
-                draw_rectangle(x + 0.5, y - 4.0, 1.0, 1.0, FLAME_TIP);
+            let (bx, by) = (p.x.round(), p.y.round() + 1.0);
+            if it.held_by.is_none() {
+                item_glow(p, FLAME, time);
             }
+            let glass = Color::new(0.24, 0.40, 0.24, 1.0);
+            outlined(bx - 2.0, by - 5.0, 4.0, 5.0, glass);
+            outlined(bx - 1.0, by - 7.0, 2.0, 2.0, glass);
+            draw_rectangle(bx - 1.0, by - 4.0, 1.0, 3.0, Color::new(0.42, 0.58, 0.40, 1.0));
+            draw_rectangle(bx - 2.0, by - 3.0, 4.0, 1.0, Color::new(0.62, 0.50, 0.30, 1.0));
+            draw_rectangle(bx - 1.0, by - 9.0, 1.0, 2.0, Color::new(0.70, 0.62, 0.48, 1.0));
+            let flick = ((time * 13.0 + p.x).sin() * 0.5 + 0.5) * 2.0;
+            draw_rectangle(bx - 1.0, by - 10.0 - flick.round(), 2.0, 1.0 + flick.round(), FLAME_TIP);
         }
         ItemKind::AirStrike => {
-            // A field radio: a dark box with a whip antenna and a blinking light.
-            draw_rectangle(x - 1.0, y - 1.0, 4.0, 4.0, Color::new(0.24, 0.26, 0.22, 1.0));
-            draw_rectangle(x - 1.0, y - 1.0, 4.0, 1.0, Color::new(0.34, 0.36, 0.30, 1.0));
-            draw_rectangle(x + 2.0, y - 4.0, 1.0, 3.0, Color::new(0.12, 0.12, 0.12, 1.0));
-            if (time * 4.0).sin() > 0.0 {
-                draw_rectangle(x, y + 1.0, 1.0, 1.0, Color::new(0.85, 0.25, 0.18, 1.0));
+            let (bx, by) = (p.x.round(), p.y.round() + 1.0);
+            let blink = (time * 4.0).sin() > 0.0;
+            if it.held_by.is_none() {
+                item_glow(p, Color::new(0.95, 0.35, 0.25, 1.0), time);
+            }
+            // A field radio: a squat box with a speaker grille, a whip antenna and a blinking light.
+            outlined(bx - 3.0, by - 5.0, 6.0, 5.0, Color::new(0.30, 0.33, 0.26, 1.0));
+            draw_rectangle(bx - 2.0, by - 4.0, 2.0, 1.0, Color::new(0.14, 0.15, 0.13, 1.0));
+            draw_rectangle(bx - 2.0, by - 2.0, 2.0, 1.0, Color::new(0.14, 0.15, 0.13, 1.0));
+            draw_rectangle(bx + 2.0, by - 10.0, 1.0, 5.0, Color::new(0.10, 0.10, 0.10, 1.0));
+            let light = if blink { Color::new(1.0, 0.30, 0.20, 1.0) } else { Color::new(0.40, 0.14, 0.10, 1.0) };
+            draw_rectangle(bx + 1.0, by - 4.0, 1.0, 1.0, light);
+            if blink {
+                draw_circle(bx + 1.5, by - 3.5, 2.5, Color::new(1.0, 0.3, 0.2, 0.25));
             }
         }
         ItemKind::RocketLauncher => {
-            // A battered olive tube with a dark muzzle and a grip underneath.
-            draw_rectangle(x - 3.0, y, 8.0, 2.0, Color::new(0.30, 0.33, 0.24, 1.0));
-            draw_rectangle(x - 3.0, y, 8.0, 1.0, Color::new(0.40, 0.43, 0.32, 1.0));
-            draw_rectangle(x + 4.0, y, 1.0, 2.0, Color::new(0.08, 0.08, 0.08, 1.0));
-            draw_rectangle(x, y + 2.0, 1.0, 1.0, Color::new(0.20, 0.18, 0.15, 1.0));
+            let (bx, by) = (p.x.round(), p.y.round() + 1.0);
+            if it.held_by.is_none() {
+                item_glow(p, Color::new(0.95, 0.82, 0.40, 1.0), time);
+            }
+            // A battered olive tube with a yellow warning band, a dark muzzle and a grip.
+            outlined(bx - 6.0, by - 4.0, 12.0, 3.0, Color::new(0.34, 0.38, 0.26, 1.0));
+            draw_rectangle(bx - 6.0, by - 4.0, 12.0, 1.0, Color::new(0.46, 0.50, 0.36, 1.0));
+            draw_rectangle(bx - 1.0, by - 4.0, 2.0, 3.0, Color::new(0.82, 0.68, 0.26, 1.0));
+            draw_rectangle(bx + 5.0, by - 4.0, 1.0, 3.0, Color::new(0.06, 0.06, 0.06, 1.0));
+            draw_rectangle(bx - 3.0, by - 1.0, 1.0, 2.0, Color::new(0.20, 0.18, 0.15, 1.0));
         }
         ItemKind::Sushi => {
             // A piece of salmon nigiri: rice, fish on top, a band of nori.
@@ -1441,10 +1474,10 @@ fn draw_blade(at: Vec2, dir: Vec2, flash: bool) {
     line(at + dir * 15.0, at + dir * 17.5, 1.0, tint(STEEL, flash));
 }
 
-/// A held giant sword for the current swing phase (returns where the hand is): resting up over
-/// the shoulder, drawn back on the wind-up, then a big arc over and down in front (with a pale
+/// A held giant sword for the current swing phase (returns where the hand is): held at the hip
+/// with the blade angled up in front (a ready stance), raised up and back on the wind-up, then a big arc over and down in front (with a pale
 /// trail through the air), settling back after.
-fn draw_sword(f: &Fighter, neck: Vec2, flash: bool) -> Vec2 {
+fn draw_sword(f: &Fighter, _neck: Vec2, flash: bool) -> Vec2 {
     let s = f.facing;
     let (x, fy) = (f.pos.x, f.pos.y);
     // Angle in degrees: 90 straight up, 0 straight ahead, negative pointing down in front.
@@ -1452,16 +1485,16 @@ fn draw_sword(f: &Fighter, neck: Vec2, flash: bool) -> Vec2 {
         let a = deg.to_radians();
         vec2(s * a.cos(), -a.sin())
     };
-    let rest = (neck + vec2(s * 1.0, 3.0), 110.0);
+    let rest = (vec2(x + s * 3.0, fy - 7.0), 55.0);
     let (hand, deg) = match f.atk_timer {
         0 => rest,
         t if t <= ATK_WINDUP => {
             let k = t as f32 / ATK_WINDUP as f32;
-            (rest.0.lerp(vec2(x - s * 2.0, fy - 10.0), k), 110.0 + 45.0 * k)
+            (rest.0.lerp(vec2(x - s * 1.0, fy - 12.0), k), 55.0 + 85.0 * k)
         }
         t if t <= ATK_WINDUP + ATK_ACTIVE => {
             let k = (t - ATK_WINDUP) as f32 / ATK_ACTIVE as f32;
-            let deg = 155.0 - 200.0 * k;
+            let deg = 140.0 - 185.0 * k;
             // The trail: where the blade swept through, fading behind it.
             for j in 1..6 {
                 let d = dir(deg + j as f32 * 14.0);

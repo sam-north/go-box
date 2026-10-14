@@ -43,7 +43,7 @@ pub fn draw_you(m: &Match, seat: usize) {
     }
 }
 
-/// Names and health across the top, the clock, and your special at the bottom.
+/// Names, health and specials (compact, top left), the clock, and the 3-2-1.
 pub fn hud(ui: &Ui, app: &App, m: &Match) {
     let Some(g) = &app.game else {
         ui.text_centered(t("hud.joining"), screen_width() / 2.0, screen_height() / 2.0, 30.0, INK);
@@ -51,7 +51,12 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
     };
     names_over_heads(ui, app, m);
     let sw = screen_width();
-    let colw = (sw - ui.px(32.0)) / N_FIGHTERS as f32;
+    // Compact, in the top-left of the arena (under half its width), so it never runs off the edge.
+    let (origin, scale) = app.view;
+    let arena_w = go_box_sim::sim::W * scale;
+    let left = origin.x.max(0.0) + ui.px(12.0);
+    let top = origin.y.max(0.0);
+    let colw = arena_w * 0.46 / N_FIGHTERS as f32;
     for i in 0..N_FIGHTERS {
         let f = &m.f[i];
         if f.absent {
@@ -59,18 +64,34 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
         }
         let seat = &g.start.seats[i];
         let color = if f.alive() { render::look(f.character, i).accent } else { DIM };
-        let x = ui.px(16.0) + i as f32 * colw;
+        let x = left + i as f32 * colw;
         let you = g.seat() == Some(i);
         let name = seat_name(&seat.name, f.character, seat.player.is_none());
         let name = if you { tf("hud.you", &[("name", &name)]) } else { name };
-        ui.text(&name, x, ui.px(28.0), 20.0, color);
-        let bw = colw - ui.px(48.0);
-        draw_rectangle(x, ui.px(36.0), bw, ui.px(6.0), Color::new(0.0, 0.0, 0.0, 0.6));
-        draw_rectangle(x, ui.px(36.0), bw * (f.hp.max(0.0) / go_box_sim::sim::MAX_HP), ui.px(6.0), color);
+        let bw = colw - ui.px(26.0);
+        ui.text(&ui.fit(&name, 15.0, bw + ui.px(14.0)), x, top + ui.px(22.0), 15.0, color);
+        let by = top + ui.px(28.0);
+        draw_rectangle(x, by, bw, ui.px(4.0), Color::new(0.0, 0.0, 0.0, 0.6));
+        draw_rectangle(x, by, bw * (f.hp.max(0.0) / go_box_sim::sim::MAX_HP), ui.px(4.0), color);
         // Their special: a little clock filling up as it recharges, solid when it's ready.
         if let Some(sp) = f.character.special().filter(|_| f.alive()) {
             let ready = 1.0 - f.special_cd as f32 / sp.cooldown() as f32;
-            special_pie(vec2(x + bw + ui.px(18.0), ui.px(35.0)), ui.px(11.0), ready, render::character_color(f.character));
+            special_pie(vec2(x + bw + ui.px(11.0), by + ui.px(2.0)), ui.px(7.0), ready, render::character_color(f.character));
+        }
+        // Yours: the special's recharge bar and what it says, just under your health.
+        if you && f.alive()
+            && let Some(sp) = f.character.special()
+        {
+            let c = render::character_color(f.character);
+            let ready = f.special_cd == 0;
+            let frac = 1.0 - f.special_cd as f32 / sp.cooldown() as f32;
+            let sy = by + ui.px(8.0);
+            draw_rectangle(x, sy, bw, ui.px(3.0), Color::new(0.0, 0.0, 0.0, 0.6));
+            draw_rectangle(x, sy, bw * frac, ui.px(3.0), if ready { c } else { Color::new(c.r * 0.5, c.g * 0.5, c.b * 0.5, 1.0) });
+            let key = app.settings.bindings.short_label(Act::Special, app.controls.using_pad);
+            let secs = format!("{:.0}", (f.special_cd as f32 * DT).ceil());
+            let label = if ready { tf("hud.special_ready", &[("key", &key), ("special", special_name(sp))]) } else { tf("hud.special_cooling", &[("special", special_name(sp)), ("secs", &secs)]) };
+            ui.text(&ui.fit(&label, 13.0, colw * 1.6), x, sy + ui.px(15.0), 13.0, if ready { c } else { DIM });
         }
     }
     // Whole seconds left, counted in ticks (float maths made 45s show as 0:46).
@@ -103,25 +124,34 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
             let f = &m.f[s];
             if !f.alive() {
                 ui.text_centered(t("hud.down"), sw / 2.0, sh - ui.px(24.0), 24.0, DIM);
-            } else if let Some(sp) = f.character.special() {
-                let color = render::character_color(f.character);
-                let w = ui.px(260.0);
-                let x = (sw - w) / 2.0;
-                // Up under the clock (down at the bottom it hid the floor).
-                let y = ui.px(84.0);
-                let ready = f.special_cd == 0;
-                let frac = 1.0 - f.special_cd as f32 / sp.cooldown() as f32;
-                draw_rectangle(x, y, w, ui.px(10.0), Color::new(0.0, 0.0, 0.0, 0.6));
-                draw_rectangle(x, y, w * frac, ui.px(10.0), if ready { color } else { Color::new(color.r * 0.5, color.g * 0.5, color.b * 0.5, 1.0) });
-                let key = app.settings.bindings.short_label(Act::Special, app.controls.using_pad);
-                let secs = format!("{:.0}", (f.special_cd as f32 * DT).ceil());
-                let label = if ready { tf("hud.special_ready", &[("key", &key), ("special", special_name(sp))]) } else { tf("hud.special_cooling", &[("special", special_name(sp)), ("secs", &secs)]) };
-                ui.text_centered(&label, sw / 2.0, y + ui.px(30.0), 20.0, if ready { color } else { DIM });
+            } else if f.character.special().is_some() {
+                // (Your special's bar is up by your health, top left.)
             } else {
                 ui.text_centered(&app.controls_help(), sw / 2.0, sh - ui.px(16.0), 18.0, DIM);
             }
         }
     }
+}
+
+/// The protected start: "Invulnerable", centred on `at` (the text's baseline), with a pie running
+/// down until it ends. Over every fighter (yours a bit bigger).
+fn invulnerable(ui: &Ui, m: &Match, at: Vec2, size: f32) {
+    if m.counting_down() || !m.protected() {
+        return;
+    }
+    let left = (m.config.countdown + m.config.spawn_grace - m.tick) as f32 / m.config.spawn_grace.max(1) as f32;
+    let shield = Color::new(0.55, 0.85, 1.0, 1.0);
+    let label = t("hud.invulnerable");
+    let r = ui.px(size * 0.38);
+    let gap = ui.px(size * 0.38);
+    let lw = ui.text_width(label, size);
+    let x0 = at.x - (lw + gap + r * 2.0) / 2.0;
+    let o = ui.px(1.0);
+    for (dx, dy) in [(-o, 0.0), (o, 0.0), (0.0, -o), (0.0, o)] {
+        ui.text(label, x0 + dx, at.y + dy, size, Color::new(0.0, 0.0, 0.0, 0.8));
+    }
+    ui.text(label, x0, at.y, size, shield);
+    special_pie(vec2(x0 + lw + gap + r, at.y - ui.px(size * 0.3)), r, left.min(0.999), shield);
 }
 
 /// A recharge clock: an outlined circle filling clockwise from 12 o'clock with `ready` (0..1), and
@@ -192,25 +222,11 @@ fn names_over_heads(ui: &Ui, app: &App, m: &Match) {
                 ui.text_centered(who, pc.x + dx, pc.y + dy, 13.0, Color::new(0.0, 0.0, 0.0, 0.7));
             }
             ui.text_centered(who, pc.x, pc.y, 13.0, Color::new(0.80, 0.81, 0.84, 0.75));
-            // The protected start: "Invulnerable" just over your name, with a pie running down until
-            // it ends.
-            if !m.counting_down() && m.protected() {
-                let left = (m.config.countdown + m.config.spawn_grace - m.tick) as f32 / m.config.spawn_grace.max(1) as f32;
-                let shield = Color::new(0.55, 0.85, 1.0, 1.0);
-                let label = t("hud.invulnerable");
-                let r = ui.px(6.0);
-                let lw = ui.text_width(label, 16.0);
-                let x0 = p.x - (lw + ui.px(6.0) + r * 2.0) / 2.0;
-                let y = p.y - ui.px(26.0);
-                for (dx, dy) in [(-o, 0.0), (o, 0.0), (0.0, -o), (0.0, o)] {
-                    ui.text(label, x0 + dx, y + dy, 16.0, Color::new(0.0, 0.0, 0.0, 0.8));
-                }
-                ui.text(label, x0, y, 16.0, shield);
-                special_pie(vec2(x0 + lw + ui.px(6.0) + r, y - ui.px(5.0)), r, left.min(0.999), shield);
-            }
+            invulnerable(ui, m, vec2(p.x, p.y - ui.px(26.0)), 16.0);
         } else {
             let p = to_screen(f.pos - vec2(0.0, 25.0));
             ui.text_centered(&name, p.x, p.y, 14.0, Color::new(0.85, 0.86, 0.88, 0.5));
+            invulnerable(ui, m, vec2(p.x, p.y - ui.px(16.0)), 12.0);
         }
     }
 }

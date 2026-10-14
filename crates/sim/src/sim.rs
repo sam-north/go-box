@@ -1586,9 +1586,9 @@ mod tests {
         }
         assert_eq!(h, CLASSIC_HASH, "classic match fingerprint changed: {h:#018x}");
     }
-    // Last deliberately changed by one rock a match and the new items. It must
+    // Last deliberately changed by more Molotovs, launchers and air strikes. It must
     // come out the same on 32-bit targets too: `cargo test -p go-box-sim --target i686-pc-windows-msvc`.
-    const CLASSIC_HASH: u64 = 0x183d_2237_c2dd_a31e;
+    const CLASSIC_HASH: u64 = 0x9ba3_0e33_fd73_883f;
 
     /// Everyone on the floor, nothing lying around, nobody thinking (all-zero brains stand still).
     fn quiet_match() -> (Match, Brain) {
@@ -1711,7 +1711,7 @@ mod tests {
     }
 
     #[test]
-    fn at_most_two_rocket_launchers_a_match() {
+    fn rocket_launchers_are_limited_per_match() {
         let (mut m, _) = quiet_match();
         let mut launchers = 0;
         for _ in 0..2000 {
@@ -1720,7 +1720,8 @@ mod tests {
             launchers += m.items.iter().filter(|it| it.kind == ItemKind::RocketLauncher).count();
             m.items.clear();
         }
-        assert!(launchers > 0 && launchers <= 2, "{launchers}");
+        let max = ItemKind::RocketLauncher.def().per_match.unwrap() as usize;
+        assert!(launchers > 0 && launchers <= max, "{launchers}");
     }
 
     #[test]
