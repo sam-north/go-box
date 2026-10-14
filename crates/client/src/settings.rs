@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 
 /// Where the settings are saved (localStorage key).
 const PREF_KEY: &str = "go-box-settings";
+/// Saved key bindings from before this version stored every binding, defaults included, so a
+/// changed default never reached anyone who'd saved settings once (and dash stuck on S). Those
+/// are dropped once; now only the bindings you've changed are saved.
+const BINDINGS_VERSION: u32 = 2;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -26,11 +30,14 @@ pub struct Settings {
     /// A language code from the text files, e.g. "en-US".
     pub language: String,
     pub bindings: Bindings,
+    /// How the saved bindings were stored (see BINDINGS_VERSION); 0 when saved before there was one.
+    #[serde(default)]
+    pub bindings_version: u32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { master: 0.8, effects: 1.0, music: 0.7, muted: false, language: "en-US".into(), bindings: Bindings::default() }
+        Self { master: 0.8, effects: 1.0, music: 0.7, muted: false, language: "en-US".into(), bindings: Bindings::default(), bindings_version: BINDINGS_VERSION }
     }
 }
 
@@ -38,7 +45,7 @@ impl Settings {
     /// The saved settings, or the defaults (nothing saved, or saved by an incompatible version).
     pub fn load() -> Self {
         let saved = platform::load_pref(PREF_KEY);
-        let mut s: Settings = serde_json::from_str(&saved).unwrap_or_default();
+        let mut s = Self::parse(&saved);
         s.master = s.master.clamp(0.0, 1.0);
         s.effects = s.effects.clamp(0.0, 1.0);
         s.music = s.music.clamp(0.0, 1.0);
@@ -49,8 +56,24 @@ impl Settings {
         s
     }
 
+    /// Settings as saved (JSON), or the defaults if it can't be read. Bindings saved the old way
+    /// are dropped (see BINDINGS_VERSION).
+    fn parse(saved: &str) -> Self {
+        let mut s: Settings = serde_json::from_str(saved).unwrap_or_default();
+        if s.bindings_version != BINDINGS_VERSION {
+            s.bindings = Bindings::default();
+            s.bindings_version = BINDINGS_VERSION;
+        }
+        s
+    }
+
+    /// Saves everything, but of the bindings only what differs from the defaults (so a default
+    /// that changes later still reaches you).
     pub fn save(&self) {
-        if let Ok(json) = serde_json::to_string(self) {
+        let d = Bindings::default();
+        let changed = |pad: bool| Act::ALL.into_iter().map(|a| (a, self.bindings.get(a, pad))).filter(|(a, v)| *v != d.get(*a, pad)).collect();
+        let s = Settings { bindings: Bindings { keys: changed(false), pad: changed(true) }, bindings_version: BINDINGS_VERSION, ..self.clone() };
+        if let Ok(json) = serde_json::to_string(&s) {
             platform::save_pref(PREF_KEY, &json);
         }
     }
@@ -332,6 +355,25 @@ mod tests {
         assert_eq!(back.bindings.get(Act::Jump, false), vec![Bind::Key(KeyCode::K as u16)]);
         assert_eq!(back.bindings.get(Act::Jump, true), Bindings::default().get(Act::Jump, true), "the pad side is untouched");
         assert_eq!(back.bindings.get(Act::Melee, true), vec![Bind::Pad(5)]);
+    }
+
+    #[test]
+    fn bindings_saved_the_old_way_are_dropped_and_only_changes_are_saved() {
+        // Saved when dash was on S (every binding stored, no version).
+        let old = r#"{"master":0.5,"bindings":{"keys":[["Dash",[{"Key":83}]]],"pad":[]}}"#;
+        let s = Settings::parse(old);
+        assert_eq!(s.master, 0.5, "the rest is kept");
+        assert_eq!(s.bindings.get(Act::Dash, false), Bindings::default().get(Act::Dash, false), "the old binding is gone");
+        // Change one binding and save: only that one is stored, and it comes back.
+        let mut s = Settings::default();
+        s.bindings.set(Act::Jump, Bind::Key(KeyCode::K as u16));
+        let d = Bindings::default();
+        let changed: Vec<_> = Act::ALL.into_iter().filter(|&a| s.bindings.get(a, false) != d.get(a, false)).collect();
+        assert_eq!(changed, vec![Act::Jump]);
+        let json = serde_json::to_string(&Settings { bindings: Bindings { keys: vec![(Act::Jump, s.bindings.get(Act::Jump, false))], pad: vec![] }, ..s.clone() }).unwrap();
+        let back = Settings::parse(&json);
+        assert_eq!(back.bindings.get(Act::Jump, false), vec![Bind::Key(KeyCode::K as u16)]);
+        assert_eq!(back.bindings.get(Act::Down, false), d.get(Act::Down, false), "the rest are the defaults");
     }
 
     #[test]

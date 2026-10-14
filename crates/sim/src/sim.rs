@@ -1923,8 +1923,10 @@ mod tests {
             m.step_with([&z; N_FIGHTERS], Some((0, Action::default())));
         }
         assert_eq!(m.f[0].pos.y, ledge.y, "it holds you up");
+        // A single tap is enough.
+        m.step_with([&z; N_FIGHTERS], Some((0, Action { down: true, ..Action::default() })));
         for _ in 0..30 {
-            m.step_with([&z; N_FIGHTERS], Some((0, Action { down: true, ..Action::default() })));
+            m.step_with([&z; N_FIGHTERS], Some((0, Action::default())));
         }
         assert_eq!(m.f[0].pos.y, FLOOR_Y, "dropped through to the floor");
     }
