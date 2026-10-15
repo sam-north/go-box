@@ -8,6 +8,7 @@ mod app;
 mod attract;
 mod debug;
 mod game;
+mod howto;
 mod input;
 mod net;
 mod platform;
@@ -34,6 +35,7 @@ use attract::Attract;
 use screens::home::{connecting_screen, home_screen};
 use screens::hud::{controls_header, controls_overlay, draw_aim, draw_you, hud};
 use screens::lobby::lobby_screen;
+use screens::howto::howto_screen;
 use screens::settings::{settings_button, settings_screen};
 use testclient::{Automation, Options, autopilot};
 
@@ -100,6 +102,7 @@ async fn main() {
         was_over: false,
         // (A test client given a passphrase shows it.)
         create_open: opts.passphrase.is_some(),
+        howto_open: opts.howto,
     };
     if opts.create {
         app.create_room();
@@ -108,6 +111,8 @@ async fn main() {
     }
     let mut automation = Automation::new();
     let mut debug = debug::Debug::new();
+    // "How to Play"'s pictures (made the first time it opens).
+    let mut howto: Option<howto::HowTo> = None;
 
     loop {
         debug.begin();
@@ -244,6 +249,15 @@ async fn main() {
             }
         }
 
+        // "How to Play" (only in the room): its little match plays on while it's open.
+        let in_lobby = app.room.as_ref().is_some_and(|r| r.phase == Phase::Lobby);
+        if app.room.as_ref().is_some_and(|r| r.phase != Phase::Lobby) {
+            app.howto_open = false;
+        }
+        if app.howto_open && in_lobby {
+            howto.get_or_insert_with(howto::HowTo::new).frame(dt);
+        }
+
         set_default_camera();
         clear_background(Color::new(0.02, 0.02, 0.03, 1.0));
         let scale = (screen_width() / W).min(screen_height() / H);
@@ -257,8 +271,8 @@ async fn main() {
 
         // Where the controls overlay ends (the debug overlay goes under it).
         let mut overlay_bottom = ui.px(52.0);
-        // Screens (under the settings menu, if it's open, they ignore the mouse).
-        ui.blocked = app.settings_open;
+        // Screens (under the settings menu or "How to Play", if open, they ignore the mouse).
+        ui.blocked = app.settings_open || app.howto_open;
         // "Connecting..." only until the server says hello; after a refusal (wrong code or
         // passphrase) you are still connected, and back on the home screen to try again.
         match (&app.room, app.net.is_some() && app.me.is_none()) {
@@ -282,6 +296,10 @@ async fn main() {
                 ui.panel(r);
                 ui.text_centered(msg, screen_width() / 2.0, r.y + ui.px(27.0), 22.0, BAD);
             }
+        }
+        ui.blocked = app.settings_open;
+        if let (true, true, Some(h)) = (app.howto_open, in_lobby, &howto) {
+            howto_screen(&mut ui, &mut app, &h.rt.texture);
         }
         ui.blocked = false;
         if app.settings_open {

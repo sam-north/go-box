@@ -42,6 +42,8 @@ pub struct Options {
     pub settings: bool,
     /// ...on its Controls page.
     pub controls: bool,
+    /// Open "How to Play" in the room (for screenshots).
+    pub howto: bool,
     /// Start with sound off.
     pub mute: bool,
     /// Show the debug overlay and log frame timing (see `debug.rs`).
@@ -79,6 +81,7 @@ impl Options {
             debug: has("--debug"),
             settings: has("--settings"),
             controls: has("--controls"),
+            howto: has("--howto"),
         }
     }
 }

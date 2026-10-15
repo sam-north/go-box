@@ -48,6 +48,8 @@ pub struct App {
     pub was_over: bool,
     /// The home screen's "Create a room" section is open.
     pub create_open: bool,
+    /// "How to Play" is open (in the room).
+    pub howto_open: bool,
 }
 
 impl App {

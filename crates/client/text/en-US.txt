@@ -57,6 +57,14 @@ lobby.ready = Ready
 lobby.is_ready = Ready!
 lobby.leader_starts = The leader starts the match
 lobby.exit = Exit
+lobby.how_to_play = How to Play
+howto.title = How to Play
+howto.survive = Survive for {time} with the most health remaining and win.
+howto.items = Pick up items and throw them!
+howto.item_names = Grenade, molotov, spear, rocket launcher
+howto.special = Choose a character and use their special ability!
+howto.have_fun = Have fun!
+howto.back = Back
 
 # Seats and the match
 seat.bot = {character} (bot)

@@ -2,6 +2,7 @@
 
 pub mod home;
 pub mod hud;
+pub mod howto;
 pub mod lobby;
 pub mod settings;
 

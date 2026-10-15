@@ -290,7 +290,13 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     if ui.ghost_button(Rect::new(px, by, ew, bh), t("lobby.exit"), BAD) {
         app.send(ClientMsg::LeaveRoom);
     }
-    let play = Rect::new(px + ew + ui.px(10.0), by, pw - ew - ui.px(10.0), bh);
+    // Then "How to Play", just as quiet.
+    let hw = ui.px(130.0);
+    if ui.ghost_button(Rect::new(px + ew + ui.px(10.0), by, hw, bh), t("lobby.how_to_play"), ACCENT) {
+        app.howto_open = true;
+    }
+    let left = ew + hw + ui.px(20.0);
+    let play = Rect::new(px + left, by, pw - left, bh);
     let note_y = by + bh + ui.px(20.0);
     if leader {
         // Play, in green, once everyone else seated has said they're ready (the server holds to
