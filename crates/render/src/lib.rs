@@ -745,11 +745,16 @@ fn solid_px(a: &Arena, x: i32, y: i32) -> bool {
 
 /// What's behind a map: dim industrial pipes, or (the City) a night skyline. Every map's
 /// backdrop is shaded around its ledges and walls, so what you can stand on reads at a glance.
-fn make_background(arena: ArenaId) -> Image {
+/// (The City also gets a front layer: its near towers and all that's in front of them, drawn
+/// again over its spotlight so the beam sweeps between the near towers and the far ones.)
+fn make_background(arena: ArenaId) -> (Image, Option<Image>) {
+    let mut front = None;
     let mut img = if arena == ArenaId::Bridges {
-        let mut img = make_skyline();
+        let (mut img, near) = make_skyline();
+        let plain = img.clone();
         draw_scaffold(&mut img, arena.def());
         draw_trash(&mut img, arena.def());
+        front = Some((near, plain));
         img
     } else if arena == ArenaId::Forest {
         make_sunset()
@@ -759,7 +764,21 @@ fn make_background(arena: ArenaId) -> Image {
         make_pipes()
     };
     shade_ledges(&mut img, arena.def());
-    img
+    // The front layer: the near towers, and every pixel the scaffold, the trash or the ledges'
+    // shading touched.
+    let front = front.map(|(near, plain)| {
+        let mut layer = Image::gen_image_color(W as u16, H as u16, Color::new(0.0, 0.0, 0.0, 0.0));
+        for y in 0..H as u32 {
+            for x in 0..W as u32 {
+                let c = img.get_pixel(x, y);
+                if near[(y * W as u32 + x) as usize] || c != plain.get_pixel(x, y) {
+                    layer.set_pixel(x, y, c);
+                }
+            }
+        }
+        layer
+    });
+    (img, front)
 }
 
 /// A soft shadow on the backdrop just around each ledge and wall (darkest right at its edge).
@@ -834,8 +853,11 @@ fn make_pipes() -> Image {
 
 /// The City's backdrop: a night sky glowing warm toward the street, stars and a moon, and two
 /// rows of towers (the far one hazy) with lit windows.
-fn make_skyline() -> Image {
+/// (Also which pixels are the near towers, for `make_background` to lift them onto the City's
+/// front layer, in front of its spotlight.)
+fn make_skyline() -> (Image, Vec<bool>) {
     let mut img = Image::gen_image_color(W as u16, H as u16, BLACK);
+    let mut near = vec![false; (W * H) as usize];
     let (moon, moon_r) = (vec2(64.0, 40.0), 13.0);
     // A row of towers: (top of the tower over column x, where it starts, how wide).
     let tower = |x: u32, width: u32, shift: u32, lo: f32, hi: f32, seed: u32| {
@@ -881,6 +903,7 @@ fn make_skyline() -> Image {
             // The near towers: darker, with warm windows.
             let (top, local, k, gap) = tower(x, 34, 0, 105.0, 175.0, 61);
             if fy >= top && !gap {
+                near[(y * W as u32 + x) as usize] = true;
                 let edge = if local == 1 { 8.0 } else { 0.0 };
                 (r, g, b) = (14.0 + edge, 15.0 + edge, 22.0 + edge);
                 let row = (y as i32 - top as i32) / 6;
@@ -901,7 +924,7 @@ fn make_skyline() -> Image {
             img.set_pixel(x, y, dither(x, y, r, g, b));
         }
     }
-    img
+    (img, near)
 }
 
 /// The City's ledges and walls, one pixel: None if (x, y) isn't one of them; Some(None) for a
@@ -1710,6 +1733,9 @@ pub struct Art {
     bg: Texture2D,
     /// Every map's backdrop, built once at startup.
     bgs: Vec<Texture2D>,
+    /// What of the backdrop goes in front of its spotlight (the City's near towers), if any.
+    front: Option<Texture2D>,
+    fronts: Vec<Option<Texture2D>>,
     terrain: Texture2D,
     /// Every map's terrain, built once at startup (building one takes long enough to hitch, and
     /// it used to happen right as a match's countdown began).
@@ -1751,7 +1777,7 @@ fn tex(img: &Image) -> Texture2D {
 impl Art {
     pub fn new() -> Self {
         let terrains: Vec<Texture2D> = ArenaId::ALL.iter().map(|a| tex(&make_terrain(*a))).collect();
-        let bgs: Vec<Texture2D> = ArenaId::ALL.iter().map(|&a| tex(&make_background(a))).collect();
+        let (bgs, fronts): (Vec<Texture2D>, Vec<Option<Texture2D>>) = ArenaId::ALL.iter().map(|&a| make_background(a)).map(|(b, f)| (tex(&b), f.map(|f| tex(&f)))).unzip();
         let stain_img = Image::gen_image_color(W as u16, H as u16, Color::new(0.0, 0.0, 0.0, 0.0));
         let rain = (0..200)
             .map(|i| Drop { pos: vec2(hash(i, 0, 1) * W, hash(i, 1, 1) * H), speed: 200.0 + hash(i, 2, 1) * 120.0 })
@@ -1759,6 +1785,8 @@ impl Art {
         Self {
             bg: bgs[ArenaId::default() as usize].clone(),
             bgs,
+            front: fronts[ArenaId::default() as usize].clone(),
+            fronts,
             terrain: terrains[ArenaId::default() as usize].clone(),
             terrains,
             arena: ArenaId::default(),
@@ -1797,6 +1825,7 @@ impl Art {
             self.arena = arena;
             self.terrain = self.terrains[arena as usize].clone();
             self.bg = self.bgs[arena as usize].clone();
+            self.front = self.fronts[arena as usize].clone();
             self.reset();
         }
     }
@@ -2150,6 +2179,11 @@ impl Art {
             self.stain_tex.update_part(&part, x0 as i32, y0 as i32, w as i32, h as i32);
         }
         draw_texture(&self.bg, 0.0, 0.0, WHITE);
+        // The City's spotlight sweeps the sky behind its near towers.
+        if let Some(front) = &self.front {
+            draw_spotlight(self.time);
+            draw_texture(front, 0.0, 0.0, WHITE);
+        }
         // (No rain indoors, on the Desktop.)
         for d in self.rain.iter().filter(|_| self.arena != ArenaId::Desktop) {
             draw_line(d.pos.x, d.pos.y, d.pos.x + 0.6, d.pos.y - 4.0, 1.0, Color::new(0.55, 0.62, 0.72, 0.22));
@@ -3334,6 +3368,25 @@ fn draw_fire(fire: &Fire, time: f32) {
         let w = if hash(k, frame, 92) < 0.5 { 1.0 } else { 2.0 };
         draw_rectangle(x, y - h, w, h, Color::new(FLAME.r, FLAME.g, FLAME.b, fade));
         draw_rectangle(x, y - h, w, (h * 0.4).ceil(), Color::new(FLAME_TIP.r, FLAME_TIP.g, FLAME_TIP.b, fade));
+    }
+}
+
+/// The City's spotlight: a pale beam sweeping slowly back and forth across the sky from
+/// somewhere behind the near towers (its foot is never seen: the towers are drawn over it),
+/// widening and fading as it goes up.
+fn draw_spotlight(time: f32) {
+    let base = vec2(300.0, 210.0);
+    let a = -std::f32::consts::FRAC_PI_2 + 0.5 * (time * 0.32).sin();
+    let dir = vec2(a.cos(), a.sin());
+    let side = vec2(-dir.y, dir.x);
+    let len = 320.0;
+    // Soft-edged: a wide faint beam, then narrower brighter ones down its middle.
+    for (spread, alpha) in [(1.0, 0.05), (0.62, 0.05), (0.3, 0.06)] {
+        let (near, far) = (side * 2.0 * spread, side * 30.0 * spread);
+        let tip = base + dir * len;
+        let c = Color::new(0.82, 0.88, 1.0, alpha);
+        draw_triangle(base - near, base + near, tip + far, c);
+        draw_triangle(base - near, tip + far, tip - far, c);
     }
 }
 
