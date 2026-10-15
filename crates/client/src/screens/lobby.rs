@@ -52,6 +52,39 @@ fn preview(ui: &Ui, r: Rect, c: Character, picked: bool, portraits: &[RenderTarg
     }
 }
 
+/// Beside a place on the scoreboard: a medal for 1st to 3rd (gold, silver, bronze: a disc on a
+/// ribbon, with a glint), and a sad face for 4th. `c` is its middle.
+fn place_icon(ui: &Ui, place: usize, c: Vec2) {
+    let r = ui.px(5.5);
+    let metal = match place {
+        0 => Some(Color::new(0.98, 0.78, 0.22, 1.0)),
+        1 => Some(Color::new(0.80, 0.82, 0.86, 1.0)),
+        2 => Some(Color::new(0.80, 0.50, 0.26, 1.0)),
+        _ => None,
+    };
+    match metal {
+        Some(m) => {
+            // The ribbon, a V from the top, then the disc.
+            let ribbon = Color::new(0.75, 0.18, 0.20, 1.0);
+            draw_triangle(c + vec2(-r, -r * 1.9), c + vec2(-r * 0.2, -r * 1.9), c + vec2(r * 0.1, -r * 0.4), ribbon);
+            draw_triangle(c + vec2(r, -r * 1.9), c + vec2(r * 0.2, -r * 1.9), c + vec2(-r * 0.1, -r * 0.4), Color::new(0.20, 0.35, 0.75, 1.0));
+            draw_circle(c.x, c.y, r, Color::new(m.r * 0.6, m.g * 0.6, m.b * 0.6, 1.0));
+            draw_circle(c.x, c.y, r * 0.8, m);
+            draw_circle(c.x - r * 0.3, c.y - r * 0.3, r * 0.22, Color::new(1.0, 1.0, 1.0, 0.8));
+        }
+        None => {
+            // A sad face: yellow, two eyes, a frown.
+            draw_circle(c.x, c.y, r, Color::new(0.95, 0.80, 0.25, 1.0));
+            let dark = Color::new(0.20, 0.14, 0.05, 1.0);
+            draw_circle(c.x - r * 0.35, c.y - r * 0.25, r * 0.13, dark);
+            draw_circle(c.x + r * 0.35, c.y - r * 0.25, r * 0.13, dark);
+            let w = ui.px(1.2);
+            draw_line(c.x - r * 0.45, c.y + r * 0.5, c.x, c.y + r * 0.25, w, dark);
+            draw_line(c.x, c.y + r * 0.25, c.x + r * 0.45, c.y + r * 0.5, w, dark);
+        }
+    }
+}
+
 pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[RenderTarget]) {
     let (sw, sh) = (screen_width(), screen_height());
     let w = ui.px(860.0).min(sw - 32.0);
@@ -85,7 +118,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
         ui.text(&length, r.x + w - pad - ui.text_width(&length, 18.0), y + ui.px(10.0), 18.0, DIM);
         y += ui.px(30.0);
         // (The place, 1st..4th, sits in front of the first column.)
-        let cols = [0.07, 0.32, 0.48, 0.58, 0.70, 0.82];
+        let cols = [0.10, 0.32, 0.48, 0.58, 0.70, 0.82];
         let heads = [t("lobby.col_player"), t("lobby.col_character"), t("lobby.col_kills"), t("lobby.col_headshots"), t("lobby.col_damage"), t("lobby.col_down")];
         let tw = w - pad * 2.0;
         for (k, head) in heads.iter().enumerate() {
@@ -121,8 +154,10 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
             };
             let cells = [seat_name(&s.name, s.character, s.bot), character_name(s.character).to_string(), s.kills.to_string(), s.headshots.to_string(), format!("{:.0}", s.damage_dealt), fate];
             let places = [t("lobby.place_1"), t("lobby.place_2"), t("lobby.place_3"), t("lobby.place_4")];
+            // A medal for the top three (gold, silver, bronze) and a sad face for last, then the place.
+            place_icon(ui, place, vec2(r.x + pad + ui.px(7.0), y - ui.px(6.0)));
             if let Some(p) = places.get(place) {
-                ui.text(p, r.x + pad, y, 18.0, if place == 0 { ACCENT } else { DIM });
+                ui.text(p, r.x + pad + ui.px(18.0), y, 18.0, if place == 0 { ACCENT } else { DIM });
             }
             for (k, cell) in cells.iter().enumerate() {
                 ui.text(cell, r.x + pad + cols[k] * tw, y, 18.0, if k == 0 { color } else { INK });
