@@ -741,8 +741,62 @@ fn is_girder(a: &Arena, x: i32, y: i32) -> bool {
     a.walls.iter().any(|r| r.contains(p))
 }
 
-fn solid_px(a: &Arena, x: i32, y: i32) -> bool {
-    is_stone(x, y) || is_metal(a, x, y) || is_girder(a, x, y)
+/// What's solid at each pixel of a map, worked out once, so building its terrain (several
+/// looks per pixel) and every particle every frame ask an array rather than scan every block.
+/// Answers the same as `is_stone`, `is_metal` and `is_girder` (off the screen it just asks
+/// them).
+struct Solidity {
+    arena: &'static Arena,
+    /// Per pixel, row by row: `STONE | METAL | GIRDER` bits.
+    px: Vec<u8>,
+}
+
+impl Solidity {
+    const STONE: u8 = 1;
+    const METAL: u8 = 2;
+    const GIRDER: u8 = 4;
+
+    fn new(arena: &'static Arena) -> Self {
+        // Each block marks the pixels it covers (going round its own few, not every pixel per
+        // block), asking `contains` just as `is_stone` and the rest do.
+        let mut px = vec![0; W as usize * H as usize];
+        let blocks = SOLIDS.iter().map(|r| (r, Self::STONE)).chain(arena.platforms.iter().map(|r| (r, Self::METAL))).chain(arena.walls.iter().map(|r| (r, Self::GIRDER)));
+        for (r, bit) in blocks {
+            let xs = (r.x.floor().max(0.0) as i32)..((r.x + r.w).ceil().min(W) as i32);
+            for y in (r.y.floor().max(0.0) as i32)..((r.y + r.h).ceil().min(H) as i32) {
+                for x in xs.clone() {
+                    if r.contains(vec2(x as f32 + 0.5, y as f32 + 0.5)) {
+                        px[(y * W as i32 + x) as usize] |= bit;
+                    }
+                }
+            }
+        }
+        Self { arena, px }
+    }
+
+    fn scan(a: &Arena, x: i32, y: i32) -> u8 {
+        (is_stone(x, y) as u8 * Self::STONE) | (is_metal(a, x, y) as u8 * Self::METAL) | (is_girder(a, x, y) as u8 * Self::GIRDER)
+    }
+
+    fn at(&self, x: i32, y: i32) -> u8 {
+        if (0..W as i32).contains(&x) && (0..H as i32).contains(&y) { self.px[(y * W as i32 + x) as usize] } else { Self::scan(self.arena, x, y) }
+    }
+
+    fn stone(&self, x: i32, y: i32) -> bool {
+        self.at(x, y) & Self::STONE != 0
+    }
+
+    fn metal(&self, x: i32, y: i32) -> bool {
+        self.at(x, y) & Self::METAL != 0
+    }
+
+    fn girder(&self, x: i32, y: i32) -> bool {
+        self.at(x, y) & Self::GIRDER != 0
+    }
+
+    fn solid(&self, x: i32, y: i32) -> bool {
+        self.at(x, y) != 0
+    }
 }
 
 /// What's behind a map: dim industrial pipes, or (the City) a night skyline. Every map's
@@ -786,10 +840,24 @@ fn make_background(arena: ArenaId) -> (Image, Option<Image>) {
 /// A soft shadow on the backdrop just around each ledge and wall (darkest right at its edge).
 fn shade_ledges(img: &mut Image, a: &Arena) {
     const REACH: f32 = 3.0;
+    // Each pixel's distance to the nearest ledge or wall, found by going round each one's
+    // surroundings (not every pixel against every one: maps with many ledges took a while).
+    let mut nearest = vec![f32::MAX; W as usize * H as usize];
+    for s in a.platforms.iter().chain(a.walls) {
+        let xs = ((s.x - REACH - 1.0).floor().max(0.0) as u32)..((s.x + s.w + REACH + 1.0).ceil().min(W) as u32);
+        let ys = ((s.y - REACH - 1.0).floor().max(0.0) as u32)..((s.y + s.h + REACH + 1.0).ceil().min(H) as u32);
+        for y in ys {
+            for x in xs.clone() {
+                let p = vec2(x as f32 + 0.5, y as f32 + 0.5);
+                let d = vec2(p.x.clamp(s.x, s.x + s.w), p.y.clamp(s.y, s.y + s.h)).distance(p);
+                let n = &mut nearest[(y * W as u32 + x) as usize];
+                *n = n.min(d);
+            }
+        }
+    }
     for y in 0..H as u32 {
         for x in 0..W as u32 {
-            let p = vec2(x as f32 + 0.5, y as f32 + 0.5);
-            let near = a.platforms.iter().chain(a.walls).map(|s| vec2(p.x.clamp(s.x, s.x + s.w), p.y.clamp(s.y, s.y + s.h)).distance(p)).fold(f32::MAX, f32::min);
+            let near = nearest[(y * W as u32 + x) as usize];
             if near < REACH {
                 let k = 0.6 + 0.4 * (near / REACH);
                 let c = img.get_pixel(x, y);
@@ -1099,7 +1167,7 @@ fn draw_scaffold(img: &mut Image, a: &Arena) {
     }
 }
 
-fn make_terrain(arena: ArenaId) -> Image {
+fn make_terrain(arena: ArenaId, s: &Solidity) -> Image {
     let a = arena.def();
     // (Some maps draw their own ledges and walls: the City's scaffolding and trash chutes, the
     // Forest's branches and trunks.)
@@ -1120,7 +1188,7 @@ fn make_terrain(arena: ArenaId) -> Image {
                 }
                 continue;
             }
-            if is_stone(x, y) {
+            if s.stone(x, y) {
                 let row = y / 5;
                 let off = (row % 2) * 5;
                 let col = (x + off) / 10;
@@ -1135,10 +1203,10 @@ fn make_terrain(arena: ArenaId) -> Image {
                 }
                 // Depth below an exposed top surface, for moss.
                 let mut depth = 0;
-                while depth < 5 && is_stone(x, y - depth - 1) {
+                while depth < 5 && s.stone(x, y - depth - 1) {
                     depth += 1;
                 }
-                let exposed_top = depth < 5 && !is_stone(x, y - depth - 1) && y - depth - 1 >= 0;
+                let exposed_top = depth < 5 && !s.stone(x, y - depth - 1) && y - depth - 1 >= 0;
                 let moss_len = (fbm(x as f32 * 0.15, 0.0, 8) * 7.0) as i32 - 1 + (hash(x, 4, 3) * 2.0) as i32;
                 if exposed_top && depth == 0 {
                     r = 92.0 + n;
@@ -1150,16 +1218,16 @@ fn make_terrain(arena: ArenaId) -> Image {
                     g = 82.0 + n + hash(x, y, 5) * 16.0;
                     b = 42.0 + n;
                 }
-                let air_side = !solid_px(a, x - 1, y) && x > 0 || !solid_px(a, x + 1, y) && x < W as i32 - 1 || !solid_px(a, x, y + 1) && y < H as i32 - 1;
+                let air_side = !s.solid(x - 1, y) && x > 0 || !s.solid(x + 1, y) && x < W as i32 - 1 || !s.solid(x, y + 1) && y < H as i32 - 1;
                 if air_side && !exposed_top {
                     r *= 0.55;
                     g *= 0.55;
                     b *= 0.55;
                 }
                 img.set_pixel(ux, uy, dither(ux, uy, r, g, b));
-            } else if is_metal(a, x, y) {
-                let top = !is_metal(a, x, y - 1);
-                let bottom = !is_metal(a, x, y + 1);
+            } else if s.metal(x, y) {
+                let top = !s.metal(x, y - 1);
+                let bottom = !s.metal(x, y + 1);
                 let rust = fbm(x as f32 * 0.12, y as f32 * 0.3, 17) > 0.58;
                 let (mut r, mut g, mut b) = (44.0, 50.0, 58.0);
                 if rust {
@@ -1171,17 +1239,17 @@ fn make_terrain(arena: ArenaId) -> Image {
                 if bottom {
                     (r, g, b) = (r * 0.5, g * 0.5, b * 0.5);
                 }
-                let mid = is_metal(a, x, y - 2) && is_metal(a, x, y + 2) && !is_metal(a, x, y - 3);
+                let mid = s.metal(x, y - 2) && s.metal(x, y + 2) && !s.metal(x, y - 3);
                 if mid && x % 8 == 3 {
                     (r, g, b) = (100.0, 104.0, 108.0);
                 }
                 img.set_pixel(ux, uy, dither(ux, uy, r, g, b));
-            } else if is_girder(a, x, y) {
+            } else if s.girder(x, y) {
                 // A steel girder: lit down its left edge, shadowed on its right, riveted bands
                 // across it, and hazard stripes at the foot.
-                let left = !is_girder(a, x - 1, y);
-                let right = !is_girder(a, x + 1, y);
-                let foot = !is_girder(a, x, y + 4);
+                let left = !s.girder(x - 1, y);
+                let right = !s.girder(x + 1, y);
+                let foot = !s.girder(x, y + 4);
                 let (mut r, mut g, mut b) = (52.0, 60.0, 72.0);
                 if fbm(x as f32 * 0.2, y as f32 * 0.1, 19) > 0.6 {
                     (r, g, b) = (78.0, 58.0, 46.0);
@@ -1708,6 +1776,10 @@ struct Quake {
     ticks: u32,
 }
 
+/// At most this many particles at once: past it the oldest go, so a pile of explosions at once
+/// (several Molotovs, an air strike, a tornado) has a ceiling on what each frame moves and draws.
+const MAX_PARTICLES: usize = 3000;
+
 struct Particle {
     pos: Vec2,
     vel: Vec2,
@@ -1739,12 +1811,15 @@ struct MapArt {
     /// What of the backdrop goes in front of its spotlight (the City's near towers), if any.
     front: Option<Texture2D>,
     terrain: Texture2D,
+    /// What's solid where (particles stop on it).
+    solid: Rc<Solidity>,
 }
 
 impl MapArt {
     fn build(a: ArenaId) -> Self {
         let (bg, front) = make_background(a);
-        Self { bg: tex(&bg), front: front.map(|f| tex(&f)), terrain: tex(&make_terrain(a)) }
+        let solid = Rc::new(Solidity::new(a.def()));
+        Self { bg: tex(&bg), front: front.map(|f| tex(&f)), terrain: tex(&make_terrain(a, &solid)), solid }
     }
 }
 
@@ -2107,13 +2182,16 @@ impl Art {
                 self.particles.push(Particle { pos: it.pos + vec2(0.0, -2.0), vel: vec2(0.0, -20.0), color: c, life: 0.2, stick: false, gravity: 0.0 });
             }
         }
-        let arena = self.arena.def();
+        if let Some(extra) = self.particles.len().checked_sub(MAX_PARTICLES) {
+            self.particles.drain(..extra);
+        }
+        let solid = self.map.solid.clone();
         let mut stains = Vec::new();
         self.particles.retain_mut(|p| {
             p.vel.y += p.gravity * dt;
             let next = p.pos + p.vel * dt;
             p.life -= dt;
-            if solid_px(arena, next.x as i32, next.y as i32) {
+            if solid.solid(next.x as i32, next.y as i32) {
                 if p.stick {
                     stains.push((p.pos, p.color));
                 }
@@ -2124,7 +2202,7 @@ impl Art {
         });
         for (pos, c) in stains {
             let (x, y) = (pos.x as i32, pos.y as i32);
-            if x >= 0 && y >= 0 && x < W as i32 && y < H as i32 && !solid_px(arena, x, y) {
+            if x >= 0 && y >= 0 && x < W as i32 && y < H as i32 && !solid.solid(x, y) {
                 let (x, y) = (x as u32, y as u32);
                 self.stain_img.set_pixel(x, y, c);
                 self.stain_dirty = Some(match self.stain_dirty {
@@ -3551,5 +3629,46 @@ fn draw_flag(p: Vec2, c: Color, time: f32) {
         let h = 5.0 - k as f32 * 0.5;
         let shade = if wave > 0.0 { 0.8 } else { 1.0 };
         draw_rectangle(x + 1.0 + k as f32, y - 13.0 + wave + (5.0 - h) / 2.0, 1.0, h.round(), Color::new(c.r * shade, c.g * shade, c.b * shade, 1.0));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn solidity_answers_as_scanning_the_blocks_does() {
+        for a in ArenaId::ALL {
+            let (def, s) = (a.def(), Solidity::new(a.def()));
+            for y in -6..H as i32 + 6 {
+                for x in -6..W as i32 + 6 {
+                    assert_eq!(s.stone(x, y), is_stone(x, y), "{a:?} ({x}, {y})");
+                    assert_eq!(s.metal(x, y), is_metal(def, x, y), "{a:?} ({x}, {y})");
+                    assert_eq!(s.girder(x, y), is_girder(def, x, y), "{a:?} ({x}, {y})");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn ledge_shading_is_each_pixels_distance_to_the_nearest_ledge_or_wall() {
+        const REACH: f32 = 3.0;
+        let grey = Color::new(0.5, 0.5, 0.5, 1.0);
+        for a in ArenaId::ALL {
+            let def = a.def();
+            let mut img = Image::gen_image_color(W as u16, H as u16, grey);
+            shade_ledges(&mut img, def);
+            for y in 0..H as u32 {
+                for x in 0..W as u32 {
+                    // Every pixel against every ledge and wall, the plain way.
+                    let p = vec2(x as f32 + 0.5, y as f32 + 0.5);
+                    let near = def.platforms.iter().chain(def.walls).map(|s| vec2(p.x.clamp(s.x, s.x + s.w), p.y.clamp(s.y, s.y + s.h)).distance(p)).fold(f32::MAX, f32::min);
+                    let k = if near < REACH { 0.6 + 0.4 * (near / REACH) } else { 1.0 };
+                    let c = Image::gen_image_color(1, 1, grey).get_pixel(0, 0);
+                    let want = Image::gen_image_color(1, 1, Color::new(c.r * k, c.g * k, c.b * k, c.a)).get_pixel(0, 0);
+                    assert_eq!(img.get_pixel(x, y), want, "{a:?} ({x}, {y})");
+                }
+            }
+        }
     }
 }
