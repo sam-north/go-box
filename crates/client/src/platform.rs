@@ -70,6 +70,11 @@ mod imp {
         set(2, "", text);
     }
 
+    /// Reloads the page (to pick up a newer build).
+    pub fn reload() {
+        set(4, "", "");
+    }
+
     /// Whatever was pasted into the page since last asked (the browser's paste event).
     pub fn take_paste() -> Option<String> {
         Some(get(3, "")).filter(|s| !s.is_empty())
@@ -139,6 +144,8 @@ mod imp {
     pub fn copy(text: &str) {
         macroquad::miniquad::window::clipboard_set(text);
     }
+
+    pub fn reload() {}
 
     pub fn now_ms() -> f64 {
         macroquad::time::get_time() * 1000.0

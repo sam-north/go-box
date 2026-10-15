@@ -138,6 +138,7 @@ notice.connection_lost = Lost connection to the server.
 notice.server_unreachable = Can't reach the server.
 notice.sound_off = Sound off ({key} to turn it back on)
 notice.sound_on = Sound on
+notice.other_build = The server is running a different version: reload the page
 refusal.server_full = The server is full. Try again later.
 refusal.out_of_date = This page is out of date with the server. Reload it.
 refusal.too_many_rooms = The server has too many rooms open. Try again later.

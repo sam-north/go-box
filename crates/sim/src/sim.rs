@@ -2162,6 +2162,36 @@ mod tests {
     }
 
     #[test]
+    fn nobody_jumps_or_runs_through_or_onto_a_wall_in_one_go() {
+        // Every map: a fighter starting all along the floor jumps, runs either way and dashes
+        // under, into and around the walls. No tick may move them further than they could go.
+        for arena in ArenaId::ALL {
+            for side in [-1.0, 1.0] {
+                // From the floor and from every ledge.
+                let floors = std::iter::once(FLOOR_Y).chain(arena.def().platforms.iter().map(|p| p.y));
+                for (x0, y0) in floors.flat_map(|y| (12..468).step_by(3).map(move |x| (x, y))) {
+                    let (mut m, z) = quiet_match();
+                    m.config.arena = arena;
+                    // (The others stand still, out of the way.)
+                    m.f[0].pos = vec2(x0 as f32, y0);
+                    if arena.def().solids().any(|s| m.f[0].body().overlaps(s)) {
+                        continue;
+                    }
+                    assert!(!m.over);
+                    for t in 0..150u32 {
+                        let a = Action { mv: if t % 70 < 50 { side } else { -side }, run: true, jump: t % 40 < 25, down: t % 30 > 24, dash: (t % 50 == 10).then_some(side), ..Action::default() };
+                        let before = m.f[0].pos;
+                        m.step_with([&z; N_FIGHTERS], Some((0, a)));
+                        let moved = m.f[0].pos - before;
+                        assert!(moved.y > -12.0 && moved.x.abs() < 12.0, "{} from ({x0}, {y0}) going {side}: tick {t} jumped {moved} from {before} to {}", arena.id(), m.f[0].pos);
+                        assert!(!arena.def().solids().any(|s| m.f[0].body().overlaps(s)), "{} from ({x0}, {y0}) going {side}: tick {t} inside a wall at {}", arena.id(), m.f[0].pos);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn the_forests_campfire_burns_whoever_stands_in_it_all_match() {
         let (mut m, z) = quiet_match();
         m.config.arena = ArenaId::Forest;

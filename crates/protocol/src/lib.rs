@@ -129,7 +129,8 @@ impl Refusal {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ServerMsg {
-    Welcome { you: PlayerId },
+    /// `layout`: the server's `arena::layout_fingerprint` (a client with other maps reloads).
+    Welcome { you: PlayerId, layout: u64 },
     /// Something was refused (bad code, room full, version mismatch...).
     Error(Refusal),
     /// The room changed: who's in it, choices, phase. Sent to everyone in the room.
@@ -374,7 +375,7 @@ mod tests {
             your_seat: Some(0),
             config: MatchConfig { arena: ArenaId::Bridges, max_ticks: 1234, ..MatchConfig::default() },
         };
-        let mut server = vec![ServerMsg::Welcome { you: 9 }, ServerMsg::Error(Refusal::NoSuchRoom), ServerMsg::Room(room), ServerMsg::LeftRoom, ServerMsg::MatchStart(start)];
+        let mut server = vec![ServerMsg::Welcome { you: 9, layout: 0x1234_5678_9abc_def0 }, ServerMsg::Error(Refusal::NoSuchRoom), ServerMsg::Room(room), ServerMsg::LeftRoom, ServerMsg::MatchStart(start)];
         server.extend(sample_snapshots().into_iter().map(ServerMsg::Snapshot));
         for m in &server {
             match m {
@@ -402,7 +403,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (29, 0xf472_5975_0a03_8713);
+    const WIRE: (u16, u64) = (29, 0x4c09_61c8_1223_7410);
 
     #[test]
     fn every_sample_round_trips() {

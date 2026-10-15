@@ -69,7 +69,7 @@ pub async fn run(socket: WebSocket, hub: Arc<Hub>) {
 
     let id: PlayerId = hub.next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     tracing::debug!(id, %name, "connected");
-    let _ = out.send(encode(&ServerMsg::Welcome { you: id })).await;
+    let _ = out.send(encode(&ServerMsg::Welcome { you: id, layout: go_box_sim::arena::layout_fingerprint() })).await;
 
     let mut room: Option<mpsc::Sender<RoomCmd>> = None;
     let mut limits = Limits::new();

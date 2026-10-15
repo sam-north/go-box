@@ -38,7 +38,7 @@ impl Client {
         ws.send(Message::Binary(encode(&ClientMsg::Hello { version: PROTOCOL_VERSION, name: name.into() }).into())).await.unwrap();
         let mut c = Self { ws, id: 0 };
         match c.recv().await {
-            ServerMsg::Welcome { you } => c.id = you,
+            ServerMsg::Welcome { you, .. } => c.id = you,
             other => panic!("expected welcome, got {other:?}"),
         }
         c

@@ -106,6 +106,7 @@
             history.replaceState(null, "", u);
           } else if (kind === 1) localStorage.setItem(key, val);
           else if (kind === 2) navigator.clipboard.writeText(val);
+          else if (kind === 4) location.reload();
         } catch (e) { /* not allowed here */ }
       };
     },

@@ -57,6 +57,21 @@ impl Arena {
     }
 }
 
+/// A fingerprint of every map's layout (ledges, walls, campfires, starting spots): the server
+/// sends its own, so a client built with different maps (an old browser tab) knows to reload
+/// rather than play on walls the server doesn't have.
+pub fn layout_fingerprint() -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for a in ArenaId::ALL {
+        let d = a.def();
+        let boxes = d.platforms.iter().chain(d.walls).chain(d.campfires).flat_map(|s| [s.x, s.y, s.w, s.h]);
+        for v in boxes.chain(d.spawn_x) {
+            h = (h ^ v.to_bits() as u64).wrapping_mul(0x100_0000_01b3);
+        }
+    }
+    h
+}
+
 impl ArenaId {
     pub fn def(self) -> &'static Arena {
         match self {

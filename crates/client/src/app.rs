@@ -133,7 +133,17 @@ impl App {
         }
         for msg in net.poll() {
             match msg {
-                ServerMsg::Welcome { you } => {
+                ServerMsg::Welcome { you, layout } => {
+                    // Built with other maps than the server's (an old tab): reload for the new
+                    // build, once per server build (so an older server can't loop us), else say so.
+                    if layout != go_box_sim::arena::layout_fingerprint() {
+                        let key = "go-box-reloaded-for";
+                        if platform::load_pref(key) != layout.to_string() {
+                            platform::save_pref(key, &layout.to_string());
+                            platform::reload();
+                        }
+                        self.notice = Some((t("notice.other_build").to_string(), get_time()));
+                    }
                     self.me = Some(you);
                     if let Some(m) = self.after_welcome.take() {
                         net.send(&m);
