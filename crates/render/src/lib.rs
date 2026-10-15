@@ -1361,9 +1361,10 @@ fn make_sunset() -> Image {
                     (r, g, b) = (r + 60.0, g + 44.0, b + 14.0);
                 }
             }
-            // A little evening haze, so the fight stays in front.
-            let fog = 0.22;
-            (r, g, b) = (r * (1.0 - fog) + 50.0 * fog, g * (1.0 - fog) + 36.0 * fog, b * (1.0 - fog) + 56.0 * fog);
+            // Evening haze and dusk: muted and dimmed, so the fight stays in front.
+            let fog = 0.38;
+            (r, g, b) = (r * (1.0 - fog) + 40.0 * fog, g * (1.0 - fog) + 30.0 * fog, b * (1.0 - fog) + 48.0 * fog);
+            (r, g, b) = (r * 0.78, g * 0.78, b * 0.78);
             img.set_pixel(x, y, dither(x, y, r, g, b));
         }
     }
