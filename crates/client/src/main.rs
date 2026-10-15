@@ -151,7 +151,7 @@ async fn main() {
         let mouse_arena = (mouse - app.view.0) / app.view.1;
         // Clicks on the menu or its button aren't throws.
         // (Nor are clicks on the controls overlay's header, which opens and closes it.)
-        let mouse_free = !app.settings_open && !settings_button(&ui).contains(mouse) && !(playing && controls_header(&ui).contains(mouse));
+        let mouse_free = !app.settings_open && !settings_button(&ui).contains(mouse) && !(playing && app.settings.show_controls && controls_header(&ui).contains(mouse));
         let me = app.game.as_ref().and_then(|g| g.me()).cloned();
         if let (true, Some(seat), Some(me)) = (playing, seat, me) {
             app.controls.latch(&app.settings.bindings, me.holding.is_some(), mouse_free);
@@ -285,7 +285,8 @@ async fn main() {
             }
             (Some(_), _) => {
                 hud(&ui, &app, m);
-                if playing {
+                // (Only if they've asked for it, in the settings.)
+                if playing && app.settings.show_controls {
                     overlay_bottom = controls_overlay(&mut ui, &mut app);
                 }
             }

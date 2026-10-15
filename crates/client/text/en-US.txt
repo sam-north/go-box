@@ -169,6 +169,7 @@ settings.reset_controls = Reset controls
 settings.melee_aim = Melee: toward your aim
 settings.melee_facing = Melee: the way you face
 settings.trackpad = Using a trackpad: aim for me
+settings.show_controls = Show controls in match
 settings.fixed_controls = Also: left stick moves, right stick or mouse aims; d-pad and Cross work the menus.
 
 # What you can bind (by id)

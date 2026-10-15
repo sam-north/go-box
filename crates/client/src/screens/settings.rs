@@ -143,6 +143,13 @@ fn controls_page(ui: &mut Ui, app: &mut App, r: Rect, mut y: f32) {
     y += ui.px(24.0);
     ui.text(t("settings.fixed_controls"), r.x + pad, y, 15.0, DIM);
     let bottom = r.y + r.h - pad - ui.px(42.0);
+    // A checkbox: the controls overlay in a match (off by default).
+    let on = app.settings.show_controls;
+    let label = format!("[{}] {}", if on { "x" } else { " " }, t("settings.show_controls"));
+    if ui.button(Rect::new(r.x + pad + ui.px(212.0), bottom + ui.px(6.0), ui.px(270.0), ui.px(30.0)), &label, true, if on { ACCENT } else { EDGE }) {
+        app.settings.show_controls = !on;
+        app.settings.save();
+    }
     if ui.button(Rect::new(r.x + pad, bottom, ui.px(200.0), ui.px(42.0)), t("settings.reset_controls"), true, BAD) {
         app.settings.bindings = Bindings::default();
         app.settings.save();

@@ -31,6 +31,8 @@ pub struct Settings {
     pub melee_aim: bool,
     /// Playing on a trackpad: throws and swings aim themselves, at the nearest opponent.
     pub trackpad: bool,
+    /// Show the controls overlay in a match (off by default).
+    pub show_controls: bool,
     /// The controls overlay in a match is open (it's collapsible).
     pub controls_overlay: bool,
     /// A language code from the text files, e.g. "en-US".
@@ -43,7 +45,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { master: 0.8, effects: 1.0, music: 0.7, muted: false, melee_aim: true, trackpad: false, controls_overlay: true, language: "en-US".into(), bindings: Bindings::default(), bindings_version: BINDINGS_VERSION }
+        Self { master: 0.8, effects: 1.0, music: 0.7, muted: false, melee_aim: true, trackpad: false, show_controls: false, controls_overlay: true, language: "en-US".into(), bindings: Bindings::default(), bindings_version: BINDINGS_VERSION }
     }
 }
 
