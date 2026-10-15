@@ -87,6 +87,27 @@ fn place_icon(ui: &Ui, place: usize, c: Vec2) {
     }
 }
 
+/// A skull and crossbones centred at `c`, beside the time a fighter went down.
+fn skull_icon(ui: &Ui, c: Vec2) {
+    let r = ui.px(4.5);
+    let bone = Color::new(0.92, 0.90, 0.84, 1.0);
+    let dark = Color::new(0.12, 0.10, 0.10, 1.0);
+    // The crossbones behind: two bars corner to corner, a knob at each end.
+    let (a, w) = (r * 1.25, ui.px(1.8));
+    for s in [-1.0, 1.0] {
+        draw_line(c.x - a, c.y - a * s, c.x + a, c.y + a * s, w, bone);
+        for e in [-1.0, 1.0] {
+            draw_circle(c.x + a * e, c.y - a * s * e, w * 0.75, bone);
+        }
+    }
+    // The skull over them: a round head on a narrower jaw, two eye sockets and a nose.
+    draw_circle(c.x, c.y - r * 0.2, r, bone);
+    draw_rectangle(c.x - r * 0.55, c.y + r * 0.3, r * 1.1, r * 0.75, bone);
+    draw_circle(c.x - r * 0.4, c.y - r * 0.2, r * 0.28, dark);
+    draw_circle(c.x + r * 0.4, c.y - r * 0.2, r * 0.28, dark);
+    draw_triangle(c + vec2(0.0, r * 0.15), c + vec2(-r * 0.15, r * 0.45), c + vec2(r * 0.15, r * 0.45), dark);
+}
+
 pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[RenderTarget]) {
     let (sw, sh) = (screen_width(), screen_height());
     let w = ui.px(860.0).min(sw - 32.0);
@@ -168,6 +189,11 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
             }
             for (k, cell) in cells.iter().enumerate() {
                 ui.text(cell, r.x + pad + cols[k] * tw, y, 18.0, if k == 0 { color } else { INK });
+            }
+            // A skull and crossbones just past the time, for those who didn't survive.
+            if s.died_at.is_some() {
+                let x = r.x + pad + cols[2] * tw + ui.text_width(&cells[2], 18.0) + ui.px(12.0);
+                skull_icon(ui, vec2(x, y - ui.px(6.0)));
             }
         }
         y += ui.px(18.0);

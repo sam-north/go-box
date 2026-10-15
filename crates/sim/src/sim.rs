@@ -1536,7 +1536,8 @@ impl Match {
     pub(crate) fn damage(&mut self, src: usize, victim: usize, dmg: f32, knockback: Vec2, stun: u32, dir: f32, source: Source, headshot: bool) {
         // Nobody can be hurt at the start (the hit just doesn't happen: no knockback either), nor
         // Jake while he's inside his phone.
-        if self.protected() || self.f[victim].digital > 0 {
+        // (Nor anyone already down: they can't go down twice.)
+        if self.protected() || self.f[victim].digital > 0 || !self.f[victim].alive() {
             return;
         }
         // Vid reading: his shield stops it (no knockback either).
@@ -1581,7 +1582,9 @@ impl Match {
             self.f[victim].holding = None;
             self.f[victim].died_at = Some(self.tick);
             self.events.push(Event::Death { who: victim, pos });
-            if scores {
+            // Taking yourself out (your own grenade, air strike or fire, the campfire) counts as a
+            // kill too, so every fighter who goes down is someone's kill; downing your own mini isn't.
+            if scores || credit == victim {
                 self.f[credit].kills += 1;
             }
         }
@@ -2077,6 +2080,26 @@ mod tests {
         }
         assert!(boom, "the dropped grenade exploded");
         assert!(m.f[2].hp < MAX_HP, "and hurt the fighter standing next to it");
+    }
+
+    #[test]
+    fn every_fighter_who_goes_down_is_someones_kill() {
+        let (mut m, _) = quiet_match();
+        m.tick = secs(10);
+        // A blast from fighter 0's air strike (or grenade) takes out 1, out of 0's hand.
+        m.f[1].hp = 1.0;
+        let at = m.f[1].center();
+        m.explode(at, Some(0), crate::item::AIR_BOMB_BLAST);
+        assert!(!m.f[1].alive());
+        assert_eq!(m.f[0].kills, 1, "the one who called it in gets the kill");
+        // Fighter 2 blows themselves up: that counts too.
+        m.f[2].hp = 1.0;
+        let at = m.f[2].center();
+        m.explode(at, Some(2), crate::item::AIR_BOMB_BLAST);
+        assert_eq!(m.f[2].kills, 1, "a self-kill is a kill");
+        // Hitting someone already down doesn't kill them again.
+        m.damage(0, 1, MAX_HP, Vec2::ZERO, 0, 1.0, Source::Fist, false);
+        assert_eq!(m.f[0].kills, 1);
     }
 
     #[test]
