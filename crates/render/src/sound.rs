@@ -479,10 +479,12 @@ impl Buf {
         let n = (len * RATE as f32) as usize;
         let i0 = (start * RATE as f32) as usize;
         let mut phase = 0.0f32;
+        // (The glide is the same ratio every sample, so a multiply rather than a `powf` each.)
+        let (mut f, glide) = (f0 as f64, glide(f0, f1, len));
         for i in 0..n {
             let t = i as f32 / RATE as f32;
-            let f = f0 * (f1 / f0).powf(t / len);
-            phase = (phase + f / RATE as f32).fract();
+            phase = (phase + f as f32 / RATE as f32).fract();
+            f *= glide;
             let v = match wave {
                 Wave::Sine => (phase * std::f32::consts::TAU).sin(),
                 Wave::Square => {
@@ -505,15 +507,17 @@ impl Buf {
         let n = (len * RATE as f32) as usize;
         let i0 = (start * RATE as f32) as usize;
         let mut y = 0.0f32;
+        let (mut cutoff, glide) = (c0 as f64, glide(c0, c1, len));
         for i in 0..n {
             let t = i as f32 / RATE as f32;
-            let c = c0 * (c1 / c0).powf(t / len);
+            let c = cutoff as f32;
             let k = 1.0 - (-std::f32::consts::TAU * c / RATE as f32).exp();
             let x = self.rand();
             y += (x - y) * k;
             // The filter takes the edge off the level, more so at low cutoffs; make some back.
             let gain = (1.0 + 2000.0 / c).sqrt().min(4.0);
             *self.at(i0 + i) += y * gain * vol * Self::env(t, len, attack, decay);
+            cutoff *= glide;
         }
     }
 
@@ -522,14 +526,16 @@ impl Buf {
         let n = (len * RATE as f32) as usize;
         let i0 = (start * RATE as f32) as usize;
         let mut y = 0.0f32;
+        let (mut cutoff, glide) = (c0 as f64, glide(c0, c1, len));
         for i in 0..n {
             let t = i as f32 / RATE as f32;
-            let c = c0 * (c1 / c0).powf(t / len);
+            let c = cutoff as f32;
             let k = 1.0 - (-std::f32::consts::TAU * c / RATE as f32).exp();
             let x = self.rand();
             y += (x - y) * k;
             let a = (t / len).powi(2) * ((len - t) / 0.004).clamp(0.0, 1.0);
             *self.at(i0 + i) += y * 2.0 * vol * a;
+            cutoff *= glide;
         }
     }
 
@@ -550,6 +556,12 @@ impl Buf {
     fn finish(self) -> Vec<f32> {
         self.s.into_iter().map(|v| v.tanh()).collect()
     }
+}
+
+/// What an exponential glide from `from` to `to` over `len` seconds multiplies by each sample
+/// (in f64: a sound tens of thousands of samples long would drift off pitch in f32).
+fn glide(from: f32, to: f32, len: f32) -> f64 {
+    (to as f64 / from as f64).powf(1.0 / (len as f64 * RATE as f64))
 }
 
 /// 16-bit mono PCM WAV.
