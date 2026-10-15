@@ -131,6 +131,7 @@ passive.hobbyist = Hobbyist
 arena.tiers = Classic
 arena.bridges = City
 arena.forest = Forest
+arena.desktop = Desktop
 
 # Messages
 notice.connection_lost = Lost connection to the server.

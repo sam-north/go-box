@@ -144,7 +144,7 @@ pub enum Source {
     Fire,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Aabb {
     pub x: f32,
     pub y: f32,

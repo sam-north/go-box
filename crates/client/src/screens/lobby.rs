@@ -247,8 +247,10 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     // The map: buttons for the leader, a label for everyone else.
     let my = y;
     let mut dx = map_x;
+    // (As wide as fit, side by side.)
+    let n = ArenaId::ALL.len() as f32;
+    let bw = ui.px(120.0).min((r.x + w - pad - map_x - ui.px(8.0) * (n - 1.0)) / n);
     for a in ArenaId::ALL {
-        let bw = ui.px(120.0);
         let rr = Rect::new(dx, my + ui.px(12.0), bw, ui.px(34.0));
         let selected = room.arena == a;
         let name = t(&format!("arena.{}", a.id()));

@@ -753,6 +753,8 @@ fn make_background(arena: ArenaId) -> Image {
         img
     } else if arena == ArenaId::Forest {
         make_sunset()
+    } else if arena == ArenaId::Desktop {
+        make_wallpaper()
     } else {
         make_pipes()
     };
@@ -1080,6 +1082,7 @@ fn make_terrain(arena: ArenaId) -> Image {
     let themed: Option<Themed> = match arena {
         ArenaId::Bridges => Some(city_px),
         ArenaId::Forest => Some(forest_px),
+        ArenaId::Desktop => Some(desktop_px),
         _ => None,
     };
     let mut img = Image::gen_image_color(W as u16, H as u16, Color::new(0.0, 0.0, 0.0, 0.0));
@@ -1179,6 +1182,213 @@ fn make_terrain(arena: ArenaId) -> Image {
     }
     if arena == ArenaId::Forest {
         draw_foliage(&mut img, a);
+    }
+    if arena == ArenaId::Desktop {
+        draw_window_apps(&mut img);
+    }
+    img
+}
+
+/// The Desktop's window frames, sticky notes, menu bar (the ceiling), screen bezel (the side
+/// walls) and dock (the floor), one pixel (as `city_px`). Window insides are `draw_window_apps`.
+fn desktop_px(a: &Arena, x: i32, y: i32) -> Option<Option<(f32, f32, f32)>> {
+    use go_box_sim::arena::{DESKTOP_WINDOWS, WINDOW_BAR};
+    let p = vec2(x as f32 + 0.5, y as f32 + 0.5);
+    if let Some((k, win)) = DESKTOP_WINDOWS.iter().enumerate().find(|(_, w)| w.contains(p)) {
+        let (lx, d) = (x - win.x as i32, y - win.y as i32);
+        let bar = WINDOW_BAR as i32;
+        let solid = a.platforms.iter().chain(a.walls).any(|s| s.contains(p));
+        if !solid {
+            return None;
+        }
+        // The terminal and VS Code have dark title bars; the rest light.
+        let dark = k == 0 || k == 3;
+        let c = if d < bar {
+            // The title bar: traffic lights at the left, a title in the middle.
+            let light = [(236.0, 95.0, 87.0), (245.0, 190.0, 80.0), (98.0, 197.0, 85.0)];
+            let dot = (0..3).find(|&i| (lx == 3 + i * 4 || lx == 4 + i * 4) && (d == 2 || d == 3));
+            let title = (lx - win.w as i32 / 2).abs() < win.w as i32 / 8 && d == 2;
+            match dot {
+                Some(i) => light[i as usize],
+                None if title => if dark { (150.0, 150.0, 156.0) } else { (110.0, 112.0, 118.0) },
+                None if d == 0 => if dark { (92.0, 92.0, 98.0) } else { (238.0, 238.0, 242.0) },
+                None => if dark { (58.0, 58.0, 64.0) } else { (212.0, 214.0, 220.0) },
+            }
+        } else if d >= win.h as i32 - bar {
+            // The bottom edge (a status bar), shadowed underneath.
+            let e = d - (win.h as i32 - bar);
+            match (k, e) {
+                (3, 0..=3) => (40.0, 110.0, 190.0),
+                (_, 0) => if dark { (80.0, 80.0, 86.0) } else { (226.0, 226.0, 230.0) },
+                (_, 4) => (120.0, 120.0, 128.0),
+                _ => if dark { (52.0, 52.0, 58.0) } else { (196.0, 198.0, 204.0) },
+            }
+        } else {
+            // A side.
+            let outer = lx == 0 || lx == win.w as i32 - 1;
+            if outer { (150.0, 152.0, 160.0) } else if dark { (64.0, 64.0, 70.0) } else { (206.0, 208.0, 214.0) }
+        };
+        return Some(Some(c));
+    }
+    if let Some(s) = a.platforms.iter().find(|s| s.contains(p)) {
+        // A sticky note, its bottom edge in shadow and a corner curling up.
+        let (lx, d) = (x - s.x as i32, y - s.y as i32);
+        if lx == s.w as i32 - 1 && d == 0 {
+            return Some(None);
+        }
+        return Some(Some(if d == s.h as i32 - 1 { (196.0, 166.0, 60.0) } else if lx >= s.w as i32 - 3 && d <= 1 { (232.0, 206.0, 110.0) } else { (252.0, 224.0, 104.0) }));
+    }
+    if y < WALL as i32 {
+        // The menu bar: a frosted strip, an apple-ish blob and menus on the left, the clock right.
+        let (r, g, b) = (54.0, 56.0, 70.0);
+        let text = y == 3 || y == 4;
+        let logo = (x - 14).abs() <= 1 && (2..=5).contains(&y);
+        let menus = text && x > 22 && x < 120 && (x / 3) % 7 != 0 && hash(x / 9, 0, 111) > 0.25;
+        let clock = text && x > W as i32 - 60 && x < W as i32 - 14 && x % 4 != 0;
+        return Some(Some(if logo || menus || clock { (220.0, 222.0, 230.0) } else { (r, g, b) }));
+    }
+    if x < WALL as i32 || x >= (W - WALL) as i32 {
+        // The screen's bezel.
+        return Some(Some((22.0, 22.0, 26.0)));
+    }
+    if y >= FLOOR_Y as i32 {
+        // The dock: a frosted shelf of app icons in the middle of the bottom of the screen.
+        let d = y - FLOOR_Y as i32;
+        let (x0, x1) = (W as i32 / 2 - 90, W as i32 / 2 + 90);
+        if x >= x0 && x < x1 {
+            let icons = [(60.0, 130.0, 240.0), (240.0, 240.0, 245.0), (40.0, 40.0, 44.0), (34.0, 120.0, 210.0), (0.0, 168.0, 100.0), (52.0, 120.0, 250.0), (244.0, 90.0, 80.0), (250.0, 190.0, 60.0), (150.0, 90.0, 220.0), (120.0, 124.0, 132.0), (240.0, 140.0, 60.0), (70.0, 190.0, 210.0)];
+            let slot = (x - x0 - 3) / 15;
+            let ix = (x - x0 - 3) % 15;
+            if (1..=11).contains(&d) && (0..11).contains(&ix) && (slot as usize) < icons.len() {
+                let c = icons[slot as usize];
+                let shade = if d == 1 { 1.15 } else if d == 11 { 0.7 } else { 1.0 };
+                return Some(Some((c.0 * shade, c.1 * shade, c.2 * shade)));
+            }
+            return Some(Some(if d == 0 { (150.0, 154.0, 168.0) } else { (88.0, 92.0, 108.0) }));
+        }
+        return Some(Some(if d == 0 { (90.0, 92.0, 100.0) } else { (30.0, 30.0, 36.0) }));
+    }
+    None
+}
+
+/// Inside each of the Desktop's windows (behind the fighters, nothing to stand on), dimmed so the
+/// frames read first: a terminal scrolling commands, a chat of bubbles, a Jira board of cards in
+/// columns, VS Code with a sidebar and coloured code, and a week of calendar events.
+fn draw_window_apps(img: &mut Image) {
+    use go_box_sim::arena::{DESKTOP_WINDOWS, WINDOW_BAR, WINDOW_SIDE};
+    for (k, win) in DESKTOP_WINDOWS.iter().enumerate() {
+        let (x0, y0) = ((win.x + WINDOW_SIDE) as i32, (win.y + WINDOW_BAR) as i32);
+        let (x1, y1) = ((win.x + win.w - WINDOW_SIDE) as i32, (win.y + win.h - WINDOW_BAR) as i32);
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let (lx, ly, w) = (x - x0, y - y0, x1 - x0);
+                let row = ly / 3;
+                let on_row = ly % 3 == 1;
+                let len = |seed: u32| (6.0 + hash(row, k as i32, seed) * (w as f32 * 0.6)) as i32;
+                let c = match k {
+                    // Terminal: black, green prompts and grey output.
+                    0 => {
+                        if on_row && lx >= 2 && lx < 2 + len(121) {
+                            if lx < 4 { (90.0, 200.0, 110.0) } else if row % 3 == 0 { (210.0, 210.0, 210.0) } else { (140.0, 140.0, 140.0) }
+                        } else if on_row && row == (y1 - y0) / 3 - 1 && lx == 2 {
+                            (230.0, 230.0, 230.0)
+                        } else {
+                            (16.0, 16.0, 18.0)
+                        }
+                    }
+                    // Google Chat: white, grey bubbles from others on the left, green ones on the right.
+                    1 => {
+                        let bubble = (ly / 7) as i32;
+                        let mine = bubble % 2 == 1;
+                        let blen = 20 + (hash(bubble, 1, 123) * 40.0) as i32;
+                        let inside = ly % 7 >= 1 && ly % 7 <= 5 && if mine { lx > w - 3 - blen && lx < w - 3 } else { lx > 2 && lx < 2 + blen };
+                        if inside {
+                            if mine { (190.0, 232.0, 200.0) } else { (226.0, 228.0, 232.0) }
+                        } else {
+                            (250.0, 250.0, 252.0)
+                        }
+                    }
+                    // Jira: To Do / In Progress / Done columns of cards with coloured tags.
+                    2 => {
+                        let col_w = w / 3;
+                        let (col, cx) = (lx / col_w, lx % col_w);
+                        let card = (ly - 4) / 8;
+                        let in_card = ly >= 4 && (ly - 4) % 8 < 6 && cx >= 2 && cx < col_w - 2 && card < 3 - col.min(2) + 1;
+                        if ly < 3 {
+                            if cx >= 2 && cx < 2 + 12 && ly == 1 { (120.0, 126.0, 140.0) } else { (244.0, 245.0, 247.0) }
+                        } else if in_card {
+                            let tag = [(76.0, 154.0, 255.0), (255.0, 171.0, 0.0), (54.0, 179.0, 126.0)][col.min(2) as usize];
+                            if cx < 4 { tag } else if (ly - 4) % 8 == 2 && cx < col_w - 8 { (150.0, 156.0, 168.0) } else { (255.0, 255.0, 255.0) }
+                        } else {
+                            (236.0, 238.0, 242.0)
+                        }
+                    }
+                    // VS Code: a dark sidebar of files, tabs, and coloured, indented code.
+                    3 => {
+                        if lx < 14 {
+                            if on_row && lx >= 2 && lx < 4 + (hash(row, 3, 125) * 8.0) as i32 { (140.0, 140.0, 146.0) } else { (37.0, 37.0, 38.0) }
+                        } else if ly < 3 {
+                            if lx < 34 { (30.0, 30.0, 30.0) } else { (45.0, 45.0, 46.0) }
+                        } else {
+                            let indent = 18 + ((hash(row, 4, 127) * 3.0) as i32) * 4;
+                            let tokens = [(86.0, 156.0, 214.0), (206.0, 145.0, 120.0), (220.0, 220.0, 170.0), (78.0, 201.0, 176.0), (197.0, 134.0, 192.0)];
+                            if on_row && lx >= indent && lx < indent + len(129) {
+                                tokens[((lx - indent) / 6 + row) as usize % tokens.len()]
+                            } else {
+                                (30.0, 30.0, 30.0)
+                            }
+                        }
+                    }
+                    // Calendar: a week's grid with coloured events.
+                    _ => {
+                        let col_w = w / 5;
+                        let (col, cx) = (lx / col_w, lx % col_w);
+                        let event = hash(col, ly / 9, 131);
+                        if ly < 3 {
+                            if ly == 1 && cx > 2 && cx < col_w - 3 { (150.0, 150.0, 160.0) } else { (248.0, 248.0, 250.0) }
+                        } else if event > 0.55 && ly % 9 < 7 && cx >= 1 && cx < col_w - 1 {
+                            [(66.0, 133.0, 244.0), (52.0, 168.0, 83.0), (251.0, 140.0, 0.0)][(event * 30.0) as usize % 3]
+                        } else if cx == 0 || ly % 9 == 8 {
+                            (226.0, 228.0, 232.0)
+                        } else {
+                            (255.0, 255.0, 255.0)
+                        }
+                    }
+                };
+                // Dimmed a little, so the frames (what you stand on) read first.
+                let k = 0.62;
+                img.set_pixel(x as u32, y as u32, dither(x as u32, y as u32, c.0 * k + 20.0 * (1.0 - k), c.1 * k + 22.0 * (1.0 - k), c.2 * k + 34.0 * (1.0 - k)));
+            }
+        }
+    }
+}
+
+/// The Desktop's wallpaper: soft waves of colour, deep blue up top through violet to a warm glow
+/// low down (a laptop's default), a little muted so the windows come first.
+fn make_wallpaper() -> Image {
+    let mut img = Image::gen_image_color(W as u16, H as u16, BLACK);
+    let stops = [(0.0, (24.0, 34.0, 96.0)), (0.35, (74.0, 52.0, 150.0)), (0.62, (176.0, 70.0, 150.0)), (0.85, (238.0, 128.0, 96.0)), (1.0, (250.0, 186.0, 120.0))];
+    for y in 0..H as u32 {
+        for x in 0..W as u32 {
+            let (fx, fy) = (x as f32 / W, y as f32 / H);
+            // Diagonal, bent into broad waves.
+            let wave = (fx * 5.0 + fy * 2.0).sin() * 0.06 + (fx * 2.3 - fy * 3.1).sin() * 0.05;
+            let t = (fy * 0.75 + fx * 0.3 + wave).clamp(0.0, 1.0);
+            let mut c = stops[0].1;
+            for s in stops.windows(2) {
+                let ((t0, c0), (t1, c1)) = (s[0], s[1]);
+                if t >= t0 {
+                    let k = ((t - t0) / (t1 - t0)).clamp(0.0, 1.0);
+                    c = (c0.0 + (c1.0 - c0.0) * k, c0.1 + (c1.1 - c0.1) * k, c0.2 + (c1.2 - c0.2) * k);
+                }
+            }
+            // The crest of each wave catches the light.
+            let crest = ((fx * 5.0 + fy * 2.0).sin() * 0.5 + 0.5).powf(8.0) * 18.0;
+            let (mut r, mut g, mut b) = (c.0 + crest, c.1 + crest, c.2 + crest);
+            let fog = 0.3;
+            (r, g, b) = ((r * (1.0 - fog) + 30.0 * fog) * 0.82, (g * (1.0 - fog) + 30.0 * fog) * 0.82, (b * (1.0 - fog) + 50.0 * fog) * 0.82);
+            img.set_pixel(x, y, dither(x, y, r, g, b));
+        }
     }
     img
 }
@@ -1916,7 +2126,8 @@ impl Art {
             self.stain_tex.update_part(&part, x0 as i32, y0 as i32, w as i32, h as i32);
         }
         draw_texture(&self.bg, 0.0, 0.0, WHITE);
-        for d in &self.rain {
+        // (No rain indoors, on the Desktop.)
+        for d in self.rain.iter().filter(|_| self.arena != ArenaId::Desktop) {
             draw_line(d.pos.x, d.pos.y, d.pos.x + 0.6, d.pos.y - 4.0, 1.0, Color::new(0.55, 0.62, 0.72, 0.22));
         }
         draw_texture(&self.terrain, 0.0, 0.0, WHITE);

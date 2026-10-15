@@ -41,6 +41,9 @@ crate::enum_all! {
         /// "Forest": tall trees up each side with branches all the way up, and a short one in
         /// the middle (a branch each way) that you jump or wall-jump over, not walk through.
         Forest,
+        /// "Desktop": app windows floating on a wallpaper. Each window's title bar and bottom
+        /// edge are ledges (drop through the title bar to land inside), its sides are walls.
+        Desktop,
     }
 }
 
@@ -57,6 +60,7 @@ impl ArenaId {
             ArenaId::Tiers => &TIERS,
             ArenaId::Bridges => &BRIDGES,
             ArenaId::Forest => &FOREST,
+            ArenaId::Desktop => &DESKTOP,
         }
     }
 
@@ -134,6 +138,55 @@ const FOREST: Arena = Arena {
     spawn_x: [28.0, 130.0, 254.0, 356.0],
 };
 
+/// The Desktop's windows, whole (title bar to bottom edge), in the order the renderer dresses
+/// them: a terminal, a chat, a Jira board, VS Code and a calendar. Each is a title bar
+/// and a bottom edge (`WINDOW_BAR` thick, ledges) with a wall (`WINDOW_SIDE` wide) down each
+/// side between them; `DESKTOP`'s ledges and walls are exactly these (a test holds them to it).
+pub const DESKTOP_WINDOWS: [Aabb; 5] = [
+    Aabb::new(40.0, 178.0, 104.0, 43.0),
+    Aabb::new(336.0, 178.0, 104.0, 43.0),
+    Aabb::new(164.0, 104.0, 152.0, 43.0),
+    Aabb::new(20.0, 104.0, 80.0, 43.0),
+    Aabb::new(380.0, 104.0, 80.0, 43.0),
+];
+pub const WINDOW_BAR: f32 = 5.0;
+pub const WINDOW_SIDE: f32 = 4.0;
+
+const DESKTOP: Arena = Arena {
+    id: "desktop",
+    platforms: &[
+        // Each window's title bar and bottom edge, in `DESKTOP_WINDOWS` order.
+        Aabb::new(40.0, 178.0, 104.0, 5.0),
+        Aabb::new(40.0, 216.0, 104.0, 5.0),
+        Aabb::new(336.0, 178.0, 104.0, 5.0),
+        Aabb::new(336.0, 216.0, 104.0, 5.0),
+        Aabb::new(164.0, 104.0, 152.0, 5.0),
+        Aabb::new(164.0, 142.0, 152.0, 5.0),
+        Aabb::new(20.0, 104.0, 80.0, 5.0),
+        Aabb::new(20.0, 142.0, 80.0, 5.0),
+        Aabb::new(380.0, 104.0, 80.0, 5.0),
+        Aabb::new(380.0, 142.0, 80.0, 5.0),
+        // Sticky notes up high.
+        Aabb::new(44.0, 70.0, 30.0, 4.0),
+        Aabb::new(225.0, 70.0, 30.0, 4.0),
+        Aabb::new(406.0, 70.0, 30.0, 4.0),
+    ],
+    // Each window's sides, between its title bar and bottom edge.
+    walls: &[
+        Aabb::new(40.0, 183.0, 4.0, 33.0),
+        Aabb::new(140.0, 183.0, 4.0, 33.0),
+        Aabb::new(336.0, 183.0, 4.0, 33.0),
+        Aabb::new(436.0, 183.0, 4.0, 33.0),
+        Aabb::new(164.0, 109.0, 4.0, 33.0),
+        Aabb::new(312.0, 109.0, 4.0, 33.0),
+        Aabb::new(20.0, 109.0, 4.0, 33.0),
+        Aabb::new(96.0, 109.0, 4.0, 33.0),
+        Aabb::new(380.0, 109.0, 4.0, 33.0),
+        Aabb::new(456.0, 109.0, 4.0, 33.0),
+    ],
+    spawn_x: [20.0, 135.0, 250.0, 365.0],
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,6 +224,20 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn the_desktops_ledges_and_walls_are_its_windows() {
+        let d = ArenaId::Desktop.def();
+        for (k, w) in DESKTOP_WINDOWS.iter().enumerate() {
+            let bottom = w.y + w.h - WINDOW_BAR;
+            assert_eq!(d.platforms[2 * k], Aabb::new(w.x, w.y, w.w, WINDOW_BAR), "window {k}'s title bar");
+            assert_eq!(d.platforms[2 * k + 1], Aabb::new(w.x, bottom, w.w, WINDOW_BAR), "window {k}'s bottom edge");
+            let side = |x: f32| Aabb::new(x, w.y + WINDOW_BAR, WINDOW_SIDE, bottom - w.y - WINDOW_BAR);
+            assert_eq!(d.walls[2 * k], side(w.x), "window {k}'s left side");
+            assert_eq!(d.walls[2 * k + 1], side(w.x + w.w - WINDOW_SIDE), "window {k}'s right side");
+        }
+        assert_eq!(d.walls.len(), 2 * DESKTOP_WINDOWS.len());
     }
 
     #[test]
