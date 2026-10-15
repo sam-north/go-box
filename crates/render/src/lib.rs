@@ -749,6 +749,7 @@ fn make_background(arena: ArenaId) -> Image {
     let mut img = if arena == ArenaId::Bridges {
         let mut img = make_skyline();
         draw_scaffold(&mut img, arena.def());
+        draw_trash(&mut img, arena.def());
         img
     } else {
         make_pipes()
@@ -957,6 +958,82 @@ fn city_px(a: &Arena, x: i32, y: i32) -> Option<Option<(f32, f32, f32)>> {
 
 /// Behind the City's ledges: the scaffold they're part of, faint, steel poles down to whatever
 /// is under them, with a brace across each bay.
+/// Behind the City's floor, under its two chutes: an open dumpster under the first, a pile of
+/// trash bags under the second. Dim, like the scaffold: part of the backdrop, not things to stand on.
+fn draw_trash(img: &mut Image, a: &Arena) {
+    let [first, second] = a.walls else { return };
+    let mut put = |x: i32, y: i32, c: (f32, f32, f32)| {
+        if x < 0 || y < 0 || x >= W as i32 || y >= FLOOR_Y as i32 {
+            return;
+        }
+        let o = img.get_pixel(x as u32, y as u32);
+        // (Faded into the haze.)
+        let k = 0.7;
+        let mix = |o: f32, c: f32| o * (1.0 - k) + c / 255.0 * k;
+        img.set_pixel(x as u32, y as u32, Color::new(mix(o.r, c.0), mix(o.g, c.1), mix(o.b, c.2), 1.0));
+    };
+    let floor = FLOOR_Y as i32;
+
+    // The dumpster: a ribbed green bin on little wheels, its lid flung open behind it, a bag
+    // poking over the rim.
+    let cx = (first.x + first.w / 2.0) as i32;
+    let (x0, x1, top) = (cx - 14, cx + 14, floor - 13);
+    for i in 0..=(x1 - x0 + 3) {
+        let y = top - 1 - i * 9 / (x1 - x0 + 3);
+        for t in 0..2 {
+            put(x0 - 1 + i, y - t, if t == 0 { (40.0, 62.0, 50.0) } else { (56.0, 84.0, 66.0) });
+        }
+    }
+    for (bx, r) in [(cx - 6, 4), (cx + 3, 5)] {
+        for y in top - r..top {
+            for x in bx - r..=bx + r {
+                if (x - bx).pow(2) + (y - top).pow(2) <= r * r {
+                    put(x, y, (30.0, 32.0, 38.0));
+                }
+            }
+        }
+    }
+    for y in top..floor {
+        // (A little narrower at the bottom.)
+        let inset = (y - top) / 6;
+        for x in x0 + inset..=x1 - inset {
+            let mut c = (46.0, 74.0, 58.0);
+            if y == top {
+                c = (72.0, 104.0, 82.0);
+            } else if (x - x0) % 7 == 3 {
+                c = (34.0, 54.0, 42.0);
+            } else if x == x0 + inset {
+                c = (60.0, 90.0, 72.0);
+            }
+            put(x, y, c);
+        }
+    }
+    for wx in [x0 + 4, x1 - 4] {
+        for (dx, dy) in [(0, 0), (-1, 0), (1, 0), (0, -1)] {
+            put(wx + dx, floor - 1 + dy, (20.0, 20.0, 22.0));
+        }
+    }
+
+    // The trash bags: four black sacks heaped up, each with a shine and a tied neck.
+    let cx = (second.x + second.w / 2.0) as i32;
+    let bags = [(cx - 9, floor - 6, 7, 6), (cx + 4, floor - 5, 7, 5), (cx + 13, floor - 4, 5, 4), (cx - 2, floor - 12, 6, 5)];
+    for (bx, by, rx, ry) in bags {
+        for y in by - ry..=by + ry {
+            for x in bx - rx..=bx + rx {
+                let (dx, dy) = ((x - bx) as f32 / rx as f32, (y - by) as f32 / ry as f32);
+                if dx * dx + dy * dy <= 1.0 {
+                    let shine = dx < -0.2 && dy < -0.2 && dx * dx + dy * dy > 0.35;
+                    let edge = dx * dx + dy * dy > 0.7;
+                    put(x, y, if shine { (104.0, 110.0, 124.0) } else if edge { (34.0, 36.0, 42.0) } else { (54.0, 58.0, 68.0) });
+                }
+            }
+        }
+        put(bx, by - ry - 1, (40.0, 42.0, 48.0));
+        put(bx - 1, by - ry - 2, (40.0, 42.0, 48.0));
+        put(bx + 1, by - ry - 2, (40.0, 42.0, 48.0));
+    }
+}
+
 fn draw_scaffold(img: &mut Image, a: &Arena) {
     let mut tint = |x: i32, y: i32, c: (f32, f32, f32), k: f32| {
         if x < 0 || y < 0 || x >= W as i32 || y >= H as i32 {
