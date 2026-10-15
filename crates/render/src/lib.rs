@@ -2156,6 +2156,9 @@ impl Art {
         }
         draw_texture(&self.terrain, 0.0, 0.0, WHITE);
         draw_texture(&self.stain_tex, 0.0, 0.0, WHITE);
+        for c in self.arena.def().campfires {
+            draw_campfire(c, self.time);
+        }
 
         for &(p, c) in &self.flags {
             draw_flag(p, c, self.time);
@@ -3331,6 +3334,41 @@ fn draw_fire(fire: &Fire, time: f32) {
         let w = if hash(k, frame, 92) < 0.5 { 1.0 } else { 2.0 };
         draw_rectangle(x, y - h, w, h, Color::new(FLAME.r, FLAME.g, FLAME.b, fade));
         draw_rectangle(x, y - h, w, (h * 0.4).ceil(), Color::new(FLAME_TIP.r, FLAME_TIP.g, FLAME_TIP.b, fade));
+    }
+}
+
+/// A map's campfire, burning in `area` (on the ground): a ring of stones, crossed logs, tall
+/// flickering flames, embers drifting up, and a warm glow.
+fn draw_campfire(area: &Aabb, time: f32) {
+    let (x0, y) = (area.x.round(), (area.y + area.h).round());
+    let (w, cx) = (area.w.round(), (area.x + area.w / 2.0).round());
+    fill_ellipse(cx, y - 7.0, w + 10.0 + (time * 9.0).sin() * 1.5, 16.0, Color::new(FLAME.r, FLAME.g, FLAME.b, 0.16));
+    // Stones round it, logs crossed in it.
+    for k in 0..(w as i32 / 3 + 1) {
+        let sx = x0 + k as f32 * 3.0 - 1.0;
+        draw_rectangle(sx, y - 2.0, 2.0, 2.0, if k % 2 == 0 { Color::new(0.42, 0.42, 0.44, 1.0) } else { Color::new(0.32, 0.32, 0.34, 1.0) });
+    }
+    let log = Color::new(0.38, 0.24, 0.14, 1.0);
+    line(vec2(x0 + 2.0, y - 2.0), vec2(x0 + w - 3.0, y - 5.0), 2.0, log);
+    line(vec2(x0 + 2.0, y - 5.0), vec2(x0 + w - 3.0, y - 2.0), 2.0, Color::new(0.30, 0.19, 0.11, 1.0));
+    draw_rectangle(x0 + 3.0, y - 3.0, w - 6.0, 1.0, EMBER_BASE);
+    // The flames: taller in the middle, flickering.
+    let frame = (time * 12.0) as i32;
+    for k in 0..(w as i32 - 4) {
+        let x = x0 + 2.0 + k as f32;
+        let mid = 1.0 - ((k as f32 - (w - 5.0) / 2.0).abs() / (w / 2.0));
+        let h = (2.0 + mid * 9.0 * (0.6 + hash(k, frame, 141) * 0.5)).round();
+        draw_rectangle(x, y - 4.0 - h, 1.0, h, FLAME);
+        draw_rectangle(x, y - 4.0 - h, 1.0, (h * 0.4).ceil(), FLAME_TIP);
+        if mid > 0.5 && h > 6.0 {
+            draw_rectangle(x, y - 6.0 - h * 0.3, 1.0, (h * 0.3).ceil(), Color::new(1.0, 0.95, 0.7, 1.0));
+        }
+    }
+    // Embers rising and fading.
+    for k in 0..4 {
+        let t = (time * 0.7 + k as f32 * 0.25).fract();
+        let ex = cx + ((time * 3.0 + k as f32 * 2.0).sin() * 3.0) + (hash(k, 0, 143) - 0.5) * w * 0.6;
+        draw_rectangle(ex.round(), (y - 12.0 - t * 22.0).round(), 1.0, 1.0, Color::new(FLAME_TIP.r, FLAME_TIP.g, FLAME_TIP.b, 1.0 - t));
     }
 }
 

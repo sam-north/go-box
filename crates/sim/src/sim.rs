@@ -1110,6 +1110,8 @@ impl Match {
         }
         // Kyle's backlog counts down, and lets everything go when it's up.
         self.step_backlog();
+        // The map's campfires burn whoever's in them.
+        self.step_campfires();
 
         // 4. Melee (resolved simultaneously).
         let mut hits = Vec::new();
@@ -2157,6 +2159,25 @@ mod tests {
             through |= m.effects.iter().any(|e| matches!(e, Effect::Rocket(r) if r.pos.y < ledge.y - 6.0));
         }
         assert!(through, "it flew up through the ledge");
+    }
+
+    #[test]
+    fn the_forests_campfire_burns_whoever_stands_in_it_all_match() {
+        let (mut m, z) = quiet_match();
+        m.config.arena = ArenaId::Forest;
+        let fire = crate::arena::FOREST_CAMPFIRE;
+        m.f[0].pos = vec2(fire.x + fire.w / 2.0, FLOOR_Y);
+        m.f[1].pos.x = fire.x - 30.0;
+        // Late in the match, as at the start: it never goes out.
+        m.tick = secs(30);
+        for _ in 0..secs(2) {
+            m.f[0].pos.x = fire.x + fire.w / 2.0;
+            m.step([&z; N_FIGHTERS]);
+        }
+        assert!(m.f[0].hp <= MAX_HP - 3.0 * 5.0, "burnt: {} left", m.f[0].hp);
+        assert_eq!(m.f[1].hp, MAX_HP, "the one beside it is fine");
+        assert_eq!(m.f.iter().map(|f| f.kills).sum::<u32>(), 0);
+        assert!(m.f.iter().all(|f| f.dmg_dealt == 0.0), "nobody's credited");
     }
 
     #[test]
