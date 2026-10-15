@@ -663,10 +663,17 @@ fn random_surface_spot(rng: &mut impl Rng, arena: &Arena) -> Vec2 {
 /// into that range.
 fn random_surface_spot_between(rng: &mut impl Rng, arena: &Arena, lo: f32, hi: f32) -> Option<Vec2> {
     let floor = (WALL + 6.0, W - WALL - 6.0, FLOOR_Y);
-    let surfaces = std::iter::once(floor)
-        .chain(arena.platforms.iter().map(|p| (p.x + 3.0, p.x + p.w - 3.0, p.y)))
-        .map(|(x0, x1, y)| (x0.max(lo), x1.min(hi), y))
-        .filter(|(x0, x1, _)| x1 > x0);
+    // (Less any stretch where one of the map's walls stands on it: a tree trunk on the floor.)
+    let mut spans: Vec<(f32, f32, f32)> = Vec::new();
+    for (x0, x1, y) in std::iter::once(floor).chain(arena.platforms.iter().map(|p| (p.x + 3.0, p.x + p.w - 3.0, p.y))) {
+        let mut parts = vec![(x0, x1)];
+        for w in arena.walls.iter().filter(|w| w.y < y - 0.5 && w.y + w.h >= y - 0.5) {
+            let (cut0, cut1) = (w.x - 3.0, w.x + w.w + 3.0);
+            parts = parts.into_iter().flat_map(|(a, b)| if cut1 <= a || cut0 >= b { vec![(a, b)] } else { vec![(a, cut0), (cut1, b)] }).filter(|(a, b)| b > a).collect();
+        }
+        spans.extend(parts.into_iter().map(|(a, b)| (a, b, y)));
+    }
+    let surfaces = spans.into_iter().map(|(x0, x1, y)| (x0.max(lo), x1.min(hi), y)).filter(|(x0, x1, _)| x1 > x0);
     let total: f32 = surfaces.clone().map(|(x0, x1, _)| x1 - x0).sum();
     if total <= 0.0 {
         return None;

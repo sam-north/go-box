@@ -38,6 +38,9 @@ crate::enum_all! {
         /// "City": two long bridges over an open floor, with steps up at the sides, and two steel
         /// pillars hanging from the high bridge to wall-jump up between.
         Bridges,
+        /// "Forest": tall trees up each side with branches all the way up, and a short one in
+        /// the middle (a branch each way) that you jump or wall-jump over, not walk through.
+        Forest,
     }
 }
 
@@ -53,6 +56,7 @@ impl ArenaId {
         match self {
             ArenaId::Tiers => &TIERS,
             ArenaId::Bridges => &BRIDGES,
+            ArenaId::Forest => &FOREST,
         }
     }
 
@@ -103,6 +107,33 @@ const BRIDGES: Arena = Arena {
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
 
+/// The trunks: the side trees stand against the box's walls nearly to the ceiling, the middle
+/// one up to its two branches. (The renderer draws the trees from these, so they're named.)
+pub const FOREST_TRUNKS: [Aabb; 3] = [Aabb::new(8.0, 20.0, 14.0, 234.0), Aabb::new(458.0, 20.0, 14.0, 234.0), Aabb::new(234.0, 214.0, 12.0, 40.0)];
+
+const FOREST: Arena = Arena {
+    id: "forest",
+    platforms: &[
+        // Branches off the left tree, all the way up, then the same off the right one.
+        Aabb::new(22.0, 214.0, 64.0, 5.0),
+        Aabb::new(22.0, 178.0, 84.0, 5.0),
+        Aabb::new(22.0, 142.0, 60.0, 5.0),
+        Aabb::new(22.0, 106.0, 92.0, 5.0),
+        Aabb::new(22.0, 70.0, 56.0, 5.0),
+        Aabb::new(394.0, 214.0, 64.0, 5.0),
+        Aabb::new(374.0, 178.0, 84.0, 5.0),
+        Aabb::new(398.0, 142.0, 60.0, 5.0),
+        Aabb::new(366.0, 106.0, 92.0, 5.0),
+        Aabb::new(402.0, 70.0, 56.0, 5.0),
+        // The middle tree, short: just a branch each way off the top of its trunk.
+        Aabb::new(182.0, 214.0, 52.0, 5.0),
+        Aabb::new(246.0, 214.0, 52.0, 5.0),
+    ],
+    walls: &FOREST_TRUNKS,
+    // (Clear of the trunks: none can start inside one.)
+    spawn_x: [28.0, 130.0, 254.0, 356.0],
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,6 +152,23 @@ mod tests {
             }
             for x in d.spawn_x {
                 assert!(x >= WALL + 4.0 && x + SPAWN_SPREAD <= W - WALL - 4.0, "{} spawn at {x}", d.id);
+            }
+        }
+    }
+
+    #[test]
+    fn nobody_starts_and_nothing_drops_inside_a_wall() {
+        use crate::sim::{ITEM_R, Match, MatchConfig};
+        for a in ArenaId::ALL {
+            for seed in 0..40 {
+                let mut m = Match::new(seed, &MatchConfig { arena: a, ..MatchConfig::default() });
+                for f in &m.f[..N_FIGHTERS] {
+                    assert!(!a.def().walls.iter().any(|w| f.body().overlaps(w)), "{} seed {seed}: a fighter starts in a wall at {}", a.id(), f.pos);
+                }
+                for _ in 0..50 {
+                    let p = m.random_surface_spot_between(0.0, W).unwrap() - glam::vec2(0.0, ITEM_R);
+                    assert!(!a.def().walls.iter().any(|w| crate::sim::Aabb::around(p, ITEM_R).overlaps(w)), "{} seed {seed}: a spot in a wall at {p}", a.id());
+                }
             }
         }
     }

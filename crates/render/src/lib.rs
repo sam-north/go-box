@@ -751,6 +751,8 @@ fn make_background(arena: ArenaId) -> Image {
         draw_scaffold(&mut img, arena.def());
         draw_trash(&mut img, arena.def());
         img
+    } else if arena == ArenaId::Forest {
+        make_sunset()
     } else {
         make_pipes()
     };
@@ -1072,13 +1074,19 @@ fn draw_scaffold(img: &mut Image, a: &Arena) {
 
 fn make_terrain(arena: ArenaId) -> Image {
     let a = arena.def();
-    // (The City has its own ledges and walls: scaffolding and trash chutes.)
-    let city = arena == ArenaId::Bridges;
+    // (Some maps draw their own ledges and walls: the City's scaffolding and trash chutes, the
+    // Forest's branches and trunks.)
+    type Themed = fn(&Arena, i32, i32) -> Option<Option<(f32, f32, f32)>>;
+    let themed: Option<Themed> = match arena {
+        ArenaId::Bridges => Some(city_px),
+        ArenaId::Forest => Some(forest_px),
+        _ => None,
+    };
     let mut img = Image::gen_image_color(W as u16, H as u16, Color::new(0.0, 0.0, 0.0, 0.0));
     for y in 0..H as i32 {
         for x in 0..W as i32 {
             let (ux, uy) = (x as u32, y as u32);
-            if city && let Some(c) = city_px(a, x, y) {
+            if let Some(c) = themed.and_then(|f| f(a, x, y)) {
                 if let Some((r, g, b)) = c {
                     img.set_pixel(ux, uy, dither(ux, uy, r, g, b));
                 }
@@ -1167,6 +1175,197 @@ fn make_terrain(arena: ArenaId) -> Image {
                 }
                 img.set_pixel(ux, uy, dither(ux, uy, r, g, b));
             }
+        }
+    }
+    if arena == ArenaId::Forest {
+        draw_foliage(&mut img, a);
+    }
+    img
+}
+
+/// The Forest's ledges, walls and floor, one pixel (as `city_px`): branches of bark with moss
+/// on top, tapering to their free ends; trunks of grooved bark; a floor of dirt under grass.
+fn forest_px(a: &Arena, x: i32, y: i32) -> Option<Option<(f32, f32, f32)>> {
+    let p = vec2(x as f32 + 0.5, y as f32 + 0.5);
+    if let Some(s) = a.platforms.iter().find(|s| s.contains(p)) {
+        let (lx, d, w) = (x - s.x as i32, y - s.y as i32, s.w as i32);
+        // Which ends grow out of a trunk; the others taper to a point.
+        let joined = |at: f32| a.walls.iter().any(|t| (t.x - at).abs() < 1.0 || (t.x + t.w - at).abs() < 1.0);
+        let tip_left = if joined(s.x) { i32::MAX } else { lx };
+        let tip_right = if joined(s.x + s.w) { i32::MAX } else { w - 1 - lx };
+        let from_tip = tip_left.min(tip_right);
+        if from_tip < 10 && d > 1 + from_tip / 3 {
+            return Some(None);
+        }
+        let grain = hash(x / 4, y, 81) * 14.0 - 7.0;
+        let (r, g, b) = match d {
+            0 => (88.0 + grain, 112.0 + grain, 52.0),
+            1 => (112.0 + grain, 80.0 + grain * 0.8, 50.0),
+            2 | 3 => (90.0 + grain, 62.0 + grain * 0.7, 40.0),
+            _ => (58.0, 40.0, 28.0),
+        };
+        return Some(Some((r, g, b)));
+    }
+    if let Some(t) = a.walls.iter().find(|s| s.contains(p)) {
+        let (lx, w) = (x - t.x as i32, t.w as i32);
+        let groove = (lx + (hash(y / 9, lx, 83) * 2.0) as i32) % 4 == 0;
+        let knot = hash(lx / 4, y / 6, 85) > 0.93;
+        let mut c = if groove { (54.0, 38.0, 26.0) } else { (84.0, 60.0, 40.0) };
+        if knot {
+            c = (46.0, 32.0, 22.0);
+        }
+        if lx <= 1 {
+            c = (c.0 + 26.0, c.1 + 18.0, c.2 + 10.0);
+        } else if lx >= w - 2 {
+            c = (c.0 * 0.6, c.1 * 0.6, c.2 * 0.6);
+        }
+        return Some(Some(c));
+    }
+    if y >= FLOOR_Y as i32 {
+        let d = y - FLOOR_Y as i32;
+        let blade = hash(x, 0, 87) * 2.0;
+        let n = (fbm(x as f32 * 0.1, y as f32 * 0.1, 89) - 0.5) * 20.0;
+        let c = if (d as f32) < 1.0 + blade {
+            (70.0 + n, 112.0 + n, 46.0)
+        } else if hash(x / 2, y / 2, 91) > 0.92 {
+            (96.0, 90.0, 82.0)
+        } else {
+            (72.0 + n, 50.0 + n, 34.0 + n * 0.5)
+        };
+        return Some(Some(c));
+    }
+    None
+}
+
+/// The Forest's leaves and roots, on the terrain picture around the trunks (behind the fighters,
+/// and nothing to stand on): a canopy at the top of each side tree, a crown over the middle
+/// one, tufts at the branch tips, and roots flaring at the foot of the middle trunk.
+fn draw_foliage(img: &mut Image, a: &Arena) {
+    let mut blobs: Vec<(f32, f32, f32)> = Vec::new();
+    for t in a.walls {
+        let cx = t.x + t.w / 2.0;
+        if t.y < 60.0 {
+            // A side tree: a canopy spilling inward from the corner.
+            let inward = if cx < W / 2.0 { 1.0 } else { -1.0 };
+            blobs.extend([(cx, 14.0, 26.0), (cx + inward * 30.0, 22.0, 20.0), (cx + inward * 14.0, 44.0, 15.0), (cx + inward * 52.0, 14.0, 13.0)]);
+        } else {
+            // The middle tree's crown, above the branch it ends in.
+            blobs.extend([(cx, t.y - 24.0, 16.0), (cx - 16.0, t.y - 16.0, 10.0), (cx + 16.0, t.y - 18.0, 11.0)]);
+            // Roots.
+            for i in 0..5 {
+                let y = FLOOR_Y as i32 - 1 - i;
+                let spread = (5 - i) as f32 * 1.2;
+                for x in (t.x - spread) as i32..(t.x + t.w + spread) as i32 {
+                    if img.get_pixel(x as u32, y as u32).a == 0.0 {
+                        img.set_pixel(x as u32, y as u32, dither(x as u32, y as u32, 70.0, 50.0, 34.0));
+                    }
+                }
+            }
+        }
+    }
+    // Tufts of leaves at the free ends of branches.
+    for s in a.platforms {
+        for (end, out) in [(s.x, -1.0), (s.x + s.w, 1.0)] {
+            if !a.walls.iter().any(|t| (t.x - end).abs() < 1.0 || (t.x + t.w - end).abs() < 1.0) {
+                blobs.push((end + out * 2.0, s.y - 3.0, 5.0));
+            }
+        }
+    }
+    for y in 0..FLOOR_Y as i32 {
+        for x in 0..W as i32 {
+            let p = vec2(x as f32 + 0.5, y as f32 + 0.5);
+            // How far inside a blob (with a ragged edge).
+            let rag = (fbm(p.x * 0.3, p.y * 0.3, 93) - 0.5) * 6.0;
+            let inside = blobs.iter().map(|&(bx, by, r)| r + rag - p.distance(vec2(bx, by))).fold(f32::MIN, f32::max);
+            if inside <= 0.0 {
+                continue;
+            }
+            // Don't hide a branch (what you stand on); trunk tops may disappear into the leaves.
+            let on_branch = a.platforms.iter().any(|s| s.contains(p));
+            if on_branch {
+                continue;
+            }
+            let n = fbm(p.x * 0.18, p.y * 0.18, 95);
+            let lit = inside < 2.5 && blobs.iter().any(|&(bx, by, _)| p.y < by && p.x > bx - 4.0);
+            let (r, g, b) = if lit { (96.0, 116.0, 50.0) } else { (30.0 + n * 34.0, 56.0 + n * 46.0, 32.0 + n * 16.0) };
+            img.set_pixel(x as u32, y as u32, dither(x as u32, y as u32, r, g, b));
+        }
+    }
+}
+
+/// The Forest's backdrop: a sunset sky with clouds, the sun low over two ridges of mountains,
+/// a line of pines along the shore, and a lake mirroring it all.
+fn make_sunset() -> Image {
+    let mut img = Image::gen_image_color(W as u16, H as u16, BLACK);
+    let horizon = 172.0;
+    let sun = vec2(300.0, 104.0);
+    let sky = |y: f32| -> (f32, f32, f32) {
+        let stops = [(0.0, (46.0, 34.0, 78.0)), (70.0, (120.0, 62.0, 96.0)), (115.0, (214.0, 104.0, 74.0)), (horizon, (246.0, 178.0, 96.0))];
+        let mut c = stops[0].1;
+        for w in stops.windows(2) {
+            let ((y0, c0), (y1, c1)) = (w[0], w[1]);
+            if y >= y0 {
+                let k = ((y - y0) / (y1 - y0)).clamp(0.0, 1.0);
+                c = (c0.0 + (c1.0 - c0.0) * k, c0.1 + (c1.1 - c0.1) * k, c0.2 + (c1.2 - c0.2) * k);
+            }
+        }
+        c
+    };
+    let far = |x: f32| 104.0 + 34.0 * fbm(x * 0.012, 3.0, 97) + 10.0 * (x * 0.03).sin();
+    let near = |x: f32| 136.0 + 26.0 * fbm(x * 0.022, 7.0, 99);
+    let pines = |x: f32| {
+        let k = (x / 7.0).floor();
+        let cx = k * 7.0 + 3.5;
+        let h = 6.0 + hash(k as i32, 0, 101) * 12.0;
+        horizon - h + (x - cx).abs() * h / 4.0
+    };
+    for y in 0..H as u32 {
+        for x in 0..W as u32 {
+            let (fx, fy) = (x as f32, y as f32);
+            // Above the shore: the sky (or, below the waterline, its reflection).
+            let (sy, water) = if fy < horizon { (fy, false) } else { (2.0 * horizon - fy, true) };
+            let (mut r, mut g, mut b) = sky(sy);
+            // Clouds: long streaks lit pink from below.
+            let cl = fbm(fx * 0.012, sy * 0.06, 103);
+            if sy > 20.0 && sy < 110.0 && cl > 0.62 {
+                let k = ((cl - 0.62) * 6.0).min(1.0);
+                (r, g, b) = (r + (230.0 - r) * k * 0.5, g + (120.0 - g) * k * 0.5, b + (140.0 - b) * k * 0.5);
+            }
+            let d = vec2(fx, sy).distance(sun);
+            if d < 16.0 {
+                (r, g, b) = (255.0, 226.0, 150.0);
+            } else if d < 46.0 {
+                let k = (1.0 - (d - 16.0) / 30.0) * 40.0;
+                (r, g, b) = (r + k, g + k * 0.8, b + k * 0.4);
+            }
+            // Mountains, the far ridge hazy and the near one darker, with snow on the high peaks.
+            if sy >= far(fx) {
+                (r, g, b) = (132.0, 82.0, 112.0);
+                if far(fx) < 106.0 && sy < far(fx) + 1.0 + hash(x as i32 / 2, 0, 107) * 4.0 {
+                    (r, g, b) = (196.0, 168.0, 182.0);
+                }
+            }
+            if sy >= near(fx) {
+                (r, g, b) = (78.0, 52.0, 86.0);
+            }
+            if sy >= pines(fx) {
+                (r, g, b) = (28.0, 30.0, 40.0);
+            }
+            if water {
+                // Darker and bluer, broken into ripples, with the sun's path glittering across it.
+                (r, g, b) = (r * 0.62, g * 0.66, b * 0.8 + 14.0);
+                let ripple = hash(x as i32 / 5, y as i32, 105);
+                if ripple > 0.86 {
+                    (r, g, b) = (r * 1.25 + 8.0, g * 1.2 + 8.0, b * 1.15 + 8.0);
+                }
+                if (fx - sun.x).abs() < 30.0 - (fy - horizon) * 0.1 && ripple > 0.6 {
+                    (r, g, b) = (r + 60.0, g + 44.0, b + 14.0);
+                }
+            }
+            // A little evening haze, so the fight stays in front.
+            let fog = 0.22;
+            (r, g, b) = (r * (1.0 - fog) + 50.0 * fog, g * (1.0 - fog) + 36.0 * fog, b * (1.0 - fog) + 56.0 * fog);
+            img.set_pixel(x, y, dither(x, y, r, g, b));
         }
     }
     img
