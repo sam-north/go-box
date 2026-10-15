@@ -103,6 +103,9 @@ mod tests {
         for a in crate::settings::Act::ALL {
             keys.insert(format!("act.{}", a.id()));
         }
+        for (group, _) in crate::settings::CONTROL_GROUPS {
+            keys.insert(group.to_string());
+        }
         for p in crate::settings::PAD_NAMES {
             keys.insert(format!("pad.{p}"));
         }

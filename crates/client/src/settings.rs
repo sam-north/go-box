@@ -31,6 +31,8 @@ pub struct Settings {
     pub melee_aim: bool,
     /// Playing on a trackpad: throws and swings aim themselves, at the nearest opponent.
     pub trackpad: bool,
+    /// The controls overlay in a match is open (it's collapsible).
+    pub controls_overlay: bool,
     /// A language code from the text files, e.g. "en-US".
     pub language: String,
     pub bindings: Bindings,
@@ -41,7 +43,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { master: 0.8, effects: 1.0, music: 0.7, muted: false, melee_aim: true, trackpad: false, language: "en-US".into(), bindings: Bindings::default(), bindings_version: BINDINGS_VERSION }
+        Self { master: 0.8, effects: 1.0, music: 0.7, muted: false, melee_aim: true, trackpad: false, controls_overlay: true, language: "en-US".into(), bindings: Bindings::default(), bindings_version: BINDINGS_VERSION }
     }
 }
 
@@ -103,6 +105,15 @@ pub enum Act {
     Settings,
     Mute,
 }
+
+/// How the controls are grouped, and in what order: on the Controls page and in the in-match
+/// controls overlay (which shows the first two), so they read the same in both. Each is the
+/// group's name (text key) and its actions.
+pub const CONTROL_GROUPS: [(&str, &[Act]); 3] = [
+    ("controls.movement", &[Act::Left, Act::Right, Act::Jump, Act::Down, Act::DashLeft, Act::DashRight, Act::Dash]),
+    ("controls.actions", &[Act::Hand, Act::Melee, Act::Special]),
+    ("controls.other", &[Act::Settings, Act::Mute]),
+];
 
 impl Act {
     /// In the order the controls are listed.

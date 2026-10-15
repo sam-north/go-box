@@ -32,7 +32,7 @@ use ui::{BAD, Ui};
 use app::*;
 use attract::Attract;
 use screens::home::{connecting_screen, home_screen};
-use screens::hud::{draw_aim, draw_you, hud};
+use screens::hud::{controls_header, controls_overlay, draw_aim, draw_you, hud};
 use screens::lobby::lobby_screen;
 use screens::settings::{settings_button, settings_screen};
 use testclient::{Automation, Options, autopilot};
@@ -144,7 +144,8 @@ async fn main() {
         let mouse: Vec2 = mouse_position().into();
         let mouse_arena = (mouse - app.view.0) / app.view.1;
         // Clicks on the menu or its button aren't throws.
-        let mouse_free = !app.settings_open && !settings_button(&ui).contains(mouse);
+        // (Nor are clicks on the controls overlay's header, which opens and closes it.)
+        let mouse_free = !app.settings_open && !settings_button(&ui).contains(mouse) && !(playing && controls_header(&ui).contains(mouse));
         let me = app.game.as_ref().and_then(|g| g.me()).cloned();
         if let (true, Some(seat), Some(me)) = (playing, seat, me) {
             app.controls.latch(&app.settings.bindings, me.holding.is_some(), mouse_free);
@@ -254,6 +255,8 @@ async fn main() {
         draw_texture_ex(&rt.texture, ox, oy, tint, DrawTextureParams { dest_size: Some(vec2(dw, dh)), ..Default::default() });
         app.view = (vec2(ox, oy), scale);
 
+        // Where the controls overlay ends (the debug overlay goes under it).
+        let mut overlay_bottom = ui.px(52.0);
         // Screens (under the settings menu, if it's open, they ignore the mouse).
         ui.blocked = app.settings_open;
         // "Connecting..." only until the server says hello; after a refusal (wrong code or
@@ -265,7 +268,12 @@ async fn main() {
                 let r = r.clone();
                 lobby_screen(&mut ui, &mut app, &r, &portraits);
             }
-            (Some(_), _) => hud(&ui, &app, m),
+            (Some(_), _) => {
+                hud(&ui, &app, m);
+                if playing {
+                    overlay_bottom = controls_overlay(&mut ui, &mut app);
+                }
+            }
         }
         if let Some((msg, t)) = &app.notice {
             if get_time() - t < 5.0 {
@@ -294,7 +302,7 @@ async fn main() {
             sfx.play(Sfx::Click, 1.0);
         }
         ui.end();
-        debug.draw(&ui);
+        debug.draw(&ui, overlay_bottom);
         debug.end(app.game.as_ref().filter(|_| playing).map(|g| g.debug_stats()));
 
         if automation.step(&mut app, shown.as_ref()) {

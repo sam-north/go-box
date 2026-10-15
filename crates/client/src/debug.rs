@@ -150,14 +150,15 @@ impl Debug {
         *self = Self { on: true, jump: self.jump, last_jump: self.last_jump, last_frame: self.last_frame, last_snap: self.last_snap, shown: lines, window_start: now, ..Default::default() };
     }
 
-    pub fn draw(&self, ui: &Ui) {
+    /// Under `top` (the controls overlay's bottom, in a match).
+    pub fn draw(&self, ui: &Ui, top: f32) {
         if !self.on {
             return;
         }
         let size = 14.0;
         let w = self.shown.iter().map(|l| ui.text_width(l, size)).fold(0.0, f32::max) + ui.px(16.0);
         let x = screen_width() - w - ui.px(8.0);
-        let y = ui.px(60.0);
+        let y = top + ui.px(8.0);
         draw_rectangle(x, y, w, ui.px(18.0) * self.shown.len() as f32 + ui.px(8.0), Color::new(0.0, 0.0, 0.0, 0.7));
         for (k, l) in self.shown.iter().enumerate() {
             ui.text(l, x + ui.px(8.0), y + ui.px(18.0) * (k as f32 + 1.0), size, Color::new(0.6, 1.0, 0.6, 1.0));

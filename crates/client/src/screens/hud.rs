@@ -2,7 +2,7 @@
 
 use crate::app::*;
 use crate::screens::{character_name, mmss, seat_name, special_name};
-use crate::settings::Act;
+use crate::settings::{Act, CONTROL_GROUPS};
 use crate::text::{t, tf};
 use crate::ui::{ACCENT, DIM, INK, Ui};
 use go_box_render::{self as render};
@@ -261,4 +261,46 @@ fn names_over_heads(ui: &Ui, app: &App, m: &Match) {
             invulnerable(ui, m, vec2(p.x, p.y - ui.px(16.0)), 12.0);
         }
     }
+}
+
+/// The controls overlay's header (clicking it opens and closes the overlay): where it is, so a
+/// click there isn't also a grab in the game.
+pub fn controls_header(ui: &Ui) -> Rect {
+    let w = ui.px(280.0);
+    Rect::new(screen_width() - w - ui.px(8.0), ui.px(60.0), w, ui.px(24.0))
+}
+
+/// In a match: the controls, in the same groups and order as on the Controls page (movement,
+/// then actions), with what each is bound to on what you're playing with; or, collapsed, just
+/// its header. Returns where it ends (the debug overlay goes under it).
+pub fn controls_overlay(ui: &mut Ui, app: &mut App) -> f32 {
+    let head = controls_header(ui);
+    let open = app.settings.controls_overlay;
+    let pad_side = app.controls.using_pad;
+    let groups = &CONTROL_GROUPS[..2];
+    let line = ui.px(17.0);
+    let rows: usize = if open { groups.iter().map(|(_, acts)| acts.len() + 1).sum() } else { 0 };
+    let h = head.h + rows as f32 * line + if open { ui.px(8.0) } else { 0.0 };
+    draw_rectangle(head.x, head.y, head.w, h, Color::new(0.0, 0.0, 0.0, 0.6));
+    let title = format!("{}  {}", t("controls.title"), if open { "[-]" } else { "[+]" });
+    ui.text(&title, head.x + ui.px(8.0), head.y + ui.px(17.0), 15.0, ACCENT);
+    let (clicked, _) = ui.area_hover(head);
+    if clicked {
+        app.settings.controls_overlay = !open;
+        app.settings.save();
+    }
+    if open {
+        let mut y = head.y + head.h - ui.px(4.0);
+        for (group, acts) in groups {
+            y += line;
+            ui.text(t(group), head.x + ui.px(8.0), y, 14.0, DIM);
+            for &act in *acts {
+                y += line;
+                ui.text(act.label(), head.x + ui.px(16.0), y, 14.0, INK);
+                let keys = ui.fit(&app.settings.bindings.label(act, pad_side), 14.0, head.w * 0.42);
+                ui.text(&keys, head.x + head.w - ui.px(8.0) - ui.text_width(&keys, 14.0), y, 14.0, ACCENT);
+            }
+        }
+    }
+    head.y + h
 }

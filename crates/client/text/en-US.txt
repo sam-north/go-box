@@ -153,7 +153,6 @@ settings.keyboard = Keyboard + mouse
 settings.controller = Controller
 settings.pad_connected = connected
 settings.pad_missing = none found: press a button on it
-settings.change = Change
 settings.press_key = press a key...
 settings.reset_controls = Reset controls
 settings.melee_aim = Melee: toward your aim
@@ -165,15 +164,21 @@ settings.fixed_controls = Also: left stick moves, right stick or mouse aims; d-p
 act.left = Move left
 act.right = Move right
 act.jump = Jump
-act.hand = Grab / throw
-act.melee = Attack
-act.special = Special
+act.hand = Pick up / use / throw
+act.melee = Hit (melee)
+act.special = Special ability
 act.dash = Dash (your way)
 act.dash_left = Dash left
 act.dash_right = Dash right
 act.down = Drop down
 act.settings = Settings
 act.mute = Mute
+
+# Control groups (Settings > Controls, and the overlay in a match).
+controls.movement = Movement
+controls.actions = Actions
+controls.other = Other
+controls.title = Controls
 
 # The controls line, built from your bindings: {keys} is what the action is bound to.
 help.move = {keys} move

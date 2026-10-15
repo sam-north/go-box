@@ -2,7 +2,7 @@
 //! keyboard/mouse and for gamepads). Changes are saved as they're made.
 
 use crate::app::*;
-use crate::settings::{Act, Bindings};
+use crate::settings::{Act, Bindings, CONTROL_GROUPS};
 use crate::text::{t, tf};
 use crate::ui::{ACCENT, BAD, DIM, EDGE, INK, Slider, Ui};
 use go_box_protocol::ClientMsg;
@@ -100,44 +100,48 @@ fn sound_page(ui: &mut Ui, app: &mut App, sfx: &mut Sounds, r: Rect, mut y: f32)
 /// button to change it.
 fn controls_page(ui: &mut Ui, app: &mut App, r: Rect, mut y: f32) {
     let pad = ui.px(28.0);
-    let col_kb = r.x + pad + ui.px(150.0);
-    let col_pad = r.x + pad + ui.px(395.0);
-    let bw = ui.px(84.0);
+    let col_kb = r.x + pad + ui.px(230.0);
+    let col_pad = r.x + pad + ui.px(450.0);
+    let cell_w = ui.px(200.0);
     // Which way melee swings: toward your aim, or the way you face.
     let aim = app.settings.melee_aim;
     let label = if aim { t("settings.melee_aim") } else { t("settings.melee_facing") };
-    if ui.button(Rect::new(r.x + pad, y, ui.px(300.0), ui.px(32.0)), label, true, if aim { ACCENT } else { EDGE }) {
+    if ui.button(Rect::new(r.x + pad, y, ui.px(300.0), ui.px(30.0)), label, true, if aim { ACCENT } else { EDGE }) {
         app.settings.melee_aim = !aim;
         app.settings.save();
     }
     // A checkbox: playing on a trackpad, so throws and swings aim themselves.
     let on = app.settings.trackpad;
     let label = format!("[{}] {}", if on { "x" } else { " " }, t("settings.trackpad"));
-    if ui.button(Rect::new(r.x + pad + ui.px(316.0), y, ui.px(340.0), ui.px(32.0)), &label, true, if on { ACCENT } else { EDGE }) {
+    if ui.button(Rect::new(r.x + pad + ui.px(316.0), y, ui.px(340.0), ui.px(30.0)), &label, true, if on { ACCENT } else { EDGE }) {
         app.settings.trackpad = !on;
         app.settings.save();
     }
-    y += ui.px(62.0);
-    ui.text(t("settings.keyboard"), col_kb, y, 18.0, DIM);
-    ui.text(t("settings.controller"), col_pad, y, 18.0, DIM);
+    y += ui.px(56.0);
+    ui.text(t("settings.keyboard"), col_kb, y, 17.0, DIM);
+    ui.text(t("settings.controller"), col_pad, y, 17.0, DIM);
     let status = if app.controls.pad.connected { t("settings.pad_connected") } else { t("settings.pad_missing") };
-    y += ui.px(18.0);
-    ui.text(&ui.fit(status, 14.0, r.x + r.w - pad - col_pad), col_pad, y, 14.0, if app.controls.pad.connected { ACCENT } else { DIM });
-    for act in Act::ALL {
-        y += ui.px(29.0);
-        ui.text(act.label(), r.x + pad, y, 19.0, INK);
-        for (pad_side, x) in [(false, col_kb), (true, col_pad)] {
-            let waiting = app.rebinding == Some((act, pad_side));
-            let shown = if waiting { t("settings.press_key").to_string() } else { ui.fit(&app.settings.bindings.label(act, pad_side), 18.0, ui.px(140.0)) };
-            ui.text(&shown, x, y, 18.0, if waiting { ACCENT } else { INK });
-            let br = Rect::new(x + ui.px(150.0), y - ui.px(19.0), bw, ui.px(26.0));
-            if ui.button(br, t("settings.change"), !waiting, EDGE) {
-                app.rebinding = Some((act, pad_side));
+    ui.text(&ui.fit(status, 13.0, r.x + r.w - pad - col_pad), col_pad, y + ui.px(15.0), 13.0, if app.controls.pad.connected { ACCENT } else { DIM });
+    // The same groups, in the same order, as the controls overlay in a match. Each binding is the
+    // button that changes it.
+    for (group, acts) in CONTROL_GROUPS {
+        y += ui.px(30.0);
+        ui.text(t(group), r.x + pad, y, 17.0, ACCENT);
+        for &act in acts {
+            y += ui.px(25.0);
+            ui.text(act.label(), r.x + pad + ui.px(12.0), y, 18.0, INK);
+            for (pad_side, x) in [(false, col_kb), (true, col_pad)] {
+                let waiting = app.rebinding == Some((act, pad_side));
+                let shown = if waiting { t("settings.press_key").to_string() } else { ui.fit(&app.settings.bindings.label(act, pad_side), 16.0, cell_w - ui.px(12.0)) };
+                let br = Rect::new(x, y - ui.px(18.0), cell_w, ui.px(23.0));
+                if ui.button(br, &shown, !waiting, if waiting { ACCENT } else { EDGE }) {
+                    app.rebinding = Some((act, pad_side));
+                }
             }
         }
     }
-    y += ui.px(26.0);
-    ui.text(t("settings.fixed_controls"), r.x + pad, y, 16.0, DIM);
+    y += ui.px(24.0);
+    ui.text(t("settings.fixed_controls"), r.x + pad, y, 15.0, DIM);
     let bottom = r.y + r.h - pad - ui.px(42.0);
     if ui.button(Rect::new(r.x + pad, bottom, ui.px(200.0), ui.px(42.0)), t("settings.reset_controls"), true, BAD) {
         app.settings.bindings = Bindings::default();
