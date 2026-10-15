@@ -691,25 +691,40 @@ fn one_hot(kind: Option<ItemKind>) -> [f32; N_SENSED] {
 
 /// A random spot on top of the floor or a platform — everywhere a fighter can stand. Wider
 /// surfaces are proportionally more likely.
-fn random_surface_spot(rng: &mut impl Rng, arena: &Arena) -> Vec2 {
+fn random_surface_spot(rng: &mut impl Rng, arena: ArenaId) -> Vec2 {
     random_surface_spot_between(rng, arena, 0.0, W).unwrap_or(vec2(W / 2.0, FLOOR_Y))
+}
+
+/// Everywhere a fighter can stand on a map, as (left, right, height): the floor and the tops of
+/// its ledges, less any stretch where one of its walls stands (a tree trunk on the floor).
+/// Worked out once per map (Austin's pop-up alone asks for dozens of spots at a time).
+fn standable(arena: ArenaId) -> &'static [(f32, f32, f32)] {
+    static SPANS: std::sync::LazyLock<Vec<Vec<(f32, f32, f32)>>> = std::sync::LazyLock::new(|| {
+        ArenaId::ALL
+            .iter()
+            .map(|a| {
+                let arena = a.def();
+                let floor = (WALL + 6.0, W - WALL - 6.0, FLOOR_Y);
+                let mut spans = Vec::new();
+                for (x0, x1, y) in std::iter::once(floor).chain(arena.platforms.iter().map(|p| (p.x + 3.0, p.x + p.w - 3.0, p.y))) {
+                    let mut parts = vec![(x0, x1)];
+                    for w in arena.walls.iter().filter(|w| w.y < y - 0.5 && w.y + w.h >= y - 0.5) {
+                        let (cut0, cut1) = (w.x - 3.0, w.x + w.w + 3.0);
+                        parts = parts.into_iter().flat_map(|(a, b)| if cut1 <= a || cut0 >= b { vec![(a, b)] } else { vec![(a, cut0), (cut1, b)] }).filter(|(a, b)| b > a).collect();
+                    }
+                    spans.extend(parts.into_iter().map(|(a, b)| (a, b, y)));
+                }
+                spans
+            })
+            .collect()
+    });
+    &SPANS[arena as usize]
 }
 
 /// Like `random_surface_spot`, but only spots with `lo <= x <= hi`. None if no surface reaches
 /// into that range.
-fn random_surface_spot_between(rng: &mut impl Rng, arena: &Arena, lo: f32, hi: f32) -> Option<Vec2> {
-    let floor = (WALL + 6.0, W - WALL - 6.0, FLOOR_Y);
-    // (Less any stretch where one of the map's walls stands on it: a tree trunk on the floor.)
-    let mut spans: Vec<(f32, f32, f32)> = Vec::new();
-    for (x0, x1, y) in std::iter::once(floor).chain(arena.platforms.iter().map(|p| (p.x + 3.0, p.x + p.w - 3.0, p.y))) {
-        let mut parts = vec![(x0, x1)];
-        for w in arena.walls.iter().filter(|w| w.y < y - 0.5 && w.y + w.h >= y - 0.5) {
-            let (cut0, cut1) = (w.x - 3.0, w.x + w.w + 3.0);
-            parts = parts.into_iter().flat_map(|(a, b)| if cut1 <= a || cut0 >= b { vec![(a, b)] } else { vec![(a, cut0), (cut1, b)] }).filter(|(a, b)| b > a).collect();
-        }
-        spans.extend(parts.into_iter().map(|(a, b)| (a, b, y)));
-    }
-    let surfaces = spans.into_iter().map(|(x0, x1, y)| (x0.max(lo), x1.min(hi), y)).filter(|(x0, x1, _)| x1 > x0);
+fn random_surface_spot_between(rng: &mut impl Rng, arena: ArenaId, lo: f32, hi: f32) -> Option<Vec2> {
+    let surfaces = standable(arena).iter().map(|&(x0, x1, y)| (x0.max(lo), x1.min(hi), y)).filter(|(x0, x1, _)| x1 > x0);
     let total: f32 = surfaces.clone().map(|(x0, x1, _)| x1 - x0).sum();
     if total <= 0.0 {
         return None;
@@ -870,7 +885,7 @@ impl Match {
         let mut items = Vec::new();
         for (kind, n) in [(ItemKind::Spear, START_SPEARS), (ItemKind::Rock, START_ROCKS), (ItemKind::Grenade, START_GRENADES)] {
             for _ in 0..n {
-                items.push(Item::new(kind, random_surface_spot(rng, arena) - vec2(0.0, ITEM_R)));
+                items.push(Item::new(kind, random_surface_spot(rng, config.arena) - vec2(0.0, ITEM_R)));
             }
         }
         let mut heal_schedule: Vec<u32> = (0..rng.gen_range(config.heals.clone())).map(|_| rng.gen_range(HEAL_WINDOW)).collect();
@@ -954,7 +969,7 @@ impl Match {
     }
 
     pub(crate) fn random_surface_spot_between(&mut self, lo: f32, hi: f32) -> Option<Vec2> {
-        random_surface_spot_between(&mut self.rng, self.config.arena.def(), lo, hi)
+        random_surface_spot_between(&mut self.rng, self.config.arena, lo, hi)
     }
 
     /// Empties seat `i` (before the match starts): nobody plays there.
@@ -1501,7 +1516,7 @@ impl Match {
     fn step_heals(&mut self) {
         while self.heal_schedule.last().is_some_and(|&t| self.tick >= t) {
             self.heal_schedule.pop();
-            let pos = random_surface_spot(&mut self.rng, self.config.arena.def()) - vec2(0.0, HEAL_R + 1.0);
+            let pos = random_surface_spot(&mut self.rng, self.config.arena) - vec2(0.0, HEAL_R + 1.0);
             self.heals.push(pos);
             self.events.push(Event::Spawn { pos });
         }
@@ -1546,7 +1561,7 @@ impl Match {
                 break;
             }
         }
-        let pos = random_surface_spot(&mut self.rng, self.config.arena.def()) - vec2(0.0, ITEM_R);
+        let pos = random_surface_spot(&mut self.rng, self.config.arena) - vec2(0.0, ITEM_R);
         self.items.push(Item::new(kind, pos));
         self.spawned[kind as usize] += 1;
         self.events.push(Event::Spawn { pos });
