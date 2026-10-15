@@ -1238,8 +1238,8 @@ fn forest_px(a: &Arena, x: i32, y: i32) -> Option<Option<(f32, f32, f32)>> {
 }
 
 /// The Forest's leaves and roots, on the terrain picture around the trunks (behind the fighters,
-/// and nothing to stand on): a canopy at the top of each side tree, a crown over the middle
-/// one, tufts at the branch tips, and roots flaring at the foot of the middle trunk.
+/// and nothing to stand on): a canopy at the top of each side tree (the middle
+/// one is bare), tufts at the side branches' tips, and roots flaring at the foot of the middle trunk.
 fn draw_foliage(img: &mut Image, a: &Arena) {
     let mut blobs: Vec<(f32, f32, f32)> = Vec::new();
     for t in a.walls {
@@ -1249,9 +1249,7 @@ fn draw_foliage(img: &mut Image, a: &Arena) {
             let inward = if cx < W / 2.0 { 1.0 } else { -1.0 };
             blobs.extend([(cx, 14.0, 26.0), (cx + inward * 30.0, 22.0, 20.0), (cx + inward * 14.0, 44.0, 15.0), (cx + inward * 52.0, 14.0, 13.0)]);
         } else {
-            // The middle tree's crown, above the branch it ends in.
-            blobs.extend([(cx, t.y - 24.0, 16.0), (cx - 16.0, t.y - 16.0, 10.0), (cx + 16.0, t.y - 18.0, 11.0)]);
-            // Roots.
+            // The middle tree is bare wood; just roots flaring at its foot.
             for i in 0..5 {
                 let y = FLOOR_Y as i32 - 1 - i;
                 let spread = (5 - i) as f32 * 1.2;
@@ -1263,8 +1261,9 @@ fn draw_foliage(img: &mut Image, a: &Arena) {
             }
         }
     }
-    // Tufts of leaves at the free ends of branches.
-    for s in a.platforms {
+    // Tufts of leaves at the free ends of the side trees' branches (the middle tree's are bare).
+    let off_short = |s: &Aabb| a.walls.iter().any(|t| t.y >= 60.0 && ((t.x - (s.x + s.w)).abs() < 1.0 || (t.x + t.w - s.x).abs() < 1.0));
+    for s in a.platforms.iter().filter(|s| !off_short(s)) {
         for (end, out) in [(s.x, -1.0), (s.x + s.w, 1.0)] {
             if !a.walls.iter().any(|t| (t.x - end).abs() < 1.0 || (t.x + t.w - end).abs() < 1.0) {
                 blobs.push((end + out * 2.0, s.y - 3.0, 5.0));
@@ -2645,25 +2644,24 @@ fn draw_cat(c: &Pet, coat: u8) {
     draw_rectangle(tx, y - 5.0 - stride, 1.0, 3.0, dark);
 }
 
-/// Kyle's backlog: an inbox tray over his head with a sheet of paper for everything he's put off,
-/// the stack shaking as it grows, and a bar of how long until it all goes.
+/// Kyle's backlog: an inbox tray over his head with a sheet of paper for everything he's put off
+/// (and more piling on the longer it stays open), the stack swaying more the taller it gets.
 fn draw_inbox(f: &Fighter, time: f32) {
     let (x, y) = (f.pos.x.round(), (f.pos.y - f.height() - 8.0).round());
-    let n = f.inbox.min(10) as f32;
+    let n = (f.inbox as u32 + f.backlog / BACKLOG_SHEET_EVERY).min(40) as f32;
     let shake = if n >= 4.0 { ((time * 30.0).sin() * 0.5).round() } else { 0.0 };
     // The tray.
     draw_rectangle(x - 4.0, y, 9.0, 2.0, Color::new(0.42, 0.40, 0.36, 1.0));
     draw_rectangle(x - 4.0, y - 1.0, 1.0, 1.0, Color::new(0.42, 0.40, 0.36, 1.0));
     draw_rectangle(x + 4.0, y - 1.0, 1.0, 1.0, Color::new(0.42, 0.40, 0.36, 1.0));
     // The pile, a sheet a thing, each a little askew.
+    let sway = (time * 2.3).sin() * n / 40.0 * 0.25;
     for k in 0..n as i32 {
-        let off = if k % 2 == 0 { 0.0 } else { 1.0 } + shake;
+        let lean = (sway * k as f32).round();
+        let off = if k % 2 == 0 { 0.0 } else { 1.0 } + if k > 2 { shake } else { 0.0 } + lean;
         let c = if k % 3 == 2 { Color::new(0.86, 0.84, 0.76, 1.0) } else { PAGE };
         draw_rectangle(x - 3.0 + off, y - 1.0 - k as f32, 6.0, 1.0, c);
     }
-    // Time left.
-    let left = f.backlog as f32 / BACKLOG_TICKS as f32;
-    draw_rectangle(x - 4.0, y + 3.0, (9.0 * left).ceil(), 1.0, Color::new(0.45, 0.95, 0.70, 0.9));
 }
 
 /// Vid's book, open in his hands: two pale pages in a dark cover, glowing faintly.

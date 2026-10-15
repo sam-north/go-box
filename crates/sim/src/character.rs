@@ -221,11 +221,15 @@ pub const LIGHTNING_TICKS: u32 = 20;
 const EYE_COOLDOWN: u32 = 20 * SECOND;
 pub const PIN_TICKS: u32 = 3 * SECOND;
 
-// Kyle — Backlog: for a few seconds his swings and throws don't happen; they pile up in an inbox
-// over his head (a thrown item leaves his hand, so he can pick up another), and when it ends they
-// all go at once: every throw the way it was aimed, every swing in one big punch.
+// Kyle — Backlog: while it's open (as long as he likes) his swings and throws don't happen; they
+// pile up in an inbox over his head (a thrown item leaves his hand, so he can pick up another).
+// Pressed again, it all goes at once: every throw the way it was aimed, every swing in one big
+// punch. Its cooldown starts when he lets it go.
 const BACKLOG_COOLDOWN: u32 = 15 * SECOND;
-pub const BACKLOG_TICKS: u32 = 3 * SECOND;
+/// The inbox piles up by itself too, a sheet this often while it's open.
+pub const BACKLOG_SHEET_EVERY: u32 = 3 * SECOND / 2;
+/// A bot lets it go once it's been open this long, or sooner with someone close.
+const BACKLOG_BOT_HOLD: u32 = 4 * SECOND;
 /// The punch his piled-up swings make: this much a swing (up to so many swings), reaching this
 /// much further than a fist.
 const BACKLOG_PUNCH: f32 = 8.0;
@@ -844,7 +848,7 @@ impl Special for Backlog {
     }
     fn activate(&self, m: &mut Match, who: usize) {
         let f = &mut m.f[who];
-        f.backlog = BACKLOG_TICKS;
+        f.backlog = 1;
         f.inbox = 0;
         f.swings = 0;
         f.stash.clear();
@@ -853,6 +857,18 @@ impl Special for Backlog {
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
         let me = m.f[who].center();
         foes(m, who).any(|f| f.center().distance(me) < 120.0)
+    }
+    /// Pressed again while it's open: let it all go.
+    fn press_again(&self, m: &mut Match, who: usize) {
+        if m.f[who].backlog > 0 {
+            m.release_backlog(who);
+        }
+    }
+    /// A bot lets it go with something piled up and someone right there, or after a while anyway.
+    fn bot_presses_again(&self, m: &Match, who: usize) -> bool {
+        let f = &m.f[who];
+        let me = f.center();
+        f.backlog > 0 && (f.backlog >= BACKLOG_BOT_HOLD || (f.backlog >= SECOND && f.inbox > 0 && foes(m, who).any(|o| o.center().distance(me) < 50.0)))
     }
 }
 
@@ -1940,9 +1956,9 @@ impl Match {
         }
     }
 
-    /// Kyle's backlog counts down; when it's up, everything in it goes at once: each throw the way
-    /// it was aimed (grenades lit, rockets fired, air strikes called in), and every swing in one
-    /// big punch in front of him. (If he goes down first, what he'd thrown just drops.)
+    /// Kyle's backlog stays open until he lets it go (`release_backlog`), counting how long it's
+    /// been open, and holds off its cooldown meanwhile. (If he goes down first, what he'd thrown
+    /// just drops.)
     pub(crate) fn step_backlog(&mut self) {
         for i in 0..N_FIGHTERS {
             if self.f[i].backlog == 0 {
@@ -1958,35 +1974,42 @@ impl Match {
                 }
                 continue;
             }
-            self.f[i].backlog -= 1;
-            if self.f[i].backlog > 0 {
-                continue;
-            }
             let f = &mut self.f[i];
-            let (stash, swings) = (std::mem::take(&mut f.stash), f.swings);
-            (f.inbox, f.swings) = (0, 0);
-            let pos = f.center();
-            self.events.push(Event::BacklogBurst { pos });
-            for (mut it, dir) in stash {
-                it.held_by = Some(i);
-                it.pos = self.f[i].hand();
-                self.items.push(it);
-                let k = self.items.len() - 1;
-                self.launch(i, k, dir);
+            f.backlog = f.backlog.saturating_add(1);
+            if let Some(s) = f.special() {
+                f.special_cd = s.cooldown();
             }
-            if swings > 0 {
-                // Every swing he put off, landing at once.
-                let f = &self.f[i];
-                let mut reach = f.attack_box();
-                reach.w += BACKLOG_REACH;
-                if f.facing < 0.0 {
-                    reach.x -= BACKLOG_REACH;
-                }
-                let (dir, dmg) = (f.facing, BACKLOG_PUNCH * swings.min(BACKLOG_PUNCHES) as f32);
-                let hit: Vec<usize> = (0..N_BODIES).filter(|&j| self.foes(i, j) && reach.overlaps(&self.f[j].body())).collect();
-                for j in hit {
-                    self.damage(i, j, dmg, vec2(dir * 260.0, -200.0), 20, dir, Source::Fist, false);
-                }
+        }
+    }
+
+    /// Kyle lets his backlog go: everything in it at once, each throw the way it was aimed
+    /// (grenades lit, rockets fired, air strikes called in), and every swing in one big punch in
+    /// front of him. The cooldown starts now.
+    pub(crate) fn release_backlog(&mut self, i: usize) {
+        let f = &mut self.f[i];
+        let (stash, swings) = (std::mem::take(&mut f.stash), f.swings);
+        (f.backlog, f.inbox, f.swings) = (0, 0, 0);
+        let pos = f.center();
+        self.events.push(Event::BacklogBurst { pos });
+        for (mut it, dir) in stash {
+            it.held_by = Some(i);
+            it.pos = self.f[i].hand();
+            self.items.push(it);
+            let k = self.items.len() - 1;
+            self.launch(i, k, dir);
+        }
+        if swings > 0 {
+            // Every swing he put off, landing at once.
+            let f = &self.f[i];
+            let mut reach = f.attack_box();
+            reach.w += BACKLOG_REACH;
+            if f.facing < 0.0 {
+                reach.x -= BACKLOG_REACH;
+            }
+            let (dir, dmg) = (f.facing, BACKLOG_PUNCH * swings.min(BACKLOG_PUNCHES) as f32);
+            let hit: Vec<usize> = (0..N_BODIES).filter(|&j| self.foes(i, j) && reach.overlaps(&self.f[j].body())).collect();
+            for j in hit {
+                self.damage(i, j, dmg, vec2(dir * 260.0, -200.0), 20, dir, Source::Fist, false);
             }
         }
     }
@@ -3166,17 +3189,17 @@ mod tests {
         }
         assert!(m.items.is_empty(), "the rocks are in his backlog, not the arena");
         assert_eq!(m.f[0].inbox, 5, "three swings and two throws piled up");
-        // When it's up, it all goes at once.
-        let mut burst = false;
-        for _ in 0..BACKLOG_TICKS {
+        // It stays open as long as he likes (the cooldown waiting)...
+        for _ in 0..10 * SECOND {
             kyle(&mut m, Action::default());
-            burst |= m.events.iter().any(|e| matches!(e, Event::BacklogBurst { .. }));
-            if burst {
-                break;
-            }
+            assert!(!m.events.iter().any(|e| matches!(e, Event::BacklogBurst { .. })), "not until he says");
         }
-        assert!(burst, "the backlog went off");
-        assert_eq!(m.f[0].inbox, 0);
+        assert!(m.f[0].backlog > 10 * SECOND && m.f[0].special_cd > 0);
+        // ...and pressed again, it all goes at once, and the cooldown starts.
+        kyle(&mut m, Action { special: true, ..Action::default() });
+        assert!(m.events.iter().any(|e| matches!(e, Event::BacklogBurst { .. })), "the backlog went off");
+        assert_eq!((m.f[0].backlog, m.f[0].inbox), (0, 0));
+        assert!(m.f[0].special_cd >= BACKLOG_COOLDOWN - 2, "cooling down from now: {}", m.f[0].special_cd);
         assert_eq!(m.f[1].hp, MAX_HP - 3.0 * BACKLOG_PUNCH, "three swings' worth in one punch");
         assert_eq!(m.items.iter().filter(|it| it.kind == ItemKind::Rock && it.lethal).count(), 2, "both rocks thrown at once");
     }

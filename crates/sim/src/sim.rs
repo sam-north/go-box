@@ -2122,6 +2122,44 @@ mod tests {
     }
 
     #[test]
+    fn a_rocket_blows_up_on_a_trunk_in_its_way_but_flies_over_ledges() {
+        let (mut m, z) = quiet_match();
+        m.config.arena = ArenaId::Forest;
+        let trunk = crate::arena::FOREST_TRUNKS[2];
+        m.f[0].pos = vec2(trunk.x - 40.0, FLOOR_Y);
+        m.f[1].pos = vec2(trunk.x + trunk.w + 70.0, FLOOR_Y);
+        m.f[2].pos.x = 440.0;
+        m.f[3].pos.x = 430.0;
+        m.items.push(Item { held_by: Some(0), ..Item::new(ItemKind::RocketLauncher, m.f[0].hand()) });
+        m.f[0].holding = Some(ItemKind::RocketLauncher);
+        // Fired straight at the fighter on the far side of the middle tree's trunk.
+        m.step_with([&z; N_FIGHTERS], Some((0, Action { throw: true, target: Some(vec2(1.0, 0.0)), ..Action::default() })));
+        let mut boom = None;
+        for _ in 0..secs(2) {
+            m.step([&z; N_FIGHTERS]);
+            boom = boom.or(m.events.iter().find_map(|e| if let Event::Explosion { pos, .. } = e { Some(*pos) } else { None }));
+        }
+        let at = boom.expect("it blew up");
+        assert!((at.x - trunk.x).abs() < 4.0, "on the trunk: {at}");
+        assert_eq!(m.f[1].hp, MAX_HP, "the one behind the tree is safe");
+
+        // In the City, fired up through a ledge: it carries on.
+        let (mut m, z) = quiet_match();
+        m.config.arena = ArenaId::Bridges;
+        let ledge = ArenaId::Bridges.def().platforms[0];
+        m.f[0].pos = vec2(ledge.x + ledge.w / 2.0, FLOOR_Y);
+        m.items.push(Item { held_by: Some(0), ..Item::new(ItemKind::RocketLauncher, m.f[0].hand()) });
+        m.f[0].holding = Some(ItemKind::RocketLauncher);
+        m.step_with([&z; N_FIGHTERS], Some((0, Action { throw: true, target: Some(vec2(0.0, -1.0)), ..Action::default() })));
+        let mut through = false;
+        for _ in 0..20 {
+            m.step([&z; N_FIGHTERS]);
+            through |= m.effects.iter().any(|e| matches!(e, Effect::Rocket(r) if r.pos.y < ledge.y - 6.0));
+        }
+        assert!(through, "it flew up through the ledge");
+    }
+
+    #[test]
     fn rocket_launchers_are_limited_per_match() {
         let (mut m, _) = quiet_match();
         let mut launchers = 0;
