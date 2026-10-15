@@ -281,8 +281,6 @@ async fn main() {
         draw_texture_ex(&rt.texture, ox, oy, tint, DrawTextureParams { dest_size: Some(vec2(dw, dh)), ..Default::default() });
         app.view = (vec2(ox, oy), scale);
 
-        // Where the controls overlay ends (the debug overlay goes under it).
-        let mut overlay_bottom = ui.px(52.0);
         // Screens (under the settings menu or "How to Play", if open, they ignore the mouse).
         ui.blocked = app.settings_open || app.howto_open;
         // "Connecting..." only until the server says hello; after a refusal (wrong code or
@@ -298,7 +296,7 @@ async fn main() {
                 hud(&ui, &app, m);
                 // (Only if they've asked for it, in the settings.)
                 if playing && app.settings.show_controls {
-                    overlay_bottom = controls_overlay(&mut ui, &mut app, true);
+                    controls_overlay(&mut ui, &mut app, true);
                 }
             }
         }
@@ -333,7 +331,7 @@ async fn main() {
             sfx.play(Sfx::Click, 1.0);
         }
         ui.end();
-        debug.draw(&ui, overlay_bottom);
+        debug.draw(&ui, app.view.0);
         debug.end(app.game.as_ref().filter(|_| playing).map(|g| g.debug_stats()));
 
         if automation.step(&mut app, shown.as_ref()) {

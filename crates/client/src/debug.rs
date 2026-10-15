@@ -1,4 +1,4 @@
-//! Debug mode, for chasing lag: an overlay (top right) of frame rate and frame timing, how long
+//! Debug mode, for chasing lag: an overlay (top left) of frame rate and frame timing, how long
 //! a jump takes to show, snapshot timing and prediction, with a summary logged to the console
 //! every second and a line for each hitch. Off unless turned on locally: `?debug=1` in the page's
 //! URL (remembered in this browser until `?debug=0`), or `--debug` (or GOBOX_DEBUG) for the
@@ -150,15 +150,15 @@ impl Debug {
         *self = Self { on: true, jump: self.jump, last_jump: self.last_jump, last_frame: self.last_frame, last_snap: self.last_snap, shown: lines, window_start: now, ..Default::default() };
     }
 
-    /// Under `top` (the controls overlay's bottom, in a match).
-    pub fn draw(&self, ui: &Ui, top: f32) {
+    /// On the left of the arena (whose top-left is `origin`), under the players' health bars.
+    pub fn draw(&self, ui: &Ui, origin: Vec2) {
         if !self.on {
             return;
         }
         let size = 14.0;
         let w = self.shown.iter().map(|l| ui.text_width(l, size)).fold(0.0, f32::max) + ui.px(16.0);
-        let x = screen_width() - w - ui.px(8.0);
-        let y = top + ui.px(8.0);
+        let x = origin.x.max(0.0) + ui.px(8.0);
+        let y = origin.y.max(0.0) + ui.px(76.0);
         draw_rectangle(x, y, w, ui.px(18.0) * self.shown.len() as f32 + ui.px(8.0), Color::new(0.0, 0.0, 0.0, 0.7));
         for (k, l) in self.shown.iter().enumerate() {
             ui.text(l, x + ui.px(8.0), y + ui.px(18.0) * (k as f32 + 1.0), size, Color::new(0.6, 1.0, 0.6, 1.0));

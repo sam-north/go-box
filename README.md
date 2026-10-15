@@ -90,7 +90,7 @@ keeps or sends it.
 
 ### Debug mode
 
-For chasing lag: open the page with `?debug=1` (remembered in that browser until `?debug=0`; natively `--debug` or GOBOX_DEBUG) and an overlay in the top right shows the frame rate, each frame's gap and how long our own code took, ticks per frame, snapshot timing, unacknowledged inputs and any prediction correction, and, after you jump, how long the key event waited for a frame and how long until you were drawn jumping. A summary goes to the browser console every second, with a line for each hitch (a frame over 30ms). Off, it costs a check a frame.
+For chasing lag: open the page with `?debug=1` (remembered in that browser until `?debug=0`; natively `--debug` or GOBOX_DEBUG) and an overlay on the left shows the frame rate, each frame's gap and how long our own code took, ticks per frame, snapshot timing, unacknowledged inputs and any prediction correction, and, after you jump, how long the key event waited for a frame and how long until you were drawn jumping. A summary goes to the browser console every second, with a line for each hitch (a frame over 30ms). Off, it costs a check a frame.
 
 `?lowlatency=1` (remembered until `?lowlatency=0`) asks the browser for a low-latency canvas, drawn straight to the screen rather than through the page compositor: a frame or so less input lag in Chrome, at the risk of some tearing.
 
