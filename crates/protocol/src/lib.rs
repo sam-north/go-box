@@ -234,10 +234,45 @@ pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Option<T> {
     postcard::from_bytes(bytes).ok()
 }
 
+/// One snapshot's view and events, encoded once for everyone in the room. Only `ack` differs
+/// between players, and it comes first, so each player's message is the tag, their ack, then
+/// these same bytes (rather than the whole view encoded again per player, 30 times a second).
+pub struct SnapshotBody(Vec<u8>);
+
+impl SnapshotBody {
+    pub fn new(view: &MatchView, events: &[Event]) -> Self {
+        // (postcard writes a struct as its fields one after another, so this is the tail of a
+        // `Snapshot`; a test holds `with_ack` to `encode` byte for byte.)
+        Self(encode(&(view, events)))
+    }
+
+    /// The bytes of `ServerMsg::Snapshot(Snapshot { ack, view, events })`.
+    pub fn with_ack(&self, ack: u32) -> Vec<u8> {
+        let mut buf = [0u8; 5];
+        let ack = postcard::to_slice(&ack, &mut buf).expect("a u32 fits in 5 bytes");
+        let mut out = Vec::with_capacity(1 + ack.len() + self.0.len());
+        out.push(SNAPSHOT_TAG);
+        out.extend_from_slice(ack);
+        out.extend_from_slice(&self.0);
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use go_box_sim::sim::Match;
+
+    #[test]
+    fn a_shared_snapshot_body_encodes_the_same_as_a_whole_snapshot() {
+        for s in sample_snapshots() {
+            let body = SnapshotBody::new(&s.view, &s.events);
+            for ack in [0, 1, 127, 128, 70_000, u32::MAX] {
+                let whole = encode(&ServerMsg::Snapshot(Snapshot { ack, view: s.view.clone(), events: s.events.clone() }));
+                assert_eq!(body.with_ack(ack), whole, "ack {ack}");
+            }
+        }
+    }
 
     #[test]
     fn snapshot_round_trips_and_is_small() {

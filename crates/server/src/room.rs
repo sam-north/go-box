@@ -5,7 +5,7 @@ use crate::Hub;
 use crate::conn::Outbox;
 use go_box_protocol::{
     ClientMsg, MAX_IN_ROOM, MAX_PLAYERS, MatchStart, Phase, PlayerId, PlayerInfo, Refusal, Results, RoomInfo, SNAPSHOT_EVERY, Seat, SeatFill, SeatResult, ServerMsg,
-    Snapshot,
+    SnapshotBody,
     encode,
 };
 use go_box_sim::brain::Brain;
@@ -62,8 +62,13 @@ struct Player {
 
 impl Player {
     fn send(&self, msg: &ServerMsg) {
+        self.send_bytes(encode(msg));
+    }
+
+    /// Sends a message already encoded.
+    fn send_bytes(&self, bytes: Vec<u8>) {
         // A client that can't keep up just misses messages (it gets the next snapshot).
-        let _ = self.out.try_send(encode(msg));
+        let _ = self.out.try_send(bytes);
     }
 
     /// The input for this tick: the next queued one, or (if none arrived in time) the last
@@ -393,10 +398,11 @@ impl Room {
 
     fn send_snapshot(&mut self) {
         let Some(r) = &mut self.running else { return };
-        let view = r.m.view();
         let events = std::mem::take(&mut r.events);
+        // Encoded once; each player's copy differs only in its ack.
+        let body = SnapshotBody::new(&r.m.view(), &events);
         for p in &self.players {
-            p.send(&ServerMsg::Snapshot(Snapshot { ack: p.ack, view: view.clone(), events: events.clone() }));
+            p.send_bytes(body.with_ack(p.ack));
         }
     }
 }
