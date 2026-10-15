@@ -110,6 +110,8 @@ struct Room {
     leader: PlayerId,
     arena: ArenaId,
     fills: [SeatFill; MAX_PLAYERS],
+    /// Who the bot in each seat plays (None: someone at random each match).
+    bots: [Option<Character>; MAX_PLAYERS],
     last_results: Option<Results>,
     running: Option<Running>,
     rng: SmallRng,
@@ -125,6 +127,7 @@ impl Room {
             leader: 0,
             arena: ArenaId::default(),
             fills: [SeatFill::Bot; MAX_PLAYERS],
+            bots: [None; MAX_PLAYERS],
             last_results: None,
             running: None,
             rng: SmallRng::seed_from_u64(seed),
@@ -188,6 +191,7 @@ impl Room {
             players: self.players.iter().map(|p| PlayerInfo { id: p.id, name: p.name.clone(), character: p.character, ready: p.ready }).collect(),
             arena: self.arena,
             fills: self.fills,
+            bots: self.bots,
             phase: self.phase(),
             last_results: self.last_results.clone(),
         }
@@ -281,6 +285,12 @@ impl Room {
                     self.broadcast_room();
                 }
             }
+            ClientMsg::SetSeatBot { seat, character } if is_leader && lobby => {
+                if let Some(b) = self.bots.get_mut(seat as usize) {
+                    *b = character;
+                    self.broadcast_room();
+                }
+            }
             // (Only once everyone else seated has said they're ready.)
             ClientMsg::Start if is_leader && lobby && self.everyone_ready() => self.start(),
             ClientMsg::EndMatch if is_leader => {
@@ -331,7 +341,8 @@ impl Room {
                 }
                 None if self.fills[i] == SeatFill::Empty => m.remove(i),
                 None => {
-                    let c = Character::ALL[self.rng.gen_range(0..Character::ALL.len())];
+                    // (The leader may have picked who; otherwise anyone.)
+                    let c = self.bots[i].unwrap_or_else(|| Character::ALL[self.rng.gen_range(0..Character::ALL.len())]);
                     m.f[i].character = c;
                     // Bots go unnamed: clients name them after their character.
                 }
@@ -477,11 +488,17 @@ mod tests {
         r.on_msg(1, ClientMsg::SetSeatFill { seat: 3, fill: SeatFill::Empty });
         r.on_msg(1, ClientMsg::SetSeatFill { seat: 9, fill: SeatFill::Empty });
         assert_eq!(last_room(&mut a).fills, [SeatFill::Bot, SeatFill::Bot, SeatFill::Bot, SeatFill::Empty]);
+        // Who the bot plays, too.
+        r.on_msg(2, ClientMsg::SetSeatBot { seat: 2, character: Some(Character::Zack) });
+        assert_eq!(r.bots[2], None, "not the leader: ignored");
+        r.on_msg(1, ClientMsg::SetSeatBot { seat: 2, character: Some(Character::Vid) });
+        assert_eq!(last_room(&mut a).bots, [None, None, Some(Character::Vid), None]);
         r.on_msg(2, ClientMsg::SetReady(true));
         r.on_msg(1, ClientMsg::Start);
         let run = r.running.as_ref().unwrap();
         assert_eq!(run.seats, [Some(1), Some(2), None, None]);
         assert!(!run.m.f[2].absent && run.m.f[3].absent, "seat 3 is a bot, seat 4 is empty");
+        assert_eq!(run.m.f[2].character, Character::Vid, "the bot plays who the leader picked");
         // Settings can't change mid-match.
         r.on_msg(1, ClientMsg::SetSeatFill { seat: 2, fill: SeatFill::Empty });
         assert_eq!(r.fills[2], SeatFill::Bot);

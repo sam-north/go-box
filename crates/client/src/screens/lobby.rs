@@ -198,7 +198,15 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
         let status = if p.ready && p.id != room.leader { t("lobby.ready_tag") } else { "" };
         ui.text(&format!("{}  {status}", character_name(p.character)), char_x, py, 20.0, if p.ready { ACCENT } else { DIM });
     }
-    // Seats without a player: a bot or nobody. The leader picks; down to just you.
+    // Seats without a player: a bot or nobody, and who the bot plays (someone at random unless
+    // picked). The leader picks; down to just you.
+    let bot_name = |seat: usize| room.bots[seat].map_or(t("lobby.bot_random"), character_name);
+    // (While the leader's list of characters is open, it's all that takes the mouse.)
+    let blocked = ui.blocked;
+    let mut menu = None;
+    if app.bot_menu.is_some_and(|s| !leader || s < seated.len() || room.fills[s] != SeatFill::Bot) {
+        app.bot_menu = None;
+    }
     for seat in seated.len()..MAX_PLAYERS {
         py += ui.px(25.0);
         let fill = room.fills[seat];
@@ -212,11 +220,28 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
                     app.send(ClientMsg::SetSeatFill { seat: seat as u8, fill: f });
                 }
             }
+            if fill == SeatFill::Bot {
+                // Who: a small button showing the pick, opening the list.
+                let dr = Rect::new(bx + 2.0 * (bw + ui.px(6.0)), py - ui.px(20.0), ui.px(116.0), ui.px(26.0));
+                let open = app.bot_menu == Some(seat);
+                ui.blocked = blocked || app.bot_menu.is_some_and(|s| s != seat);
+                if ui.button(dr, &ui.fit(bot_name(seat), 15.0, dr.w - ui.px(22.0)), true, if open { ACCENT } else { ui::EDGE }) {
+                    app.bot_menu = if open { None } else { Some(seat) };
+                }
+                ui.blocked = blocked;
+                // (A little arrow: it opens a list.)
+                let (ax, ay, s) = (dr.x + dr.w - ui.px(11.0), dr.y + dr.h / 2.0, ui.px(3.5));
+                draw_triangle(vec2(ax - s, ay - s * 0.5), vec2(ax + s, ay - s * 0.5), vec2(ax, ay + s * 0.6), DIM);
+                if app.bot_menu == Some(seat) {
+                    menu = Some((seat, dr));
+                }
+            }
         } else {
-            let label = if fill == SeatFill::Bot { t("lobby.seat_bot") } else { t("lobby.seat_empty") };
-            ui.text(label, bx, py, 20.0, DIM);
+            let label = if fill == SeatFill::Bot { tf("lobby.seat_bot_as", &[("character", bot_name(seat))]) } else { t("lobby.seat_empty").to_string() };
+            ui.text(&label, bx, py, 20.0, DIM);
         }
     }
+    ui.blocked = blocked || menu.is_some();
     // The map: buttons for the leader, a label for everyone else.
     let my = y;
     let mut dx = map_x;
@@ -320,5 +345,44 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
         }
         let note = t("lobby.leader_starts");
         ui.text(&ui.fit(note, 16.0, pw), play.x + play.w - ui.text_width(note, 16.0).min(pw), note_y, 16.0, DIM);
+    }
+
+    ui.blocked = blocked;
+    if let Some((seat, anchor)) = menu {
+        bot_menu(ui, app, room, seat, anchor);
+    }
+}
+
+/// The leader's list of who a seat's bot plays, under its button: Random, then everyone A to Z.
+/// A pick (or a click anywhere else) closes it.
+fn bot_menu(ui: &mut Ui, app: &mut App, room: &RoomInfo, seat: usize, anchor: Rect) {
+    let mut picks: Vec<Option<Character>> = Character::ALL.into_iter().map(Some).collect();
+    picks.sort_by_key(|c| c.map(character_name));
+    picks.insert(0, None);
+    let cols = 4;
+    let (cw, chh, gap) = (ui.px(92.0), ui.px(24.0), ui.px(3.0));
+    let rows = picks.len().div_ceil(cols);
+    let (mw, mh) = (cols as f32 * (cw + gap) + gap, rows as f32 * (chh + gap) + gap);
+    // Under the button (or over it, if there's no room below).
+    let below = anchor.y + anchor.h + ui.px(4.0);
+    let my = if below + mh > screen_height() - ui.px(8.0) { anchor.y - mh - ui.px(4.0) } else { below };
+    let mr = Rect::new(anchor.x.min(screen_width() - mw - ui.px(8.0)), my, mw, mh);
+    draw_rectangle(mr.x, mr.y, mr.w, mr.h, Color::new(0.04, 0.05, 0.07, 0.98));
+    draw_rectangle_lines(mr.x, mr.y, mr.w, mr.h, 1.0, ACCENT);
+    for (k, pick) in picks.into_iter().enumerate() {
+        let cr = Rect::new(mr.x + gap + (k % cols) as f32 * (cw + gap), mr.y + gap + (k / cols) as f32 * (chh + gap), cw, chh);
+        let name = pick.map_or(t("lobby.bot_random"), character_name);
+        let color = pick.map_or(INK, render::character_color);
+        let chosen = room.bots[seat] == pick;
+        if ui.button(cr, &ui.fit(name, 15.0, cw - ui.px(6.0)), true, if chosen { ACCENT } else { Color::new(color.r * 0.7, color.g * 0.7, color.b * 0.7, 1.0) }) {
+            if !chosen {
+                app.send(ClientMsg::SetSeatBot { seat: seat as u8, character: pick });
+            }
+            app.bot_menu = None;
+        }
+    }
+    let at: Vec2 = mouse_position().into();
+    if !ui.blocked && is_mouse_button_pressed(MouseButton::Left) && !mr.contains(at) && !anchor.contains(at) {
+        app.bot_menu = None;
     }
 }

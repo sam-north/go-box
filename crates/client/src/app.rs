@@ -50,6 +50,8 @@ pub struct App {
     pub create_open: bool,
     /// "How to Play" is open (in the room).
     pub howto_open: bool,
+    /// The leader's list of who a seat's bot plays is open, for this seat.
+    pub bot_menu: Option<usize>,
 }
 
 impl App {

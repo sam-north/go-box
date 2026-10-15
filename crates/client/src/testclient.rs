@@ -44,6 +44,8 @@ pub struct Options {
     pub controls: bool,
     /// Open "How to Play" in the room (for screenshots).
     pub howto: bool,
+    /// Open the list of who seat 2's bot plays (for screenshots).
+    pub bot_menu: bool,
     /// Start with sound off.
     pub mute: bool,
     /// Show the debug overlay and log frame timing (see `debug.rs`).
@@ -82,6 +84,7 @@ impl Options {
             settings: has("--settings"),
             controls: has("--controls"),
             howto: has("--howto"),
+            bot_menu: has("--bot-menu"),
         }
     }
 }

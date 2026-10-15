@@ -103,6 +103,7 @@ async fn main() {
         // (A test client given a passphrase shows it.)
         create_open: opts.passphrase.is_some(),
         howto_open: opts.howto,
+        bot_menu: opts.bot_menu.then_some(1),
     };
     if opts.create {
         app.create_room();

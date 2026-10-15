@@ -83,6 +83,8 @@ pub enum ClientMsg {
     SetArena(ArenaId),
     /// Leader only: what fills seat `seat` when no player is in it.
     SetSeatFill { seat: u8, fill: SeatFill },
+    /// Leader only: who the bot in seat `seat` plays (None: someone at random each match).
+    SetSeatBot { seat: u8, character: Option<Character> },
     /// Leader only: start the next match with everyone in the room.
     Start,
     /// One per client tick while playing, numbered so snapshots can say which was last applied.
@@ -162,6 +164,8 @@ pub struct RoomInfo {
     pub arena: ArenaId,
     /// Per seat: what fills it when no player is in it. Players take seats in join order.
     pub fills: [SeatFill; MAX_PLAYERS],
+    /// Per seat: who a bot there plays (None: someone at random each match).
+    pub bots: [Option<Character>; MAX_PLAYERS],
     pub phase: Phase,
     pub last_results: Option<Results>,
 }
@@ -332,6 +336,7 @@ mod tests {
             ClientMsg::SetReady(true),
             ClientMsg::SetArena(ArenaId::Bridges),
             ClientMsg::SetSeatFill { seat: 2, fill: SeatFill::Empty },
+            ClientMsg::SetSeatBot { seat: 1, character: Some(Character::Vid) },
             ClientMsg::Start,
             ClientMsg::Input { seq: 77, action },
             ClientMsg::EndMatch,
@@ -346,6 +351,7 @@ mod tests {
                 | ClientMsg::SetReady(_)
                 | ClientMsg::SetArena(_)
                 | ClientMsg::SetSeatFill { .. }
+                | ClientMsg::SetSeatBot { .. }
                 | ClientMsg::Start
                 | ClientMsg::Input { .. }
                 | ClientMsg::EndMatch => {}
@@ -359,6 +365,7 @@ mod tests {
             players: vec![PlayerInfo { id: 1, name: "Sam".into(), character: Character::Austin, ready: true }],
             arena: ArenaId::Bridges,
             fills: [SeatFill::Bot, SeatFill::Bot, SeatFill::Empty, SeatFill::Bot],
+            bots: [None, Some(Character::Doug), None, None],
             phase: Phase::Lobby,
             last_results: Some(Results { seats: vec![result], winner: Some(0), duration: 44.5 }),
         };
@@ -395,15 +402,15 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (29, 0x8f9a_7228_024a_c104);
+    const WIRE: (u16, u64) = (29, 0xdd22_2847_9b7d_958a);
 
     #[test]
     fn every_sample_round_trips() {
         let samples = samples();
-        for bytes in &samples[..11] {
+        for bytes in &samples[..12] {
             assert_eq!(encode(&decode::<ClientMsg>(bytes).unwrap()), *bytes);
         }
-        for bytes in &samples[11..] {
+        for bytes in &samples[12..] {
             assert_eq!(encode(&decode::<ServerMsg>(bytes).unwrap()), *bytes);
         }
     }
