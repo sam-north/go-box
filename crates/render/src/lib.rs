@@ -640,7 +640,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 body: rgb(30, 32, 34),
                 legs: [rgb(22, 24, 26), rgb(34, 36, 38)],
                 arms: rgb(38, 40, 42),
-                hair: Some(rgb(48, 46, 46)),
+                hair: Some(rgb(58, 56, 56)),
                 headband: false,
                 skin: SKIN,
                 hair_style: HairStyle::Short,
@@ -2034,14 +2034,11 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
             }
             if look.grey_flecks {
                 // Salt and pepper: grey through the hair, at the temple and in the beard.
-                let grey = tint(Color::new(0.68, 0.68, 0.70, 1.0), flash);
-                px(-1.0, -3.0, 1.0, 1.0, grey);
-                px(1.0, -2.0, 1.0, 1.0, grey);
+                let grey = tint(Color::new(0.50, 0.50, 0.52, 1.0), flash);
+                px(0.0, -3.0, 1.0, 1.0, grey);
                 px(-3.0, -1.0, 1.0, 1.0, grey);
                 if look.beard {
-                    px(0.0, 2.0, 1.0, 1.0, grey);
-                    px(2.0, 1.0, 1.0, 1.0, grey);
-                    px(1.0, 3.0, 1.0, 1.0, grey);
+                    px(1.0, 2.0, 1.0, 1.0, grey);
                 }
             }
             if look.headband {
