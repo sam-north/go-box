@@ -1644,15 +1644,18 @@ impl Match {
 
     /// Clears out every effect for which `keep` is false (and its id with it).
     pub(crate) fn retain_effects(&mut self, keep: impl Fn(&Effect) -> bool) {
-        let mut k = 0;
-        while k < self.effects.len() {
+        // In one pass, keeping the order (a whole swarm can finish on the same tick, and removing
+        // them one at a time shifts the rest down each time).
+        let mut kept = 0;
+        for k in 0..self.effects.len() {
             if keep(&self.effects[k]) {
-                k += 1;
-            } else {
-                self.effects.remove(k);
-                self.effect_ids.remove(k);
+                self.effects.swap(kept, k);
+                self.effect_ids.swap(kept, k);
+                kept += 1;
             }
         }
+        self.effects.truncate(kept);
+        self.effect_ids.truncate(kept);
     }
 
     pub fn view(&self) -> MatchView {

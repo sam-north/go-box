@@ -1649,18 +1649,20 @@ impl Match {
     }
 
     pub(crate) fn step_effects(&mut self) {
+        // The tables to bump into: the same all step long (tables only appear in `step_specials`).
+        let props = props(&self.effects);
         for e in 0..self.effects.len() {
             // Stepped on a copy: an effect's step may hurt fighters (which needs the whole match).
             let mut effect = self.effects[e].clone();
             match &mut effect {
-                Effect::Glue(g) => self.step_glue(g),
-                Effect::Pet(p) => self.step_pet(p),
+                Effect::Glue(g) => self.step_glue(g, &props),
+                Effect::Pet(p) => self.step_pet(p, &props),
                 Effect::Table(t) => self.step_table(t),
                 Effect::Chain(c) => self.step_chain(c),
-                Effect::Rocket(r) => self.step_rocket(r),
+                Effect::Rocket(r) => self.step_rocket(r, &props),
                 Effect::Fire(f) => self.step_fire(f),
                 Effect::Plane(p) => self.step_plane(p),
-                Effect::AirBomb(b) => self.step_air_bomb(b),
+                Effect::AirBomb(b) => self.step_air_bomb(b, &props),
                 Effect::Judo(j) => self.step_judo(j),
                 Effect::Lunge(l) => self.step_lunge(l),
                 Effect::Tornado(t) => self.step_tornado(t),
@@ -1676,7 +1678,7 @@ impl Match {
         self.retain_effects(|e| !e.done());
     }
 
-    fn step_pet(&mut self, pet: &mut Pet) {
+    fn step_pet(&mut self, pet: &mut Pet, props: &[Aabb]) {
         // Frozen by Michelle: stock still, biting nobody (its time still runs down).
         if pet.frozen > 0 {
             pet.frozen -= 1;
@@ -1707,11 +1709,11 @@ impl Match {
                 if hunting {
                     pet.speed = SPIDER_SPEED;
                 }
-                run_pet(pet, self.arena(), &props(&self.effects), prey, false);
+                run_pet(pet, self.arena(), props, prey, false);
             }
             _ => {
                 let hop = goal.is_none() && pet.vy == 0.0 && self.chance(PET_HOP_CHANCE);
-                run_pet(pet, self.arena(), &props(&self.effects), goal, hop);
+                run_pet(pet, self.arena(), props, goal, hop);
             }
         }
         if goal.is_some() {
@@ -2238,14 +2240,13 @@ impl Match {
     }
 
     /// A falling bomb: explodes (big) on the ground, a ledge, a table or anyone it hits.
-    fn step_air_bomb(&mut self, b: &mut AirBomb) {
+    fn step_air_bomb(&mut self, b: &mut AirBomb, props: &[Aabb]) {
         let prev = b.pos;
         b.vel.y += AIR_BOMB_GRAVITY * DT;
         b.pos += b.vel * DT;
         b.ticks = b.ticks.saturating_sub(1);
         let hit = Aabb::around(b.pos, 2.0);
         let on_someone = (0..N_BODIES).any(|j| self.f[j].present() && hit.overlaps(&self.f[j].body()));
-        let props = props(&self.effects);
         let solid = self.arena().solids().chain(props.iter()).any(|s| s.contains(b.pos));
         let ledge = self.arena().platforms.iter().any(|p| b.pos.x > p.x && b.pos.x < p.x + p.w && prev.y <= p.y && b.pos.y >= p.y);
         if on_someone || solid || ledge || b.ticks == 0 {
@@ -2256,7 +2257,7 @@ impl Match {
 
     /// A rocket curves toward the nearest foe and blows up on whoever it touches, on a wall (or a
     /// table), or when its fuel runs out. (It flies over the one-way ledges.)
-    fn step_rocket(&mut self, r: &mut Rocket) {
+    fn step_rocket(&mut self, r: &mut Rocket, props: &[Aabb]) {
         r.ticks = r.ticks.saturating_sub(1);
         let target = (0..N_BODIES).filter(|&j| self.foes(r.owner, j)).map(|j| self.f[j].center()).min_by(|a, b| a.distance(r.pos).total_cmp(&b.distance(r.pos)));
         if let Some(t) = target {
@@ -2277,7 +2278,7 @@ impl Match {
         r.pos += r.vel * DT;
         let hit = Aabb::around(r.pos, 2.0);
         let struck = (0..N_BODIES).any(|j| self.foes(r.owner, j) && hit.overlaps(&self.f[j].body()));
-        let walled = self.arena().solids().chain(props(&self.effects).iter()).any(|s| s.contains(r.pos));
+        let walled = self.arena().solids().chain(props).any(|s| s.contains(r.pos));
         if struck || walled || r.ticks == 0 {
             r.ticks = 0;
             self.explode(r.pos, Some(r.owner), crate::item::ROCKET_BLAST);
@@ -2297,10 +2298,10 @@ impl Match {
         self.events.push(Event::Poof { pos: vec2(t.pos.x, t.pos.y - TABLE_H / 2.0) });
     }
 
-    fn step_glue(&mut self, g: &mut Glue) {
+    fn step_glue(&mut self, g: &mut Glue, props: &[Aabb]) {
         g.ticks = g.ticks.saturating_sub(1);
         if !g.stuck {
-            self.fly_glue(g);
+            self.fly_glue(g, props);
         } else {
             self.hold_glue(g);
         }
@@ -2308,16 +2309,15 @@ impl Match {
 
     /// A glob in flight: sticks to the first foe it touches (anchoring them to the nearest surface)
     /// or to terrain.
-    fn fly_glue(&mut self, g: &mut Glue) {
+    fn fly_glue(&mut self, g: &mut Glue, props: &[Aabb]) {
         let prev = g.pos;
         g.vel.y += GLUE_GRAVITY * DT;
         g.pos += g.vel * DT;
-        let props = props(&self.effects);
         let hit = Aabb::around(g.pos, 2.0);
         let victim = (0..N_BODIES).find(|&j| self.foes(g.owner, j) && !self.f[j].unshakeable() && hit.overlaps(&self.f[j].body()));
         if let Some(j) = victim.filter(|_| !self.protected()) {
             let c = self.f[j].center();
-            g.pos = nearest_surface(self.arena(), &props, c);
+            g.pos = nearest_surface(self.arena(), props, c);
             g.stuck = true;
             g.held = vec![j as u8];
             g.ticks = GLUE_HOLD;
@@ -2328,7 +2328,7 @@ impl Match {
         let in_solid = self.arena().solids().chain(props.iter()).any(|s| s.contains(g.pos));
         let on_ledge = g.vel.y > 0.0 && self.arena().platforms.iter().any(|p| g.pos.x > p.x && g.pos.x < p.x + p.w && prev.y <= p.y && g.pos.y >= p.y);
         if in_solid || on_ledge {
-            g.pos = nearest_surface(self.arena(), &props, prev);
+            g.pos = nearest_surface(self.arena(), props, prev);
             g.stuck = true;
             g.ticks = GLUE_HOLD;
             self.events.push(Event::Glued { pos: g.pos });
