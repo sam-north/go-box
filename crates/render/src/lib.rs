@@ -744,7 +744,7 @@ fn solid_px(a: &Arena, x: i32, y: i32) -> bool {
 /// What's behind a map: dim industrial pipes, or (the City) a night skyline.
 fn make_background(arena: ArenaId) -> Image {
     if arena == ArenaId::Bridges {
-        return make_skyline();
+        return make_skyline(arena.def());
     }
     let mut img = Image::gen_image_color(W as u16, H as u16, BLACK);
     // Laid out on a 320x180 grid, stretched to the arena.
@@ -800,7 +800,7 @@ fn make_background(arena: ArenaId) -> Image {
 
 /// The City's backdrop: a night sky glowing warm toward the street, stars and a moon, and two
 /// rows of towers (the far one hazy) with lit windows.
-fn make_skyline() -> Image {
+fn make_skyline(a: &Arena) -> Image {
     let mut img = Image::gen_image_color(W as u16, H as u16, BLACK);
     let (moon, moon_r) = (vec2(64.0, 40.0), 13.0);
     // A row of towers: (top of the tower over column x, where it starts, how wide).
@@ -860,6 +860,16 @@ fn make_skyline() -> Image {
                         (r, g, b) = (20.0, 22.0, 30.0);
                     }
                 }
+            }
+            // A night haze over it all (so the towers stay behind the fight), and a shadow around
+            // the ledges and pillars so they stand out from the windows.
+            let fog = 0.38;
+            (r, g, b) = (r * (1.0 - fog) + 18.0 * fog, g * (1.0 - fog) + 20.0 * fog, b * (1.0 - fog) + 30.0 * fog);
+            let p = vec2(fx + 0.5, fy + 0.5);
+            let near = a.platforms.iter().chain(a.walls).map(|s| vec2(p.x.clamp(s.x, s.x + s.w), p.y.clamp(s.y, s.y + s.h)).distance(p)).fold(f32::MAX, f32::min);
+            if near < 5.0 {
+                let k = 0.35 + 0.65 * (near / 5.0);
+                (r, g, b) = (r * k, g * k, b * k);
             }
             img.set_pixel(x, y, dither(x, y, r, g, b));
         }
