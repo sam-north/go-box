@@ -2760,7 +2760,7 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
     line(elbow, hand, limb, tint(look.arms, flash));
     // A punch (fists, nothing in hand): a comically big boxing glove on the end of the arm.
     if f.holding.is_none() && f.atk_timer > 0 && f.atk_timer <= ATK_WINDUP + ATK_ACTIVE {
-        draw_glove(hand, s, f.atk_timer > ATK_WINDUP, flash);
+        draw_glove(hand, s, f.atk_timer > ATK_WINDUP, flash, look.accent);
     }
     match look.hair {
         None => {
@@ -3276,11 +3276,13 @@ fn draw_glue(g: &Glue, m: &Match, time: f32) {
 /// A big, beat-up boxing glove at `hand`, facing `s`: weathered oxblood leather in the game's muted
 /// palette, blocky (wider than tall) with a stubby thumb, a worn tan cuff and a darker underside.
 /// Smaller while wound up; thrown, full size with a faint smear behind it.
-fn draw_glove(hand: Vec2, s: f32, out: bool, flash: bool) {
+fn draw_glove(hand: Vec2, s: f32, out: bool, flash: bool, color: Color) {
     let (len, h) = if out { (7.0, 5.0) } else { (5.0, 4.0) };
-    let leather = tint(Color::new(0.47, 0.19, 0.16, 1.0), flash);
-    let shade = tint(Color::new(0.29, 0.12, 0.11, 1.0), flash);
-    let worn = tint(Color::new(0.58, 0.30, 0.24, 1.0), flash);
+    // (In the fighter's own colour.)
+    let k = |m: f32| Color::new((color.r * m).min(1.0), (color.g * m).min(1.0), (color.b * m).min(1.0), 1.0);
+    let leather = tint(k(0.85), flash);
+    let shade = tint(k(0.55), flash);
+    let worn = tint(k(1.15), flash);
     let cuff = tint(Color::new(0.55, 0.50, 0.40, 1.0), flash);
     let (hx, hy) = (hand.x.round(), (hand.y - h / 2.0).round());
     // A rectangle in glove space (dx forward from the wrist), mirrored when facing left.
