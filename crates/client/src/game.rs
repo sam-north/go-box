@@ -27,7 +27,7 @@ pub struct Game {
     events_through: Option<u32>,
     /// Inputs sent but not yet acknowledged, oldest first.
     pending: VecDeque<(u32, Action)>,
-    /// The body you're driving, predicted: your fighter, or (Vid inside someone) theirs.
+    /// The body you're driving, predicted: your fighter, or (the Chosen One inside someone) theirs.
     me: Option<Fighter>,
     /// Which body that is (its slot).
     body: usize,
@@ -64,7 +64,7 @@ impl Game {
     }
 
     /// The body you're driving as you see it (predicted), if you have a seat: your fighter, or
-    /// while Vid is inside someone, theirs (your input moves it, so it's predicted too).
+    /// while the Chosen One is inside someone, theirs (your input moves it, so it's predicted too).
     pub fn me(&self) -> Option<&Fighter> {
         self.me.as_ref()
     }
@@ -80,7 +80,7 @@ impl Game {
             let mut f = s.view.f[body].clone();
             let props = props(&s.view.effects);
             for &(_, a) in &self.pending {
-                // (Your own body, unless Vid's driving someone else's.)
+                // (Your own body, unless the Chosen One's driving someone else's.)
                 let step = if body == seat { predict } else { predict_ridden };
                 step(self.start.config.arena.def(), &props, &mut f, body, a, &mut Vec::new());
             }
@@ -186,7 +186,7 @@ impl Game {
                 }
             }
         }
-        // The body you're driving, in the present (yours, or the one Vid's inside).
+        // The body you're driving, in the present (yours, or the one the Chosen One's inside).
         if let (Some(_), Some(me)) = (self.seat(), &self.me) {
             let body = self.body;
             let mut me = me.clone();
@@ -223,6 +223,10 @@ mod tests {
     fn server() -> (Match, Brain) {
         let mut m = Match::new(3, &quiet());
         m.items.clear();
+        // (The Classics stand still: no specials from them either.)
+        for f in m.f.iter_mut() {
+            f.special_cd = u32::MAX / 2;
+        }
         (m, Brain { w: vec![0.0; Brain::N_WEIGHTS] })
     }
 
@@ -258,10 +262,11 @@ mod tests {
     }
 
     #[test]
-    fn as_vid_inside_someone_their_body_moves_the_moment_you_press() {
+    fn as_the_chosen_one_inside_someone_their_body_moves_the_moment_you_press() {
         let (mut m, z) = server();
-        m.f[0].character = Character::Vid;
-        // Vid (seat 0) goes into the fighter in seat 1.
+        m.f[0].character = Character::Classic;
+        m.f[0].special_cd = 0;
+        // The Chosen One (seat 0) goes into the fighter in seat 1.
         let cursor = m.f[1].center();
         m.step_with([&z; N_FIGHTERS], Some((0, Action { special: true, cursor: Some(cursor), ..Action::default() })));
         assert_eq!(m.f[0].host, Some(1));

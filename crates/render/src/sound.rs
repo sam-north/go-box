@@ -71,6 +71,8 @@ go_box_sim::enum_all! {
         Skate,
         Tornado,
         ArrowWhistle,
+        BookOpen,
+        ShieldBlock,
         Start,
         Win,
         Lose,
@@ -380,6 +382,19 @@ impl Sfx {
                 s.tone(0.16, 0.14, 2100.0, 2050.0, Wave::Sine, 0.005, 9.0, 0.2);
                 s.noise(0.0, 0.3, 4000.0, 3000.0, 0.02, 8.0, 0.03);
             }
+            // Vid opening his bag of books: a rustle of pages and a rising shimmer of magic.
+            Sfx::BookOpen => {
+                for k in 0..4 {
+                    s.noise(k as f32 * 0.05, 0.05, 3000.0, 1500.0, 0.002, 40.0, 0.18);
+                }
+                s.tone(0.1, 0.6, 600.0, 1200.0, Wave::Sine, 0.1, 3.0, 0.1);
+                s.tone(0.1, 0.6, 900.0, 1800.0, Wave::Sine, 0.1, 3.0, 0.06);
+            }
+            // An attack glancing off his shield: a bright, ringing ping.
+            Sfx::ShieldBlock => {
+                s.tone(0.0, 0.25, 1760.0, 1700.0, Wave::Sine, 0.001, 10.0, 0.22);
+                s.tone(0.0, 0.2, 2640.0, 2600.0, Wave::Sine, 0.001, 14.0, 0.1);
+            }
             Sfx::Start => {
                 s.tone(0.0, 0.12, 440.0, 440.0, Wave::Square, 0.003, 10.0, 0.14);
                 s.tone(0.16, 0.3, 660.0, 660.0, Wave::Square, 0.003, 6.0, 0.16);
@@ -658,6 +673,7 @@ impl Sounds {
                 Event::JetPass { .. } => self.play(Sfx::Jet, 0.9),
                 Event::BombDrop { pos } => self.at(Sfx::Whistle, pos, ear, 0.8),
                 Event::Zap { pos, .. } => self.at(Sfx::Zap, pos, ear, 0.8),
+                Event::Blocked { pos } => self.at(Sfx::ShieldBlock, pos, ear, 0.8),
                 // (Their special's own sound covers these.)
                 Event::Organize { .. } | Event::LaptopOpen { .. } => {}
                 Event::ArrowCall { pos } => self.at(Sfx::ArrowWhistle, pos, ear, 0.9),

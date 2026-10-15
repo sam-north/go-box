@@ -113,8 +113,9 @@ impl Controls {
     }
 
     /// This tick's action for fighter `me`. `mouse_arena` is the mouse in arena coordinates.
-    /// `melee_aim`: a swing goes toward your aim; off, the way you face.
-    pub fn take(&mut self, b: &Bindings, me: &Fighter, mouse_arena: Vec2, mouse_free: bool, melee_aim: bool) -> Action {
+    /// `melee_aim`: a swing goes toward your aim; off, the way you face. `auto_aim`: where to aim
+    /// instead of the mouse or stick (a trackpad player's nearest opponent).
+    pub fn take(&mut self, b: &Bindings, me: &Fighter, mouse_arena: Vec2, mouse_free: bool, melee_aim: bool, auto_aim: Option<Vec2>) -> Action {
         let down = |act| b.down(act, &self.pad, mouse_free);
         let mut mv = down(Act::Right) as i32 as f32 - down(Act::Left) as i32 as f32;
         if mv == 0.0 && self.pad.connected && self.pad.left.x.abs() > STICK_DEADZONE {
@@ -129,7 +130,14 @@ impl Controls {
             aim: 0.3,
             grab: me.holding.is_none() && down(Act::Hand),
             special: self.special,
-            target: self.target(me, mouse_arena),
+            // (Auto-aimed: at them, lobbed a little high so arcing throws land.)
+            target: match auto_aim {
+                Some(at) => {
+                    let d = at - me.hand();
+                    Some((d + vec2(0.0, -d.length() * 0.3)).normalize_or(vec2(me.facing, 0.0)))
+                }
+                None => self.target(me, mouse_arena),
+            },
             dash: self.dash,
             down: self.down_tap || down(Act::Down) || (self.pad.connected && self.pad.left.y > 0.6),
             // (Austin teleports to the cursor; with a gamepad there isn't one.)

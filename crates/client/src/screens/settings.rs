@@ -110,6 +110,13 @@ fn controls_page(ui: &mut Ui, app: &mut App, r: Rect, mut y: f32) {
         app.settings.melee_aim = !aim;
         app.settings.save();
     }
+    // A checkbox: playing on a trackpad, so throws and swings aim themselves.
+    let on = app.settings.trackpad;
+    let label = format!("[{}] {}", if on { "x" } else { " " }, t("settings.trackpad"));
+    if ui.button(Rect::new(r.x + pad + ui.px(316.0), y, ui.px(340.0), ui.px(32.0)), &label, true, if on { ACCENT } else { EDGE }) {
+        app.settings.trackpad = !on;
+        app.settings.save();
+    }
     y += ui.px(62.0);
     ui.text(t("settings.keyboard"), col_kb, y, 18.0, DIM);
     ui.text(t("settings.controller"), col_pad, y, 18.0, DIM);

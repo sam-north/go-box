@@ -77,6 +77,10 @@ const BELT: Color = Color::new(0.06, 0.06, 0.07, 1.0);
 /// Kaleb's arrow: gold, with a red fin.
 const ARROW_GOLD: Color = Color::new(1.0, 0.80, 0.25, 1.0);
 const ARROW_FIN: Color = Color::new(0.85, 0.12, 0.10, 1.0);
+/// Vid's reading: the glow of his eyes, shield and books; the books' covers and pages.
+const EYE_GLOW: Color = Color::new(0.62, 0.92, 1.0, 1.0);
+const BOOK_COVERS: [Color; 3] = [Color::new(0.55, 0.16, 0.18, 1.0), Color::new(0.18, 0.28, 0.55, 1.0), Color::new(0.20, 0.42, 0.24, 1.0)];
+const PAGE: Color = Color::new(0.94, 0.91, 0.82, 1.0);
 const TORNADO_GREY: Color = Color::new(0.62, 0.64, 0.66, 1.0);
 const DECK: Color = Color::new(0.20, 0.55, 0.85, 1.0);
 const WHEEL: Color = Color::new(0.92, 0.88, 0.70, 1.0);
@@ -379,6 +383,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
             &ART
         }
         // Wild red hair swept back (thin on top), a long goatee, a long black coat; matrix green.
+        // (Reading, he sits with his book, eyes glowing, in a shield.)
         Character::Vid => {
             const ART: CharacterArt = CharacterArt {
                 color: Some(Color::new(0.30, 0.92, 0.45, 1.0)),
@@ -396,7 +401,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: false,
                 beaver_suit: false,
                 mustache: false,
-                special_sound: None,
+                special_sound: Some(Sfx::BookOpen),
             };
             &ART
         }
@@ -1049,6 +1054,9 @@ impl Art {
                     let radius = if big { QUAKE_BIG_R } else { QUAKE_R };
                     self.visuals.push((Visual::Quake(Quake { at: pos, radius, ticks: QUAKE_TICKS }), QUAKE_TICKS as f32));
                 }
+                Event::Blocked { pos } => {
+                    self.burst(pos, vec2(0.0, -1.0), 6.3, 10, EYE_GLOW, false, 60.0, 0.25, 0.0);
+                }
                 Event::ArrowCall { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 8, ARROW_GOLD, false, 40.0, 0.3, 0.0);
                 }
@@ -1315,6 +1323,7 @@ impl Art {
                 Effect::Tornado(t) => draw_tornado(t, self.time),
                 // (Drawn over the fighters, below.)
                 Effect::Arrow(_) => {}
+                Effect::Book(b) => draw_book(b, self.time),
             }
         }
         // Travis's quake rings, on the ground under everyone.
@@ -1388,6 +1397,10 @@ impl Art {
             } else {
                 draw_human(&self.vis[i], f, &look(f.character, i), flash);
             }
+        }
+        // Vid reading: his shield, over him.
+        for f in m.f.iter().filter(|f| f.present() && f.reading > 0) {
+            draw_book_shield(f, self.time);
         }
         for e in &m.effects {
             if let Effect::Arrow(a) = e {
@@ -1741,8 +1754,11 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
     }
     let speed = f.vel.x.abs();
     let lean = (f.vel.x * 0.02).clamp(-1.5, 1.5);
-    let hip = vec2(x, fy - 6.0);
-    let neck = vec2(x + lean, fy - 11.0);
+    // Vid reading sits on the ground: everything above the legs sits lower.
+    let reading = f.reading > 0;
+    let sit = if reading { 3.0 } else { 0.0 };
+    let hip = vec2(x, fy - 6.0 + sit);
+    let neck = vec2(x + lean, fy - 11.0 + sit);
     let shoulder = neck + vec2(0.0, 1.0);
     let head = neck + vec2(s * 0.5, -2.5);
     // Travis bulked up: thick arms and legs, a broad chest, and a weighted vest.
@@ -1771,7 +1787,10 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
     }
     // Legs.
     for k in 0..2 {
-        let foot = if skating {
+        let foot = if reading {
+            // Sitting cross-legged: feet out in front, on the ground.
+            vec2(x + s * (2.0 + 2.0 * k as f32), fy - 1.0)
+        } else if skating {
             vec2(x + (k as f32 - 0.5) * 4.0 * s, fy - 1.5)
         } else if f.grounded {
             let ph = v.walk_phase + k as f32 * std::f32::consts::PI;
@@ -1805,11 +1824,19 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
         draw_rectangle((hip.x - 2.0).round(), (hip.y - 1.0).round(), 5.0, 1.0, tint(BELT, flash));
         draw_rectangle((hip.x + s * 2.0).round(), hip.y.round(), 1.0, 2.0, tint(BELT, flash));
     }
-    let hand = match f.holding {
-        Some(ItemKind::Spear) => draw_spear(f, neck, flash),
-        Some(ItemKind::Sword) => draw_sword(f, neck, flash),
-        _ => free_hand(f, v, neck),
+    let hand = if reading {
+        // Holding his book open in front of him.
+        neck + vec2(s * 3.5, 3.5)
+    } else {
+        match f.holding {
+            Some(ItemKind::Spear) => draw_spear(f, neck, flash),
+            Some(ItemKind::Sword) => draw_sword(f, neck, flash),
+            _ => free_hand(f, v, neck),
+        }
     };
+    if reading {
+        draw_open_book(hand, s, flash);
+    }
     let elbow = ik(shoulder, hand, 3.0, 3.5, s);
     line(shoulder, elbow, limb, tint(look.arms, flash));
     line(elbow, hand, limb, tint(look.arms, flash));
@@ -1901,7 +1928,14 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
     }
     // The eye (hidden under an emo fringe).
     if !(look.hair.is_some() && look.hair_style == HairStyle::Emo) {
-        draw_rectangle((head.x + s * 1.5).round(), head.y.round() - 1.0, 1.0, 1.0, Color::new(0.05, 0.05, 0.06, 1.0));
+        let (ex, ey) = ((head.x + s * 1.5).round(), head.y.round() - 1.0);
+        if reading {
+            // Reading, his eyes glow (like the Avatar State).
+            draw_circle(ex + 0.5, ey + 0.5, 2.5, Color::new(EYE_GLOW.r, EYE_GLOW.g, EYE_GLOW.b, 0.35));
+            draw_rectangle(ex, ey, 1.0, 1.0, Color::new(1.0, 1.0, 1.0, 1.0));
+        } else {
+            draw_rectangle(ex, ey, 1.0, 1.0, Color::new(0.05, 0.05, 0.06, 1.0));
+        }
     }
     if look.glasses {
         // A dark frame across the eye and a pale glint of lens in front of it.
@@ -1945,6 +1979,43 @@ fn draw_cat(c: &Pet, coat: u8) {
     draw_rectangle(hx + 1.0, y - 5.0, 1.0, 1.0, dark);
     let tx = if s > 0.0 { x - 3.0 } else { x + 2.0 };
     draw_rectangle(tx, y - 5.0 - stride, 1.0, 3.0, dark);
+}
+
+/// Vid's book, open in his hands: two pale pages in a dark cover, glowing faintly.
+fn draw_open_book(at: Vec2, s: f32, flash: bool) {
+    let (x, y) = (at.x.round(), at.y.round());
+    draw_circle(x, y - 1.0, 4.0, Color::new(EYE_GLOW.r, EYE_GLOW.g, EYE_GLOW.b, 0.12));
+    let left = if s > 0.0 { x - 1.0 } else { x - 3.0 };
+    draw_rectangle(left, y - 2.0, 4.0, 3.0, tint(BOOK_COVERS[0], flash));
+    draw_rectangle(left, y - 2.0, 4.0, 2.0, tint(PAGE, flash));
+    draw_rectangle(left + 2.0, y - 2.0, 1.0, 2.0, tint(Color::new(0.75, 0.72, 0.62, 1.0), flash));
+}
+
+/// One of Vid's books, flapping its covers like wings as it flies.
+fn draw_book(b: &Book, time: f32) {
+    let (x, y) = (b.pos.x.round(), b.pos.y.round());
+    let cover = BOOK_COVERS[b.k as usize % BOOK_COVERS.len()];
+    let open = (time * 14.0 + b.k as f32 * 2.0).sin() > 0.0;
+    draw_circle(x, y, 3.0, Color::new(EYE_GLOW.r, EYE_GLOW.g, EYE_GLOW.b, 0.15));
+    if open {
+        // Spread out: both covers, pages between.
+        draw_rectangle(x - 2.0, y - 1.0, 5.0, 2.0, cover);
+        draw_rectangle(x - 1.0, y - 1.0, 3.0, 1.0, PAGE);
+    } else {
+        // Snapped shut: a little block, the page edge showing.
+        draw_rectangle(x - 1.0, y - 2.0, 3.0, 3.0, cover);
+        draw_rectangle(x + 1.0, y - 1.0, 1.0, 2.0, PAGE);
+    }
+}
+
+/// Vid reading: a shimmering bubble of a shield round him.
+fn draw_book_shield(f: &Fighter, time: f32) {
+    let c = f.center() + vec2(0.0, 2.0);
+    let pulse = 0.5 + 0.5 * (time * 5.0).sin();
+    let fade = (f.reading as f32 / 20.0).min(1.0);
+    let r = 11.0 + pulse;
+    draw_circle(c.x, c.y, r, Color::new(EYE_GLOW.r, EYE_GLOW.g, EYE_GLOW.b, (0.08 + 0.05 * pulse) * fade));
+    ellipse_outline(c.x, c.y, r, r, 1.0, Color::new(EYE_GLOW.r, EYE_GLOW.g, EYE_GLOW.b, (0.5 + 0.3 * pulse) * fade));
 }
 
 /// Kaleb's arrow: a slim golden shaft with a bright tip and a red fin, pointing the way it flies,

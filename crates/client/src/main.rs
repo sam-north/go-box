@@ -37,6 +37,14 @@ use screens::lobby::lobby_screen;
 use screens::settings::{settings_button, settings_screen};
 use testclient::{Automation, Options, autopilot};
 
+/// Where the opponent nearest `from` is (their middle), as of the newest snapshot: what a
+/// trackpad player's throws and swings aim at.
+fn nearest_foe(g: &game::Game, seat: usize, from: Vec2) -> Option<Vec2> {
+    let v = g.latest()?;
+    let team = v.f[seat].team(seat);
+    v.f.iter().enumerate().filter(|(j, f)| *j != seat && f.present() && f.team(*j) != team).map(|(_, f)| f.center()).min_by(|a, b| a.distance(from).total_cmp(&b.distance(from)))
+}
+
 fn conf() -> Conf {
     Conf { window_title: "Go Box".into(), window_width: 1280, window_height: 720, high_dpi: true, ..Default::default() }
 }
@@ -158,7 +166,9 @@ async fn main() {
                     // then, so predicting movement would only snap back).
                     Action::default()
                 } else {
-                    app.controls.take(&app.settings.bindings, &me, mouse_arena, mouse_free, app.settings.melee_aim)
+                    // On a trackpad, throws and swings aim at the nearest opponent.
+                    let auto_aim = app.settings.trackpad.then(|| app.game.as_ref().and_then(|g| nearest_foe(g, seat, me.hand()))).flatten();
+                    app.controls.take(&app.settings.bindings, &me, mouse_arena, mouse_free, app.settings.melee_aim, auto_aim)
                 };
                 let seq = app.seq;
                 app.send(ClientMsg::Input { seq, action });
@@ -206,7 +216,11 @@ async fn main() {
         clear_background(BLACK);
         art.draw(m);
         if let (true, Some(seat)) = (playing, seat) {
-            draw_aim(m, seat, app.controls.target(&m.f[seat], mouse_arena));
+            // (On a trackpad, the aim shown is the nearest opponent, which is where throws go.)
+            let hand = m.f[seat].hand();
+            let auto = app.settings.trackpad.then(|| app.game.as_ref().and_then(|g| nearest_foe(g, seat, hand))).flatten();
+            let aim = auto.map(|at| (at - hand).normalize_or_zero()).or_else(|| app.controls.target(&m.f[seat], mouse_arena));
+            draw_aim(m, seat, aim);
         }
         if let Some(seat) = seat {
             draw_you(m, seat);

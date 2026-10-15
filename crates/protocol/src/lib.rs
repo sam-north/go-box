@@ -28,7 +28,7 @@ use go_box_sim::sim::{Action, ArenaId, Event, MatchConfig, MatchView, N_FIGHTERS
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 27;
+pub const PROTOCOL_VERSION: u16 = 28;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -245,7 +245,7 @@ mod tests {
 
     /// Matches of bots playing every character, with a snapshot taken the first time each
     /// special's leftovers are about (stuck glue, dogs, minis, cats, a table and its sushi,
-    /// a chain, Jake in his phone, lightning, a pin, someone thrown, a quake, bugs, a tornado, an arrow in flight), so their layouts are
+    /// a chain, Jake in his phone, lightning, a pin, someone thrown, a quake, bugs, a tornado, an arrow in flight, Vid reading), so their layouts are
     /// on the wire too.
     fn sample_snapshots() -> Vec<Snapshot> {
         use go_box_sim::brain::Brain;
@@ -253,7 +253,7 @@ mod tests {
         use go_box_sim::sim::ItemKind;
         let brain = Brain::from_json(include_str!("../../../brains/gen_219000.json")).unwrap();
         type Seen = fn(&Match) -> bool;
-        let wanted: [(&str, Seen); 16] = [
+        let wanted: [(&str, Seen); 17] = [
             ("glue", |m| m.effects.iter().any(|e| matches!(e, Effect::Glue(g) if g.stuck))),
             ("dogs", |m| m.effects.iter().any(|e| matches!(e, Effect::Pet(p) if p.breed == Breed::Hound))),
             ("minis", |m| m.f[N_FIGHTERS..].iter().any(|f| !f.absent)),
@@ -270,6 +270,7 @@ mod tests {
             ("bugs", |m| m.effects.iter().any(|e| matches!(e, Effect::Pet(p) if matches!(p.breed, Breed::Fly(_))))),
             ("tornado", |m| m.effects.iter().any(|e| matches!(e, Effect::Tornado(_)))),
             ("arrow", |m| m.effects.iter().any(|e| matches!(e, Effect::Arrow(a) if a.state != go_box_sim::character::ArrowState::Hover))),
+            ("books", |m| m.effects.iter().any(|e| matches!(e, Effect::Book(_))) && m.f.iter().any(|f| f.reading > 0)),
         ];
         let mut found: Vec<Option<Snapshot>> = vec![None; wanted.len()];
         let casts = [
@@ -390,7 +391,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (27, 0x0c78_00a9_8427_476a);
+    const WIRE: (u16, u64) = (28, 0xb3a1_bdff_72db_784a);
 
     #[test]
     fn every_sample_round_trips() {

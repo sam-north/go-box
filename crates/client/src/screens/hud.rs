@@ -78,7 +78,7 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
             let ready = 1.0 - f.special_cd as f32 / sp.cooldown() as f32;
             special_pie(vec2(x + bw + ui.px(11.0), by + ui.px(2.0)), ui.px(7.0), ready, render::character_color(f.character));
         }
-        // Yours: the special's recharge bar and what it says, just under your health. (Vid inside
+        // Yours: the special's recharge bar and what it says, just under your health. (The Chosen One inside
         // someone: theirs, which is the one his key fires.)
         let own = f.host.filter(|_| f.digital > 0).map_or(f, |j| &m.f[j as usize]);
         if you && f.alive()

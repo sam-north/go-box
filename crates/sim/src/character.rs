@@ -102,7 +102,7 @@ const BUG_BITE_EVERY: u32 = SECOND / 2;
 pub const LAPTOP_TICKS: u32 = SECOND;
 
 // Matt — Skate Strike: he drops a skateboard and shoots off along it, fast and far, the way he
-// faces, hitting everyone he goes through. He can do it pinned by Kyle or ridden by Vid, and it
+// faces, hitting everyone he goes through. He can do it pinned by Kyle or ridden by the Chosen One, and it
 // frees him (only him: whoever he hits stays however they were).
 const SKATE_COOLDOWN: u32 = 8 * SECOND;
 pub const SKATE_SPEED: f32 = 520.0;
@@ -187,10 +187,24 @@ const CHAIN_TICKS: u32 = 90;
 const PHONE_COOLDOWN: u32 = 20 * SECOND;
 pub const PHONE_TICKS: u32 = 5 * SECOND;
 
-// Vid — The Chosen One: he goes inside the opponent nearest the cursor and drives their body
+// Classic — The Chosen One: he goes inside the opponent nearest the cursor and drives their body
 // for a few seconds (they're drawn as falling code), then steps back out.
 const CHOSEN_COOLDOWN: u32 = 20 * SECOND;
 pub const RIDE_TICKS: u32 = 3 * SECOND;
+
+// Vid — Story Time: he sits down with a book from his dimensional bag of books and reads, eyes
+// glowing. For a few seconds a shield stops every attack on him (he can't move or fight while
+// he reads), and a few books fly out of the bag to circle him and dart at anyone close by.
+const READ_COOLDOWN: u32 = 20 * SECOND;
+pub const READ_TICKS: u32 = 4 * SECOND;
+const BOOKS: usize = 3;
+/// How far from him the books circle, how far off they go after someone, and how fast they fly.
+pub const BOOK_ORBIT: f32 = 14.0;
+const BOOK_RANGE: f32 = 90.0;
+const BOOK_SPEED: f32 = 260.0;
+const BOOK_DAMAGE: f32 = 6.0;
+/// After a hit, a book goes back round him for this long before it goes after anyone again.
+const BOOK_REST: u32 = SECOND * 3 / 5;
 
 // Robert — Forked Lightning: a bolt forks out to every foe in the arena at once (no need to see
 // them), hurting most up close and least far away.
@@ -289,7 +303,7 @@ pub struct CharacterDef {
 impl Character {
     pub fn def(self) -> &'static CharacterDef {
         match self {
-            Character::Classic => &CharacterDef { id: "classic", special: None },
+            Character::Classic => &CharacterDef { id: "classic", special: Some(&ChosenOne) },
             Character::Sam => &CharacterDef { id: "sam", special: Some(&GlueGun) },
             Character::Austin => &CharacterDef { id: "austin", special: Some(&PopUp) },
             Character::Tyler => &CharacterDef { id: "tyler", special: Some(&Hounds) },
@@ -300,7 +314,7 @@ impl Character {
             Character::Jake => &CharacterDef { id: "jake", special: Some(&IntoThePhone) },
             Character::Robert => &CharacterDef { id: "robert", special: Some(&ForkedLightning) },
             Character::Kyle => &CharacterDef { id: "kyle", special: Some(&Organize) },
-            Character::Vid => &CharacterDef { id: "vid", special: Some(&ChosenOne) },
+            Character::Vid => &CharacterDef { id: "vid", special: Some(&StoryTime) },
             Character::Doug => &CharacterDef { id: "doug", special: Some(&JudoThrow) },
             Character::Travis => &CharacterDef { id: "travis", special: Some(&LegDay) },
             Character::Carrie => &CharacterDef { id: "carrie", special: Some(&BugReport) },
@@ -328,7 +342,7 @@ pub trait Special: Sync {
     fn activate(&self, m: &mut Match, who: usize);
     /// When a bot fires it: brains were never trained with specials, so a simple rule decides.
     fn bot_wants(&self, m: &Match, who: usize) -> bool;
-    /// It can be used while pinned by Kyle, ridden by Vid or carried up a tornado, and frees you
+    /// It can be used while pinned by Kyle, ridden by the Chosen One or carried up a tornado, and frees you
     /// (Matt's).
     fn breaks_free(&self) -> bool {
         false
@@ -726,6 +740,60 @@ impl Special for Organize {
     }
 }
 
+struct StoryTime;
+
+impl Special for StoryTime {
+    fn id(&self) -> &'static str {
+        "story_time"
+    }
+    fn cooldown(&self) -> u32 {
+        READ_COOLDOWN
+    }
+    fn activate(&self, m: &mut Match, who: usize) {
+        // He puts down whatever he was holding to read.
+        if let Some(k) = m.held_item(who) {
+            m.items[k].held_by = None;
+            m.items[k].vel = Vec2::ZERO;
+        }
+        let f = &mut m.f[who];
+        f.holding = None;
+        f.atk_timer = 0;
+        f.dash_t = 0;
+        f.reading = READ_TICKS;
+        let at = f.center();
+        m.events.push(Event::Poof { pos: at });
+        for k in 0..BOOKS {
+            m.add_effect(Effect::Book(Book { pos: at, owner: who, k: k as u8, chasing: None, rest: 0, ticks: READ_TICKS }));
+        }
+    }
+    /// Someone close, or something about to hit him.
+    fn bot_wants(&self, m: &Match, who: usize) -> bool {
+        let me = m.f[who].center();
+        in_danger(m, who) || foes(m, who).any(|f| f.center().distance(me) < 60.0)
+    }
+}
+
+/// Where Vid's book `k` circles him at `tick`.
+pub fn book_orbit(vid: &Fighter, k: u8, tick: u32) -> Vec2 {
+    let a = tick as f32 * 0.08 + k as f32 * std::f32::consts::TAU / BOOKS as f32;
+    vid.center() + vec2(libm::cosf(a), libm::sinf(a) * 0.6) * BOOK_ORBIT
+}
+
+/// One of Vid's books: circling him while he reads, darting at anyone close by.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Book {
+    pub pos: Vec2,
+    pub owner: usize,
+    /// Which of his books (where it circles, and its cover).
+    pub k: u8,
+    /// Who it's flying at.
+    pub chasing: Option<u8>,
+    /// Ticks before it goes after anyone again.
+    #[serde(skip)]
+    pub rest: u32,
+    pub ticks: u32,
+}
+
 struct ChosenOne;
 
 impl Special for ChosenOne {
@@ -949,7 +1017,7 @@ impl Special for SkateStrike {
         SKATE_COOLDOWN
     }
     fn activate(&self, m: &mut Match, who: usize) {
-        // Free of Kyle's pin, and of Vid (who steps out next tick).
+        // Free of Kyle's pin, and of the Chosen One (who steps out next tick).
         m.f[who].pinned = 0;
         if m.f[who].ridden > 0 {
             for i in 0..N_FIGHTERS {
@@ -1368,7 +1436,7 @@ impl Match {
 
     /// Jake inside his phone goes wherever it goes; when his time's up he comes back out standing
     /// on it (and the phone stays, an ordinary item now).
-    /// Vid inside someone: he goes where their body goes, and when his time's up (or they go
+    /// The Chosen One inside someone: he goes where their body goes, and when his time's up (or they go
     /// down) he steps out beside them.
     fn step_riding(&mut self, i: usize) {
         let j = self.f[i].host.unwrap_or(0) as usize;
@@ -1457,6 +1525,7 @@ impl Match {
                 Effect::Lunge(l) => self.step_lunge(l),
                 Effect::Tornado(t) => self.step_tornado(t),
                 Effect::Arrow(a) => self.step_arrow(a),
+                Effect::Book(b) => self.step_book(b),
             }
             self.effects[e] = effect;
         }
@@ -1711,6 +1780,39 @@ impl Match {
             a.hit_cd[j] = ARROW_HIT_EVERY;
             let dir = if a.dir.x < 0.0 { -1.0 } else { 1.0 };
             self.damage(who, j, ARROW_DAMAGE, vec2(a.dir.x * 140.0, -90.0), 8, dir, Source::Special, false);
+        }
+    }
+
+    /// One of Vid's books: circles him while he reads; when it's rested and
+    /// someone's close, it flies at them, hits them once, and comes back round. They're all put
+    /// away when he stops reading (or goes down).
+    fn step_book(&mut self, b: &mut Book) {
+        b.ticks = b.ticks.saturating_sub(1);
+        b.rest = b.rest.saturating_sub(1);
+        let who = b.owner;
+        if !self.f[who].present() || self.f[who].reading == 0 {
+            b.ticks = 0;
+            return;
+        }
+        let home = book_orbit(&self.f[who], b.k, self.tick);
+        let me = self.f[who].center();
+        // Still after someone in reach? Else, rested, the nearest in reach.
+        let target = b.chasing.map(|j| j as usize).filter(|&j| self.foes(who, j) && self.f[j].center().distance(me) < BOOK_RANGE * 1.3);
+        let target = target.or_else(|| {
+            (b.rest == 0).then(|| (0..N_BODIES).filter(|&j| self.foes(who, j) && self.f[j].center().distance(me) < BOOK_RANGE).min_by(|&x, &y| self.f[x].center().distance(me).total_cmp(&self.f[y].center().distance(me)))).flatten()
+        });
+        b.chasing = target.map(|j| j as u8);
+        let goal = target.map_or(home, |j| self.f[j].center());
+        let to = goal - b.pos;
+        let step = BOOK_SPEED * DT;
+        b.pos = if to.length() <= step || target.is_none() && to.length() < 3.0 { goal } else { b.pos + to / to.length() * step };
+        if let Some(j) = target
+            && Aabb::around(b.pos, 2.0).overlaps(&self.f[j].body())
+        {
+            let dir = if self.f[j].pos.x < me.x { -1.0 } else { 1.0 };
+            self.damage(who, j, BOOK_DAMAGE, vec2(dir * 110.0, -90.0), 8, dir, Source::Special, false);
+            b.chasing = None;
+            b.rest = BOOK_REST;
         }
     }
 
@@ -2076,6 +2178,8 @@ pub enum Effect {
     Tornado(Tornado),
     /// Kaleb's arrow.
     Arrow(Arrow),
+    /// One of Vid's books.
+    Book(Book),
 }
 
 impl Effect {
@@ -2094,6 +2198,7 @@ impl Effect {
             Effect::Lunge(l) => l.owner,
             Effect::Tornado(t) => t.owner,
             Effect::Arrow(a) => a.owner,
+            Effect::Book(b) => b.owner,
         }
     }
 
@@ -2112,6 +2217,7 @@ impl Effect {
             Effect::Lunge(_) => None,
             Effect::Tornado(t) => Some(t.core()),
             Effect::Arrow(a) => (a.state != ArrowState::Hover).then_some(a.pos),
+            Effect::Book(b) => b.chasing.map(|_| b.pos),
         }
     }
 
@@ -2130,6 +2236,7 @@ impl Effect {
             Effect::Lunge(l) => l.at,
             Effect::Tornado(t) => t.at,
             Effect::Arrow(a) => a.pos,
+            Effect::Book(b) => b.pos,
         }
     }
 
@@ -2148,6 +2255,7 @@ impl Effect {
             Effect::Lunge(l) => &mut l.at,
             Effect::Tornado(t) => &mut t.at,
             Effect::Arrow(a) => &mut a.pos,
+            Effect::Book(b) => &mut b.pos,
         }
     }
 
@@ -2165,6 +2273,7 @@ impl Effect {
             Effect::Lunge(l) => l.ticks == 0,
             Effect::Tornado(t) => t.ticks == 0,
             Effect::Arrow(a) => a.ticks == 0,
+            Effect::Book(b) => b.ticks == 0,
         }
     }
 
@@ -2173,7 +2282,7 @@ impl Effect {
     pub fn on_wire(&self) -> bool {
         match self {
             Effect::Glue(_) | Effect::Pet(_) | Effect::Table(_) | Effect::Chain(_) | Effect::Rocket(_) | Effect::Fire(_) => true,
-            Effect::Plane(_) | Effect::AirBomb(_) | Effect::Judo(_) | Effect::Tornado(_) | Effect::Arrow(_) => true,
+            Effect::Plane(_) | Effect::AirBomb(_) | Effect::Judo(_) | Effect::Tornado(_) | Effect::Arrow(_) | Effect::Book(_) => true,
             Effect::Lunge(_) => false,
         }
     }
@@ -2280,6 +2389,10 @@ mod tests {
         for i in 0..N_FIGHTERS {
             m.f[i].character = cast[i];
             m.f[i].pos = vec2(xs[i], crate::sim::FLOOR_Y);
+            // (Classic bots keep their special to themselves: these tests want them standing still.)
+            if cast[i] == Character::Classic {
+                m.f[i].special_cd = u32::MAX / 2;
+            }
         }
         m
     }
@@ -2837,15 +2950,16 @@ mod tests {
     }
 
     #[test]
-    fn vid_rides_the_opponent_nearest_the_cursor_then_steps_out() {
+    fn the_chosen_one_rides_the_opponent_nearest_the_cursor_then_steps_out() {
         let z = zero_brain();
-        let mut m = staged([Character::Vid, Character::Classic, Character::Classic, Character::Classic], [100.0, 200.0, 300.0, 400.0]);
+        let mut m = staged([Character::Classic, Character::Classic, Character::Classic, Character::Classic], [100.0, 200.0, 300.0, 400.0]);
+        m.f[0].special_cd = 0;
         // The cursor is nearest the fighter at 300.
         let a = Action { special: true, cursor: Some(vec2(290.0, 240.0)), ..Action::default() };
         m.step_with([&z; N_FIGHTERS], Some((0, a)));
         assert_eq!(m.f[0].host, Some(2));
         assert!(m.f[2].ridden > 0 && !m.f[0].present());
-        // Inside, Vid can't be hurt; his input drives their body.
+        // Inside, the Chosen One can't be hurt; his input drives their body.
         m.damage(1, 0, 50.0, Vec2::ZERO, 0, 1.0, Source::Fist, false);
         assert_eq!(m.f[0].hp, MAX_HP);
         let x2 = m.f[2].pos.x;
@@ -2853,7 +2967,7 @@ mod tests {
         for _ in 0..SECOND {
             m.step_with([&z; N_FIGHTERS], Some((0, left)));
         }
-        assert!(m.f[2].pos.x < x2 - 40.0, "Vid ran their body left: {}", m.f[2].pos.x);
+        assert!(m.f[2].pos.x < x2 - 40.0, "he ran their body left: {}", m.f[2].pos.x);
         assert!((m.f[0].pos.x - m.f[2].pos.x).abs() < 0.5, "he goes where it goes");
         for _ in 0..RIDE_TICKS {
             step_idle(&mut m, &z, false);
@@ -3067,7 +3181,7 @@ mod tests {
     }
 
     #[test]
-    fn matts_skate_frees_him_of_kyles_pin_and_vid_but_nobody_else() {
+    fn matts_skate_frees_him_of_kyles_pin_and_the_chosen_one_but_nobody_else() {
         let z = zero_brain();
         // Pinned by Kyle (with a pinned Classic in his path).
         let mut m = staged([Character::Matt, Character::Kyle, Character::Classic, Character::Classic], [100.0, 400.0, 160.0, 440.0]);
@@ -3083,8 +3197,9 @@ mod tests {
         }
         assert!(m.f[0].pos.x > 200.0, "skated off out of the pin: {}", m.f[0].pos.x);
         assert!(m.f[2].pinned > 0 && m.f[2].hp < MAX_HP, "the one he went through is still pinned");
-        // Ridden by Vid: he takes his body back, and Vid's put out.
-        let mut m = staged([Character::Matt, Character::Vid, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
+        // Ridden by the Chosen One: he takes his body back, and the rider's put out.
+        let mut m = staged([Character::Matt, Character::Classic, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
+        m.f[1].special_cd = 0;
         let mut h = [None; N_FIGHTERS];
         h[1] = Some(Action { special: true, cursor: Some(vec2(100.0, 240.0)), ..Action::default() });
         m.step_humans([&z; N_FIGHTERS], h);
@@ -3094,21 +3209,22 @@ mod tests {
         h[1] = Some(Action::default());
         m.step_humans([&z; N_FIGHTERS], h);
         step_idle(&mut m, &z, false);
-        assert!(m.f[0].ridden == 0 && m.f[1].host.is_none() && m.f[1].present(), "Vid's out");
+        assert!(m.f[0].ridden == 0 && m.f[1].host.is_none() && m.f[1].present(), "the rider's out");
         assert!(m.f[0].skate > 0 || m.f[0].pos.x > 110.0, "and Matt's off");
     }
 
     #[test]
-    fn vid_inside_someone_fires_their_special_if_its_ready() {
+    fn the_chosen_one_inside_someone_fires_their_special_if_its_ready() {
         let z = zero_brain();
-        let mut m = staged([Character::Vid, Character::Tyler, Character::Classic, Character::Classic], [100.0, 200.0, 380.0, 440.0]);
+        let mut m = staged([Character::Classic, Character::Tyler, Character::Classic, Character::Classic], [100.0, 200.0, 380.0, 440.0]);
+        m.f[0].special_cd = 0;
         let ride = Action { special: true, cursor: Some(vec2(200.0, 240.0)), ..Action::default() };
         let mut h = [None; N_FIGHTERS];
         h[0] = Some(ride);
         h[1] = Some(Action::default());
         m.step_humans([&z; N_FIGHTERS], h);
         assert_eq!(m.f[0].host, Some(1));
-        // Vid presses special again inside Tyler: Tyler's hounds come out, on Tyler's cooldown.
+        // The Chosen One presses special again inside Tyler: Tyler's hounds come out, on Tyler's cooldown.
         let mut h = [None; N_FIGHTERS];
         h[0] = Some(Action { special: true, ..Action::default() });
         h[1] = Some(Action::default());
@@ -3251,6 +3367,36 @@ mod tests {
         assert!(whirled, "the rocks were whipped up");
         assert!(m.f[1].hp < MAX_HP, "and someone took a hit");
         assert_eq!(m.f[0].hp, MAX_HP, "never Zack");
+    }
+
+    #[test]
+    fn vid_reads_shielded_while_his_books_go_after_people_close_by() {
+        let z = zero_brain();
+        let mut m = staged([Character::Vid, Character::Classic, Character::Classic, Character::Classic], [100.0, 140.0, 380.0, 440.0]);
+        step_idle(&mut m, &z, true);
+        assert!(m.f[0].reading > 0, "reading");
+        assert_eq!(m.effects.iter().filter(|e| matches!(e, Effect::Book(_))).count(), BOOKS);
+        // Shielded: hits stop at him.
+        m.damage(1, 0, 30.0, vec2(200.0, -100.0), 10, 1.0, Source::Fist, false);
+        assert_eq!(m.f[0].hp, MAX_HP, "the shield stopped it");
+        assert!(m.events.iter().any(|e| matches!(e, Event::Blocked { .. })));
+        // He can't go anywhere, whatever he presses.
+        let x = m.f[0].pos.x;
+        for _ in 0..2 * SECOND {
+            m.step_with([&z; N_FIGHTERS], Some((0, Action { mv: 1.0, run: true, jump: true, attack: true, ..Action::default() })));
+        }
+        assert!((m.f[0].pos.x - x).abs() < 1.0, "sat still reading");
+        // The books went after the one close by (not the ones far off).
+        assert!(m.f[1].hp < MAX_HP, "the close one got hit");
+        assert_eq!((m.f[2].hp, m.f[3].hp), (MAX_HP, MAX_HP));
+        // When he's done reading, the books are put away and he can be hurt again.
+        for _ in 0..READ_TICKS {
+            step_idle(&mut m, &z, false);
+        }
+        assert_eq!(m.f[0].reading, 0);
+        assert!(m.effects.iter().all(|e| !matches!(e, Effect::Book(_))));
+        m.damage(1, 0, 10.0, Vec2::ZERO, 0, 1.0, Source::Fist, false);
+        assert_eq!(m.f[0].hp, MAX_HP - 10.0);
     }
 
     fn arrow_of(m: &Match) -> Option<Arrow> {

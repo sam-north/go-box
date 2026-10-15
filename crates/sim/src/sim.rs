@@ -252,9 +252,9 @@ pub struct Fighter {
     /// Jake inside his phone: ticks until he comes back out (0 = he's here as normal). Meanwhile
     /// he can't act or be hurt, and his position follows the phone.
     pub digital: u32,
-    /// Vid inside someone: whose body he's riding (while `digital` counts down).
+    /// The Chosen One (Classic) inside someone: whose body he's riding (while `digital` counts down).
     pub host: Option<u8>,
-    /// Ridden by Vid: ticks left (his input drives this body, and it's drawn as falling code).
+    /// Ridden by the Chosen One: ticks left (his input drives this body, and it's drawn as falling code).
     pub ridden: u32,
     /// Pinned in place by Kyle: ticks left. Can't move or jump (can still swing and throw).
     pub pinned: u32,
@@ -270,6 +270,9 @@ pub struct Fighter {
     /// Just shaken by one of Travis's steps: ticks before another can hurt them.
     #[serde(skip)]
     pub shaken: u32,
+    /// Vid reading (ticks left): sitting with his book, shielded from every attack, unable to move
+    /// or act. (Sent to clients: they predict his movement with it, and draw him.)
+    pub reading: u32,
     /// Matt on his skateboard: ticks left of the run (flat out the way he faces; he can't turn).
     pub skate: u32,
     /// Who this skate run has already hit (a bit per body).
@@ -345,6 +348,7 @@ impl Fighter {
             bulked: 0,
             stride: 0.0,
             shaken: 0,
+            reading: 0,
             skate: 0,
             skate_hit: 0,
             wind: 0.0,
@@ -515,11 +519,13 @@ pub enum Event {
     BombDrop { pos: Vec2 },
     /// Jake going into his phone (`out`: false) or coming back out of it, at his middle.
     Hologram { pos: Vec2, out: bool },
-    /// Vid going into someone (`out`: false) or stepping back out of them, at his middle.
+    /// The Chosen One going into someone (`out`: false) or stepping back out of them, at his middle.
     Matrix { pos: Vec2, out: bool },
     /// Robert's lightning striking someone (`pos`) from his hand (`from`): the client draws the
     /// bolt from this (one per foe it strikes).
     Zap { from: Vec2, pos: Vec2 },
+    /// An attack stopped by Vid's shield while he reads.
+    Blocked { pos: Vec2 },
     /// Kyle organizing, from where he stands (`at`): the client draws the shockwave and his glow.
     Organize { who: usize, at: Vec2 },
     /// Carrie opening her laptop: the client draws it in her hands for a moment.
@@ -1004,7 +1010,7 @@ impl Match {
             self.f[i].action = actions[i];
         }
 
-        // 1b. Vid inside someone: his input drives their body (theirs is ignored). A bot Vid just
+        // 1b. The Chosen One inside someone: his input drives their body (theirs is ignored). A bot just
         // walks them off in a line, hopping, throwing away whatever they hold.
         for i in 0..N_FIGHTERS {
             let Some(j) = self.f[i].host.map(|j| j as usize).filter(|_| self.f[i].digital > 0) else { continue };
@@ -1108,7 +1114,7 @@ impl Match {
     /// A bot that's hung about in one small spot (jittering back and forth on a ledge, say) for
     /// STUCK_TICKS is walked out of it for a moment: toward the nearest foe (or, with them right
     /// below, the middle of the arena, dropping through the ledge), hopping now and then. Not
-    /// while something's holding it there (a pin, a phone, Vid, a stun).
+    /// while something's holding it there (a pin, a phone, the Chosen One, a stun).
     fn unstick(&mut self, i: usize, a: &mut Action) {
         let f = &self.f[i];
         let (pos, held) = (f.pos, f.pinned > 0 || f.ridden > 0 || f.digital > 0 || f.hitstun > 0);
@@ -1171,7 +1177,8 @@ impl Match {
         if f.hand_cd > 0 {
             f.hand_cd -= 1;
         }
-        if !f.present() || f.hitstun > 0 || f.hand_cd > 0 {
+        // (Not while reading: Vid's hands are full.)
+        if !f.present() || f.hitstun > 0 || f.hand_cd > 0 || f.reading > 0 {
             return;
         }
         if f.holding.is_none() {
@@ -1413,6 +1420,12 @@ impl Match {
         if self.protected() || self.f[victim].digital > 0 {
             return;
         }
+        // Vid reading: his shield stops it (no knockback either).
+        if self.f[victim].reading > 0 {
+            let pos = self.f[victim].center();
+            self.events.push(Event::Blocked { pos });
+            return;
+        }
         // What a mini does counts for whoever summoned it; hurting your own side counts for nobody.
         let credit = self.f[src].team(src);
         let scores = credit != self.f[victim].team(victim);
@@ -1559,13 +1572,13 @@ impl Match {
 /// immediately, and the server's snapshots correct it. Its jumps and swings go in `events`.
 /// `props` are the tables in the arena (`props(&view.effects)`).
 pub fn predict(arena: &Arena, props: &[Aabb], f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
-    // (Ridden by Vid, your body isn't yours to predict: the server's word goes.)
+    // (Ridden by the Chosen One, your body isn't yours to predict: the server's word goes.)
     if f.ridden == 0 {
         predict_body(arena, props, f, who, a, events);
     }
 }
 
-/// Like `predict`, for Vid driving someone else's body: his client predicts it from his input.
+/// Like `predict`, for the Chosen One driving someone else's body: his client predicts it from his input.
 pub fn predict_ridden(arena: &Arena, props: &[Aabb], f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
     predict_body(arena, props, f, who, a, events);
 }
@@ -1695,6 +1708,9 @@ fn control(f: &mut Fighter, who: usize, a: Action, wall: f32, events: &mut Vec<E
     f.dash_cd = f.dash_cd.saturating_sub(1);
     let pinned = f.pinned > 0;
     let carried = f.caught > 0;
+    // Vid reading sits still: nothing he presses does anything (gravity and braking still do).
+    let a = if f.reading > 0 { Action::default() } else { a };
+    f.reading = f.reading.saturating_sub(1);
     f.pinned = f.pinned.saturating_sub(1);
     let run = if f.haste > 0 { RUN * HASTE } else { RUN };
     f.haste = f.haste.saturating_sub(1);
@@ -1880,9 +1896,9 @@ mod tests {
         }
         assert_eq!(h, CLASSIC_HASH, "classic match fingerprint changed: {h:#018x}");
     }
-    // Last deliberately changed by the protected start shortening to 1.5s. It must
+    // Last deliberately changed by Classic getting a special (The Chosen One). It must
     // come out the same on 32-bit targets too: `cargo test -p go-box-sim --target i686-pc-windows-msvc`.
-    const CLASSIC_HASH: u64 = 0xbece_11b9_7afb_0a97;
+    const CLASSIC_HASH: u64 = 0x1f65_a5c0_ac2f_8ffc;
 
     /// Everyone on the floor, nothing lying around, nobody thinking (all-zero brains stand still).
     #[test]
@@ -1913,6 +1929,8 @@ mod tests {
         m.next_item = u32::MAX;
         for (i, x) in [60.0, 200.0, 300.0, 420.0].into_iter().enumerate() {
             m.f[i].pos = vec2(x, FLOOR_Y);
+            // (No specials from these standing-still Classics.)
+            m.f[i].special_cd = u32::MAX / 2;
         }
         (m, Brain { w: vec![0.0; Brain::N_WEIGHTS] })
     }
