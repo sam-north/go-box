@@ -1488,13 +1488,19 @@ pub struct Pet {
     /// Feet centre.
     pub pos: Vec2,
     pub dir: f32,
+    // (Clients only draw a pet, from the fields left on the wire; the server steps it. So what
+    // only stepping reads stays off the wire, like `bite_cd`.)
+    #[serde(skip)]
     pub speed: f32,
+    #[serde(skip)]
     pub vy: f32,
     /// A fly's sideways speed (the rest run at `speed` the way they face).
+    #[serde(skip)]
     pub vx: f32,
     pub owner: usize,
     pub ticks: u32,
     /// A bug: bites left before it's done (None: as many as it likes while it lasts).
+    #[serde(skip)]
     pub bites: Option<u8>,
     /// A cat that's found sushi and is sitting eating it (it's forgotten about fighting).
     pub eating: bool,
@@ -2494,7 +2500,8 @@ impl Effect {
     }
 
     /// Whether clients are sent it. Only what they draw, or predict with: something the server
-    /// needs but nobody sees (Doug's lunge) stays off the wire.
+    /// needs but nobody sees (Doug's lunge) stays off the wire. Likewise within one: a field
+    /// only its step reads is `#[serde(skip)]` (see `Pet`), since clients never step effects.
     pub fn on_wire(&self) -> bool {
         match self {
             Effect::Glue(_) | Effect::Pet(_) | Effect::Table(_) | Effect::Chain(_) | Effect::Rocket(_) | Effect::Fire(_) => true,
