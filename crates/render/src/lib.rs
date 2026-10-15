@@ -13,9 +13,11 @@ use macroquad::prelude::*;
 const CLOAK: Color = Color::new(0.27, 0.28, 0.33, 1.0);
 const HOOD: Color = Color::new(0.15, 0.16, 0.19, 1.0);
 const FACE: Color = Color::new(0.84, 0.78, 0.69, 1.0);
-const SHAFT: Color = Color::new(0.47, 0.39, 0.27, 1.0);
-const TIP: Color = Color::new(0.85, 0.85, 0.8, 1.0);
-const ROCK: Color = Color::new(0.50, 0.48, 0.44, 1.0);
+const SHAFT: Color = Color::new(0.62, 0.50, 0.32, 1.0);
+const TIP: Color = Color::new(0.95, 0.95, 0.9, 1.0);
+const ROCK: Color = Color::new(0.62, 0.60, 0.55, 1.0);
+/// The dark outline round a loose item.
+const ITEM_EDGE: Color = Color::new(0.05, 0.05, 0.06, 0.85);
 const GRENADE: Color = Color::new(0.30, 0.36, 0.22, 1.0);
 const HEAL: Color = Color::new(0.38, 0.86, 1.0, 1.0);
 const BLOOD: Color = Color::new(0.50, 0.06, 0.08, 1.0);
@@ -1853,15 +1855,19 @@ fn draw_item(it: &Item, time: f32) {
     let p = it.pos;
     let (x, y) = (p.x.round() - 1.0, p.y.round() - 1.0);
     match it.kind {
+        // Rocks, spears and swords get a dark outline, like the grenade, so they stand out on a
+        // busy backdrop.
         ItemKind::Rock => {
+            draw_rectangle(x - 1.0, y - 1.0, 5.0, 5.0, ITEM_EDGE);
             draw_rectangle(x, y, 3.0, 3.0, ROCK);
-            draw_rectangle(x, y, 1.0, 1.0, Color::new(0.68, 0.66, 0.62, 1.0));
+            draw_rectangle(x, y, 2.0, 1.0, Color::new(0.86, 0.84, 0.78, 1.0));
             draw_rectangle(x + 2.0, y + 2.0, 1.0, 1.0, Color::new(0.30, 0.29, 0.27, 1.0));
         }
         ItemKind::Spear => {
             // Lying flat on the ground, or pointing along its flight.
             let dir = if it.vel.length() > 20.0 { it.vel.normalize() } else { vec2(1.0, 0.0) };
             let base = p + vec2(0.0, ITEM_R - 0.5);
+            line(base - dir * 7.0, base + dir * 7.5, 3.0, ITEM_EDGE);
             line(base - dir * 6.0, base + dir * 4.0, 1.0, SHAFT);
             line(base + dir * 4.0, base + dir * 6.5, 1.0, TIP);
         }
@@ -1899,6 +1905,9 @@ fn draw_item(it: &Item, time: f32) {
             // Lying flat, or flying tip first.
             let dir = if it.vel.length() > 20.0 { it.vel.normalize() } else { vec2(1.0, 0.0) };
             let base = if it.vel.length() > 20.0 { p } else { p + vec2(0.0, ITEM_R - 0.5) };
+            let side = vec2(-dir.y, dir.x);
+            line(base - dir * 10.5, base + dir * 11.5, 4.5, ITEM_EDGE);
+            line(base - dir * 7.0 - side * 3.5, base - dir * 7.0 + side * 3.5, 3.0, ITEM_EDGE);
             draw_blade(base - dir * 7.0, dir, false);
         }
         // These three are rare and worth grabbing: bigger than the rest, outlined, with a soft glow
