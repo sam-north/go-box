@@ -981,7 +981,7 @@ fn draw_trash(img: &mut Image, a: &Arena) {
     for i in 0..=(x1 - x0 + 3) {
         let y = top - 1 - i * 9 / (x1 - x0 + 3);
         for t in 0..2 {
-            put(x0 - 1 + i, y - t, if t == 0 { (40.0, 62.0, 50.0) } else { (56.0, 84.0, 66.0) });
+            put(x0 - 1 + i, y - t, if t == 0 { (30.0, 40.0, 38.0) } else { (38.0, 50.0, 46.0) });
         }
     }
     for (bx, r) in [(cx - 6, 4), (cx + 3, 5)] {
@@ -997,13 +997,13 @@ fn draw_trash(img: &mut Image, a: &Arena) {
         // (A little narrower at the bottom.)
         let inset = (y - top) / 6;
         for x in x0 + inset..=x1 - inset {
-            let mut c = (46.0, 74.0, 58.0);
+            let mut c = (34.0, 46.0, 42.0);
             if y == top {
-                c = (72.0, 104.0, 82.0);
+                c = (48.0, 62.0, 56.0);
             } else if (x - x0) % 7 == 3 {
-                c = (34.0, 54.0, 42.0);
+                c = (27.0, 36.0, 34.0);
             } else if x == x0 + inset {
-                c = (60.0, 90.0, 72.0);
+                c = (42.0, 56.0, 50.0);
             }
             put(x, y, c);
         }
