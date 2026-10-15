@@ -383,7 +383,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
             };
             &ART
         }
-        // Dirty-blonde hair and stubble under a backwards ballcap, a tidy polo; mint.
+        // Dirty-blonde hair and stubble under a backwards ballcap, glasses, a tidy polo; mint.
         Character::Kyle => {
             const ART: CharacterArt = CharacterArt {
                 color: Some(Color::new(0.45, 0.95, 0.70, 1.0)),
@@ -395,7 +395,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 skin: SKIN,
                 hair_style: HairStyle::Short,
                 beard: false,
-                glasses: false,
+                glasses: true,
                 goatee: false,
                 stubble: Some(rgb(150, 116, 70)),
                 belt: false,
@@ -407,7 +407,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
             };
             &ART
         }
-        // Wild red hair swept back (thin on top), a long goatee, a long black coat; matrix green.
+        // Wild red hair swept back (thin on top), glasses, a long goatee, a long black coat; matrix
+        // green.
         // (Reading, he sits with his book, eyes glowing, in a shield.)
         Character::Vid => {
             const ART: CharacterArt = CharacterArt {
@@ -420,7 +421,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 skin: SKIN,
                 hair_style: HairStyle::Wild,
                 beard: false,
-                glasses: false,
+                glasses: true,
                 goatee: true,
                 stubble: None,
                 belt: false,
