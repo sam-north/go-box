@@ -4,7 +4,7 @@
 //!
 //! All tuning lives in the constants at the top of this file.
 
-use crate::sim::{Aabb, Arena, Event, Fighter, Match, Source, DT, N_BODIES, N_FIGHTERS, SOLIDS, W};
+use crate::sim::{Aabb, Arena, Event, Fighter, Match, Source, DT, N_BODIES, N_FIGHTERS, W};
 use glam::{vec2, Vec2};
 use serde::{Deserialize, Serialize};
 
@@ -491,8 +491,8 @@ pub struct Glue {
 
 /// The point on any terrain (or table) nearest to `p`: where glue anchors someone it hits.
 fn nearest_surface(arena: &Arena, props: &[Aabb], p: Vec2) -> Vec2 {
-    SOLIDS
-        .iter()
+    arena
+        .solids()
         .chain(arena.platforms)
         .chain(props)
         .map(|r| vec2(p.x.clamp(r.x, r.x + r.w), p.y.clamp(r.y, r.y + r.h)))
@@ -1680,7 +1680,7 @@ impl Match {
         let hunting = bug && BUG_TICKS - pet.ticks.min(BUG_TICKS) >= BUG_SCATTER;
         let prey = (0..N_BODIES).filter(|&j| hunting && self.foes(pet.owner, j)).map(|j| self.f[j].pos).min_by(|a, b| a.distance(pet.pos).total_cmp(&b.distance(pet.pos)));
         match pet.breed {
-            Breed::Fly(k) => fly_bug(pet, prey.map(|p| p - vec2(0.0, 7.0)), k, self.tick),
+            Breed::Fly(k) => fly_bug(pet, self.arena(), prey.map(|p| p - vec2(0.0, 7.0)), k, self.tick),
             Breed::Spider(_) => {
                 if hunting {
                     pet.speed = SPIDER_SPEED;
@@ -1785,7 +1785,7 @@ impl Match {
                     c.tip = self.f[j].center();
                     self.events.push(Event::Hook { pos: c.tip });
                     self.damage(owner, j, CHAIN_DAMAGE, Vec2::ZERO, 2, c.dir.x.signum(), Source::Special, false);
-                } else if c.out >= CHAIN_RANGE || SOLIDS.iter().any(|s| s.contains(c.tip)) {
+                } else if c.out >= CHAIN_RANGE || self.arena().solids().any(|s| s.contains(c.tip)) {
                     c.back = true;
                 }
             }
@@ -2199,7 +2199,7 @@ impl Match {
         let hit = Aabb::around(b.pos, 2.0);
         let on_someone = (0..N_BODIES).any(|j| self.f[j].present() && hit.overlaps(&self.f[j].body()));
         let props = props(&self.effects);
-        let solid = SOLIDS.iter().chain(props.iter()).any(|s| s.contains(b.pos));
+        let solid = self.arena().solids().chain(props.iter()).any(|s| s.contains(b.pos));
         let ledge = self.arena().platforms.iter().any(|p| b.pos.x > p.x && b.pos.x < p.x + p.w && prev.y <= p.y && b.pos.y >= p.y);
         if on_someone || solid || ledge || b.ticks == 0 {
             b.ticks = 0;
@@ -2230,7 +2230,7 @@ impl Match {
         r.pos += r.vel * DT;
         let hit = Aabb::around(r.pos, 2.0);
         let struck = (0..N_BODIES).any(|j| self.foes(r.owner, j) && hit.overlaps(&self.f[j].body()));
-        let walled = SOLIDS.iter().chain(props(&self.effects).iter()).any(|s| s.contains(r.pos));
+        let walled = self.arena().solids().chain(props(&self.effects).iter()).any(|s| s.contains(r.pos));
         if struck || walled || r.ticks == 0 {
             r.ticks = 0;
             self.explode(r.pos, Some(r.owner), crate::item::ROCKET_BLAST);
@@ -2278,7 +2278,7 @@ impl Match {
             self.damage(g.owner, j, GLUE_DAMAGE, Vec2::ZERO, 0, g.vel.x.signum(), Source::Special, false);
             return;
         }
-        let in_solid = SOLIDS.iter().chain(props.iter()).any(|s| s.contains(g.pos));
+        let in_solid = self.arena().solids().chain(props.iter()).any(|s| s.contains(g.pos));
         let on_ledge = g.vel.y > 0.0 && self.arena().platforms.iter().any(|p| g.pos.x > p.x && g.pos.x < p.x + p.w && prev.y <= p.y && g.pos.y >= p.y);
         if in_solid || on_ledge {
             g.pos = nearest_surface(self.arena(), &props, prev);
@@ -2466,7 +2466,7 @@ impl Effect {
 /// One tick of a fly: steering (not too sharply) at `prey`, buzzing about on the way, and
 /// bouncing off walls, floor and ceiling (it flies straight over ledges). With nobody to chase
 /// it drifts, slowing.
-fn fly_bug(fly: &mut Pet, prey: Option<Vec2>, k: u8, tick: u32) {
+fn fly_bug(fly: &mut Pet, arena: &Arena, prey: Option<Vec2>, k: u8, tick: u32) {
     let v = vec2(fly.vx, fly.vy);
     let v = match prey {
         Some(p) => {
@@ -2481,12 +2481,12 @@ fn fly_bug(fly: &mut Pet, prey: Option<Vec2>, k: u8, tick: u32) {
     (fly.vx, fly.vy) = (v.x, v.y);
     let was = fly.pos;
     fly.pos.x += fly.vx * DT;
-    if SOLIDS.iter().any(|s| fly.body().overlaps(s)) {
+    if arena.solids().any(|s| fly.body().overlaps(s)) {
         fly.pos.x = was.x;
         fly.vx = -fly.vx * 0.5;
     }
     fly.pos.y += fly.vy * DT;
-    if SOLIDS.iter().any(|s| fly.body().overlaps(s)) {
+    if arena.solids().any(|s| fly.body().overlaps(s)) {
         fly.pos.y = was.y;
         fly.vy = -fly.vy * 0.5;
     }
@@ -2529,14 +2529,14 @@ fn run_pet(dog: &mut Pet, arena: &Arena, props: &[Aabb], goal: Option<Vec2>, hop
         }
     };
     dog.pos.x += step;
-    if let Some(s) = SOLIDS.iter().find(|s| dog.body().overlaps(s)) {
+    if let Some(s) = arena.solids().find(|s| dog.body().overlaps(s)) {
         dog.pos.x = if dog.dir > 0.0 { s.x - half_w } else { s.x + s.w + half_w };
         dog.dir = -dog.dir;
     }
     let prev = dog.pos.y;
     dog.vy = (dog.vy + 640.0 * DT).min(320.0);
     dog.pos.y += dog.vy * DT;
-    if let Some(s) = SOLIDS.iter().find(|s| dog.body().overlaps(s)) {
+    if let Some(s) = arena.solids().find(|s| dog.body().overlaps(s)) {
         dog.pos.y = if dog.vy > 0.0 { s.y } else { s.y + s.h + h };
         dog.vy = 0.0;
     }

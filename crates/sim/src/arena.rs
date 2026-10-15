@@ -1,6 +1,7 @@
 //! The maps. Every arena is the same W x H box (the render target, the camera and the bots'
 //! senses all assume that size) with the same walls, ceiling and floor (`sim::SOLIDS`); what
-//! differs is the one-way platforms and where each seat starts.
+//! differs is the one-way platforms, any solid blocks of its own (`walls`: to stand on and
+//! wall-jump off), and where each seat starts.
 //!
 //! Adding a map: a variant in `ArenaId`, its row in `ArenaId::def`, and its name `arena.<id>`
 //! in the client's text files. Platforms should be 36-40px apart vertically (a full jump
@@ -15,6 +16,9 @@ pub struct Arena {
     pub id: &'static str,
     /// One-way platforms: you can jump up through them and land on top.
     pub platforms: &'static [Aabb],
+    /// Solid blocks besides the box's walls, floor and ceiling: nothing passes through them, you
+    /// can stand on top, and wall-jump off their sides.
+    pub walls: &'static [Aabb],
     /// Seat i starts somewhere in `spawn_x[i] .. spawn_x[i] + SPAWN_SPREAD` on the floor (seats
     /// left to right).
     pub spawn_x: [f32; N_FIGHTERS],
@@ -26,11 +30,19 @@ pub const SPAWN_SPREAD: f32 = 90.0;
 crate::enum_all! {
     #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
     pub enum ArenaId {
-        /// Four tiers of ledges, mirrored left/right, with a long bridge on top.
+        /// "Classic": four tiers of ledges, mirrored left/right, with a long bridge on top.
         #[default]
         Tiers,
-        /// Two long bridges over an open floor, with steps up at the sides.
+        /// "City": two long bridges over an open floor, with steps up at the sides, and two steel
+        /// pillars hanging from the high bridge to wall-jump up between.
         Bridges,
+    }
+}
+
+impl Arena {
+    /// Everything solid: the box (ceiling, floor, side walls) and this map's own walls.
+    pub fn solids(&self) -> impl Iterator<Item = &Aabb> + Clone {
+        crate::sim::SOLIDS.iter().chain(self.walls)
     }
 }
 
@@ -63,9 +75,11 @@ const TIERS: Arena = Arena {
         // The top bridge.
         Aabb::new(168.0, 106.0, 144.0, 5.0),
     ],
+    walls: &[],
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
 
+/// (Shown as "City": its id is older than its name.)
 const BRIDGES: Arena = Arena {
     id: "bridges",
     platforms: &[
@@ -74,13 +88,16 @@ const BRIDGES: Arena = Arena {
         Aabb::new(408.0, 216.0, 56.0, 5.0),
         Aabb::new(16.0, 180.0, 40.0, 5.0),
         Aabb::new(424.0, 180.0, 40.0, 5.0),
-        // The low bridge, broken in the middle.
-        Aabb::new(80.0, 180.0, 136.0, 5.0),
-        Aabb::new(264.0, 180.0, 136.0, 5.0),
+        // The low bridge, broken wide in the middle.
+        Aabb::new(80.0, 180.0, 112.0, 5.0),
+        Aabb::new(288.0, 180.0, 112.0, 5.0),
         // The high bridge, and a perch over the gap.
         Aabb::new(112.0, 144.0, 256.0, 5.0),
         Aabb::new(208.0, 108.0, 64.0, 5.0),
     ],
+    // Two pillars hanging from the high bridge, high enough off the floor to walk under: wall-jump
+    // up the shaft between them (or off their outsides) and through the bridge.
+    walls: &[Aabb::new(204.0, 149.0, 8.0, 73.0), Aabb::new(268.0, 149.0, 8.0, 73.0)],
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
 
@@ -97,7 +114,7 @@ mod tests {
                 assert!(p.x >= WALL + 3.0 && p.x + p.w <= W - WALL - 3.0, "{} platform {p:?} touches a wall", d.id);
                 assert!(p.y < FLOOR_Y && p.y > WALL + 20.0, "{} platform {p:?} is outside the box", d.id);
                 // Something to jump up from within reach: the floor or a lower platform.
-                let below = FLOOR_Y - p.y <= 48.0 || d.platforms.iter().any(|q| q.y > p.y && q.y - p.y <= 48.0 && q.x < p.x + p.w + 40.0 && q.x + q.w > p.x - 40.0);
+                let below = FLOOR_Y - p.y <= 48.0 || d.platforms.iter().chain(d.walls).any(|q| q.y > p.y && q.y - p.y <= 48.0 && q.x < p.x + p.w + 40.0 && q.x + q.w > p.x - 40.0);
                 assert!(below, "{} platform {p:?} can't be reached", d.id);
             }
             for x in d.spawn_x {

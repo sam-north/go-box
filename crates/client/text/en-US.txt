@@ -128,8 +128,8 @@ passive.resting_zen_face = Resting Zen Face
 passive.hobbyist = Hobbyist
 
 # Maps (by id)
-arena.tiers = Tiers
-arena.bridges = Bridges
+arena.tiers = Classic
+arena.bridges = City
 
 # Messages
 notice.connection_lost = Lost connection to the server.

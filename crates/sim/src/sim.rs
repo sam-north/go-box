@@ -578,7 +578,7 @@ pub fn terrain_ray(arena: &Arena, o: Vec2, d: Vec2, max: f32) -> f32 {
     let inv = |v: f32| if v.abs() < 1e-8 { 1e8_f32.copysign(v) } else { 1.0 / v };
     let (ix, iy) = (inv(d.x), inv(d.y));
     let mut best = max;
-    for r in SOLIDS.iter().chain(arena.platforms) {
+    for r in arena.solids().chain(arena.platforms) {
         let (tx1, tx2) = ((r.x - o.x) * ix, (r.x + r.w - o.x) * ix);
         let (ty1, ty2) = ((r.y - o.y) * iy, (r.y + r.h - o.y) * iy);
         let tmin = tx1.min(tx2).max(ty1.min(ty2)).max(0.0);
@@ -1079,7 +1079,7 @@ impl Match {
                 continue;
             }
             let was_grounded = self.f[i].grounded;
-            let wall = wall_side(&self.f[i], &props);
+            let wall = wall_side(&self.f[i], self.config.arena.def(), &props);
             let f = &mut self.f[i];
             control(f, i, actions[i], wall, &mut self.events);
             collide(f, self.config.arena.def(), &props);
@@ -1652,7 +1652,7 @@ fn predict_body(arena: &Arena, props: &[Aabb], f: &mut Fighter, who: usize, a: A
     if f.absent || f.digital > 0 {
         return;
     }
-    control(f, who, a, wall_side(f, props), events);
+    control(f, who, a, wall_side(f, arena, props), events);
     collide(f, arena, props);
     if f.atk_timer > 0 {
         f.atk_timer += 1;
@@ -1682,7 +1682,7 @@ fn step_item(it: &mut Item, arena: &Arena, props: &[Aabb]) -> (bool, bool) {
     let bounce = def.bounce;
 
     it.pos.x += it.vel.x * DT;
-    if let Some(s) = SOLIDS.iter().find(|s| rb(it.pos).overlaps(s)) {
+    if let Some(s) = arena.solids().find(|s| rb(it.pos).overlaps(s)) {
         it.pos.x = if it.vel.x > 0.0 { s.x - ITEM_R } else { s.x + s.w + ITEM_R };
         struck |= it.vel.x.abs() > 60.0;
         it.vel.x *= -bounce;
@@ -1691,7 +1691,7 @@ fn step_item(it: &mut Item, arena: &Arena, props: &[Aabb]) -> (bool, bool) {
     let prev_bottom = it.pos.y + ITEM_R;
     it.pos.y += it.vel.y * DT;
     let mut landed = None;
-    if let Some(s) = SOLIDS.iter().find(|s| rb(it.pos).overlaps(s)) {
+    if let Some(s) = arena.solids().find(|s| rb(it.pos).overlaps(s)) {
         if it.vel.y > 0.0 {
             landed = Some(s.y);
         } else {
@@ -1720,7 +1720,7 @@ fn step_item(it: &mut Item, arena: &Arena, props: &[Aabb]) -> (bool, bool) {
         it.lethal = false;
         it.whirled = false;
     }
-    let touched = landed.is_some() || struck || SOLIDS.iter().any(|s| Aabb::around(it.pos, ITEM_R + 0.5).overlaps(s));
+    let touched = landed.is_some() || struck || arena.solids().any(|s| Aabb::around(it.pos, ITEM_R + 0.5).overlaps(s));
     // Belt and braces: items can never leave the box.
     it.pos.x = it.pos.x.clamp(WALL + ITEM_R, W - WALL - ITEM_R);
     it.pos.y = it.pos.y.clamp(WALL + ITEM_R, FLOOR_Y - ITEM_R);
@@ -1747,14 +1747,14 @@ fn accel(v: f32, target: f32, grounded: bool) -> f32 {
 
 /// Which side a fighter in the air is pressed against a wall (or a table's side) on: -1 left, 1
 /// right, 0 neither. (One-way ledges aren't walls.)
-fn wall_side(f: &Fighter, props: &[Aabb]) -> f32 {
+fn wall_side(f: &Fighter, arena: &Arena, props: &[Aabb]) -> f32 {
     if f.grounded {
         return 0.0;
     }
     let b = f.body();
     let probe = |dx: f32| {
         let r = Aabb::new(b.x + dx, b.y + 1.0, b.w, b.h - 2.0);
-        SOLIDS.iter().chain(props).any(|s| r.overlaps(s))
+        arena.solids().chain(props).any(|s| r.overlaps(s))
     };
     if probe(-1.0) {
         -1.0
@@ -1890,7 +1890,7 @@ fn collide(f: &mut Fighter, arena: &Arena, props: &[Aabb]) {
     // (Plus any wind from Zack's tornadoes, which pushes you whatever you do.)
     let mx = f.vel.x + f.wind;
     f.pos.x += mx * DT;
-    for s in SOLIDS.iter() {
+    for s in arena.solids() {
         if f.body().overlaps(s) {
             if mx > 0.0 {
                 f.pos.x = s.x - f.half_w();
@@ -1913,7 +1913,7 @@ fn collide(f: &mut Fighter, arena: &Arena, props: &[Aabb]) {
     if f.vel.y != 0.0 {
         f.grounded = false;
     }
-    for s in SOLIDS.iter() {
+    for s in arena.solids() {
         if f.body().overlaps(s) {
             if f.vel.y > 0.0 {
                 f.pos.y = s.y;
@@ -2146,6 +2146,31 @@ mod tests {
             m.step_with([&z; N_FIGHTERS], Some((0, Action { jump: true, ..left })));
         }
         assert!(m.f[0].vel.y > 0.0, "holding jump doesn't climb");
+    }
+
+    #[test]
+    fn the_citys_pillars_are_walked_under_bumped_into_and_wall_jumped_off() {
+        let (mut m, z) = quiet_match();
+        m.config.arena = ArenaId::Bridges;
+        let pillar = ArenaId::Bridges.def().walls[0];
+        m.f[1].pos.x = 340.0;
+        // Walking along the floor, right under it.
+        m.f[0].pos = vec2(pillar.x - 20.0, FLOOR_Y);
+        let right = Action { mv: 1.0, ..Action::default() };
+        for _ in 0..60 {
+            m.step_with([&z; N_FIGHTERS], Some((0, right)));
+        }
+        assert!(m.f[0].pos.x > pillar.x + pillar.w + 10.0, "walked under it: {}", m.f[0].pos);
+        // Up beside it in the air, running into it: stopped at its side, and a wall jump kicks
+        // off it.
+        m.f[0].pos = vec2(pillar.x - HALF_W - 1.0, pillar.y + 40.0);
+        m.f[0].vel = Vec2::ZERO;
+        m.f[0].grounded = false;
+        m.step_with([&z; N_FIGHTERS], Some((0, right)));
+        m.step_with([&z; N_FIGHTERS], Some((0, right)));
+        assert!(m.f[0].pos.x + HALF_W <= pillar.x + 0.01, "stopped at its side: {}", m.f[0].pos);
+        m.step_with([&z; N_FIGHTERS], Some((0, Action { jump: true, ..right })));
+        assert!(m.f[0].vel.y < -150.0 && m.f[0].vel.x < -100.0, "kicked up and away: {}", m.f[0].vel);
     }
 
     #[test]

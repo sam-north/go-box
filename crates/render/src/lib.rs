@@ -731,11 +731,21 @@ fn is_metal(a: &Arena, x: i32, y: i32) -> bool {
     a.platforms.iter().any(|r| r.contains(p))
 }
 
-fn solid_px(a: &Arena, x: i32, y: i32) -> bool {
-    is_stone(x, y) || is_metal(a, x, y)
+/// One of the map's own solid blocks (the City's pillars).
+fn is_girder(a: &Arena, x: i32, y: i32) -> bool {
+    let p = vec2(x as f32 + 0.5, y as f32 + 0.5);
+    a.walls.iter().any(|r| r.contains(p))
 }
 
-fn make_background() -> Image {
+fn solid_px(a: &Arena, x: i32, y: i32) -> bool {
+    is_stone(x, y) || is_metal(a, x, y) || is_girder(a, x, y)
+}
+
+/// What's behind a map: dim industrial pipes, or (the City) a night skyline.
+fn make_background(arena: ArenaId) -> Image {
+    if arena == ArenaId::Bridges {
+        return make_skyline();
+    }
     let mut img = Image::gen_image_color(W as u16, H as u16, BLACK);
     // Laid out on a 320x180 grid, stretched to the arena.
     let (sx, sy) = (W / 320.0, H / 180.0);
@@ -783,6 +793,75 @@ fn make_background() -> Image {
             let shaft_d = ((fx - fy * 0.6) - 80.0 * sx).abs();
             let shaft = if shaft_d < 40.0 * sx { (1.0 - shaft_d / (40.0 * sx)) * 10.0 * (1.0 - t) } else { 0.0 };
             img.set_pixel(x, y, dither(x, y, r + grime + streak + shaft, g + grime + streak + shaft * 1.1, b + grime + streak + shaft * 1.2));
+        }
+    }
+    img
+}
+
+/// The City's backdrop: a night sky glowing warm toward the street, stars and a moon, and two
+/// rows of towers (the far one hazy) with lit windows.
+fn make_skyline() -> Image {
+    let mut img = Image::gen_image_color(W as u16, H as u16, BLACK);
+    let (moon, moon_r) = (vec2(64.0, 40.0), 13.0);
+    // A row of towers: (top of the tower over column x, where it starts, how wide).
+    let tower = |x: u32, width: u32, shift: u32, lo: f32, hi: f32, seed: u32| {
+        let k = ((x + shift) / width) as i32;
+        let top = lo + hash(k, 0, seed) * (hi - lo);
+        // Now and then an antenna, or a stepped crown.
+        let local = (x + shift) % width;
+        let antenna = hash(k, 1, seed) > 0.75 && local == width / 2;
+        let crown = hash(k, 2, seed) > 0.6 && (local < 3 || local >= width - 3);
+        let top = if antenna { top - 12.0 } else if crown { top + 4.0 } else { top };
+        // (A gap between neighbours.)
+        let gap = local == 0;
+        (top, local, k, gap)
+    };
+    for y in 0..H as u32 {
+        for x in 0..W as u32 {
+            let (fx, fy) = (x as f32, y as f32);
+            let t = fy / H;
+            // Sky: deep blue at the top, a warm city glow low down.
+            let glow = (t * t * t) * 46.0;
+            let (mut r, mut g, mut b) = (9.0 + 18.0 * t + glow, 11.0 + 12.0 * t + glow * 0.45, 26.0 + 16.0 * t + glow * 0.2);
+            if fy < 150.0 && hash(x as i32, y as i32, 41) > 0.996 {
+                let s = 60.0 + hash(x as i32, y as i32, 43) * 80.0;
+                (r, g, b) = (r + s, g + s, b + s * 1.1);
+            }
+            let dm = vec2(fx, fy).distance(moon);
+            if dm < moon_r {
+                let n = (fbm(fx * 0.25, fy * 0.25, 45) - 0.5) * 40.0;
+                (r, g, b) = (196.0 + n, 192.0 + n, 170.0 + n);
+            } else if dm < moon_r + 10.0 {
+                let h = (1.0 - (dm - moon_r) / 10.0) * 16.0;
+                (r, g, b) = (r + h, g + h, b + h * 0.8);
+            }
+            // The far towers: hazy, with a few cold windows.
+            let (top, local, k, gap) = tower(x, 22, 7, 70.0, 130.0, 51);
+            if fy >= top && !gap {
+                (r, g, b) = (24.0 + glow * 0.4, 26.0 + glow * 0.25, 40.0);
+                let lit = local % 4 == 2 && (y as i32 - top as i32) % 6 == 3 && hash(x as i32 / 4 + k * 7, y as i32 / 6, 53) > 0.7;
+                if lit {
+                    (r, g, b) = (48.0, 54.0, 70.0);
+                }
+            }
+            // The near towers: darker, with warm windows.
+            let (top, local, k, gap) = tower(x, 34, 0, 105.0, 175.0, 61);
+            if fy >= top && !gap {
+                let edge = if local == 1 { 8.0 } else { 0.0 };
+                (r, g, b) = (14.0 + edge, 15.0 + edge, 22.0 + edge);
+                let row = (y as i32 - top as i32) / 6;
+                let in_win = local >= 3 && local < 31 && local % 5 >= 3 && (y as i32 - top as i32) % 6 >= 3 && row > 0;
+                if in_win {
+                    let on = hash(local as i32 / 5 + k * 11, row, 63);
+                    if on > 0.68 {
+                        let w = hash(k, row, 65) * 30.0;
+                        (r, g, b) = (104.0 + w, 82.0 + w * 0.5, 44.0);
+                    } else {
+                        (r, g, b) = (20.0, 22.0, 30.0);
+                    }
+                }
+            }
+            img.set_pixel(x, y, dither(x, y, r, g, b));
         }
     }
     img
@@ -847,6 +926,32 @@ fn make_terrain(a: &Arena) -> Image {
                 let mid = is_metal(a, x, y - 2) && is_metal(a, x, y + 2) && !is_metal(a, x, y - 3);
                 if mid && x % 8 == 3 {
                     (r, g, b) = (100.0, 104.0, 108.0);
+                }
+                img.set_pixel(ux, uy, dither(ux, uy, r, g, b));
+            } else if is_girder(a, x, y) {
+                // A steel girder: lit down its left edge, shadowed on its right, riveted bands
+                // across it, and hazard stripes at the foot.
+                let left = !is_girder(a, x - 1, y);
+                let right = !is_girder(a, x + 1, y);
+                let foot = !is_girder(a, x, y + 4);
+                let (mut r, mut g, mut b) = (52.0, 60.0, 72.0);
+                if fbm(x as f32 * 0.2, y as f32 * 0.1, 19) > 0.6 {
+                    (r, g, b) = (78.0, 58.0, 46.0);
+                }
+                if y % 12 == 0 || y % 12 == 1 {
+                    (r, g, b) = (r - 14.0, g - 14.0, b - 12.0);
+                }
+                if y % 12 == 6 && !(left || right) && x % 3 == 0 {
+                    (r, g, b) = (112.0, 116.0, 122.0);
+                }
+                if foot {
+                    let stripe = (x + y) % 6 < 3;
+                    (r, g, b) = if stripe { (170.0, 140.0, 40.0) } else { (26.0, 24.0, 22.0) };
+                }
+                if left {
+                    (r, g, b) = (r + 30.0, g + 30.0, b + 30.0);
+                } else if right {
+                    (r, g, b) = (r * 0.5, g * 0.5, b * 0.5);
                 }
                 img.set_pixel(ux, uy, dither(ux, uy, r, g, b));
             }
@@ -958,6 +1063,8 @@ struct FighterVis {
 
 pub struct Art {
     bg: Texture2D,
+    /// Every map's backdrop, built once at startup.
+    bgs: Vec<Texture2D>,
     terrain: Texture2D,
     /// Every map's terrain, built once at startup (building one takes long enough to hitch, and
     /// it used to happen right as a match's countdown began).
@@ -999,12 +1106,14 @@ fn tex(img: &Image) -> Texture2D {
 impl Art {
     pub fn new() -> Self {
         let terrains: Vec<Texture2D> = ArenaId::ALL.iter().map(|a| tex(&make_terrain(a.def()))).collect();
+        let bgs: Vec<Texture2D> = ArenaId::ALL.iter().map(|&a| tex(&make_background(a))).collect();
         let stain_img = Image::gen_image_color(W as u16, H as u16, Color::new(0.0, 0.0, 0.0, 0.0));
         let rain = (0..200)
             .map(|i| Drop { pos: vec2(hash(i, 0, 1) * W, hash(i, 1, 1) * H), speed: 200.0 + hash(i, 2, 1) * 120.0 })
             .collect();
         Self {
-            bg: tex(&make_background()),
+            bg: bgs[ArenaId::default() as usize].clone(),
+            bgs,
             terrain: terrains[ArenaId::default() as usize].clone(),
             terrains,
             arena: ArenaId::default(),
@@ -1042,6 +1151,7 @@ impl Art {
         if arena != self.arena {
             self.arena = arena;
             self.terrain = self.terrains[arena as usize].clone();
+            self.bg = self.bgs[arena as usize].clone();
             self.reset();
         }
     }
