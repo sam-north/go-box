@@ -2526,9 +2526,14 @@ fn draw_item(it: &Item, time: f32) {
             // Lying flat on the ground, or pointing along its flight.
             let dir = if it.vel.length() > 20.0 { it.vel.normalize() } else { vec2(1.0, 0.0) };
             let base = p + vec2(0.0, ITEM_R - 0.5);
-            line(base - dir * 7.0, base + dir * 7.5, 3.0, ITEM_EDGE);
-            line(base - dir * 6.0, base + dir * 4.0, 1.0, SHAFT);
-            line(base + dir * 4.0, base + dir * 6.5, 1.0, TIP);
+            let side = vec2(-dir.y, dir.x);
+            // The outline is a shaft plus a wedge round the head, butted end to end so the
+            // see-through edge colour doesn't double up where they meet.
+            line(base - dir * 7.0, base + dir * 1.5, 3.0, ITEM_EDGE);
+            draw_triangle(base + dir * 1.5 - side * 2.5, base + dir * 1.5 + side * 2.5, base + dir * 9.5, ITEM_EDGE);
+            line(base - dir * 6.0, base + dir * 3.0, 1.0, SHAFT);
+            // A triangular head, wider than the shaft, so it reads as a spear and not a stick.
+            draw_triangle(base + dir * 2.5 - side * 1.5, base + dir * 2.5 + side * 1.5, base + dir * 8.0, TIP);
         }
         ItemKind::Grenade => {
             // A little bigger than a rock, outlined so it stands out: a ridged olive body sitting
