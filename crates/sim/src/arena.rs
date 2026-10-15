@@ -107,24 +107,24 @@ const BRIDGES: Arena = Arena {
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
 
-/// The trunks: the side trees stand against the box's walls nearly to the ceiling, the middle
+/// The trunks: the side trees stand in place of the box's walls, floor to ceiling, the middle
 /// one up to its two branches. (The renderer draws the trees from these, so they're named.)
-pub const FOREST_TRUNKS: [Aabb; 3] = [Aabb::new(8.0, 20.0, 14.0, 234.0), Aabb::new(458.0, 20.0, 14.0, 234.0), Aabb::new(234.0, 214.0, 12.0, 40.0)];
+pub const FOREST_TRUNKS: [Aabb; 3] = [Aabb::new(0.0, 0.0, 16.0, 254.0), Aabb::new(464.0, 0.0, 16.0, 254.0), Aabb::new(234.0, 214.0, 12.0, 40.0)];
 
 const FOREST: Arena = Arena {
     id: "forest",
     platforms: &[
         // Branches off the left tree, all the way up, then the same off the right one.
-        Aabb::new(22.0, 214.0, 32.0, 5.0),
-        Aabb::new(22.0, 178.0, 42.0, 5.0),
-        Aabb::new(22.0, 142.0, 30.0, 5.0),
-        Aabb::new(22.0, 106.0, 46.0, 5.0),
-        Aabb::new(22.0, 70.0, 28.0, 5.0),
-        Aabb::new(426.0, 214.0, 32.0, 5.0),
-        Aabb::new(416.0, 178.0, 42.0, 5.0),
-        Aabb::new(428.0, 142.0, 30.0, 5.0),
-        Aabb::new(412.0, 106.0, 46.0, 5.0),
-        Aabb::new(430.0, 70.0, 28.0, 5.0),
+        Aabb::new(16.0, 214.0, 32.0, 5.0),
+        Aabb::new(16.0, 178.0, 42.0, 5.0),
+        Aabb::new(16.0, 142.0, 30.0, 5.0),
+        Aabb::new(16.0, 106.0, 46.0, 5.0),
+        Aabb::new(16.0, 70.0, 28.0, 5.0),
+        Aabb::new(432.0, 214.0, 32.0, 5.0),
+        Aabb::new(422.0, 178.0, 42.0, 5.0),
+        Aabb::new(434.0, 142.0, 30.0, 5.0),
+        Aabb::new(418.0, 106.0, 46.0, 5.0),
+        Aabb::new(436.0, 70.0, 28.0, 5.0),
         // The middle tree, short: just a branch each way off the top of its trunk.
         Aabb::new(208.0, 214.0, 26.0, 5.0),
         Aabb::new(246.0, 214.0, 26.0, 5.0),
