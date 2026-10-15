@@ -2173,16 +2173,16 @@ impl Match {
     }
 
     /// Burning ground: anyone standing in it (the thrower too) is burnt every so often.
-    /// The map's campfires burn everyone in them, as a Molotov's fire does, all match long. (They
-    /// burn on the beat, every `FIRE_EVERY` ticks; nobody gets the credit.)
+    /// The campfire (on a map with one) burns everyone in it, as a Molotov's fire does, all match
+    /// long. (It burns on the beat, every `FIRE_EVERY` ticks; nobody gets the credit.)
     pub(crate) fn step_campfires(&mut self) {
         if self.tick % FIRE_EVERY != 0 {
             return;
         }
-        let fires = self.arena().campfires;
+        let Some(fire) = self.config.campfire_area() else { return };
         for j in 0..N_BODIES {
             let f = &self.f[j];
-            if !f.present() || !fires.iter().any(|c| c.overlaps(&f.body())) {
+            if !f.present() || !fire.overlaps(&f.body()) {
                 continue;
             }
             let v = vec2(f.vel.x * 0.5, -90.0);

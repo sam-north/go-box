@@ -705,11 +705,35 @@ pub struct MatchConfig {
     /// Walk a bot out of wherever it's got stuck (see `Match::unstick`). Off in tests that want
     /// bots standing still.
     pub unstick: bool,
+    /// Where this match's campfire is (its left edge, on the floor), on a map that has one:
+    /// picked when the match is made (`Match::new`), somewhere with open sky above.
+    #[serde(default)]
+    pub campfire: Option<f32>,
+}
+
+impl MatchConfig {
+    /// The campfire's flames, if this match has one.
+    pub fn campfire_area(&self) -> Option<Aabb> {
+        self.campfire.map(|x| Aabb::new(x, FLOOR_Y - CAMPFIRE_H, CAMPFIRE_W, CAMPFIRE_H))
+    }
+}
+
+/// A campfire's size.
+pub const CAMPFIRE_W: f32 = 18.0;
+pub const CAMPFIRE_H: f32 = 8.0;
+
+/// Where a map's campfire goes this match: anywhere along the floor with nothing above it, at any
+/// height (no ledge, no wall), and room beside it for anyone to step clear.
+fn campfire_spot(rng: &mut impl Rng, arena: &Arena) -> Option<f32> {
+    let margin = HALF_W * 2.0 + 2.0;
+    let clear = |x: f32| arena.platforms.iter().chain(arena.walls).all(|s| x + CAMPFIRE_W + margin <= s.x || x - margin >= s.x + s.w);
+    let spots: Vec<f32> = (WALL as i32..(W - WALL - CAMPFIRE_W) as i32).map(|x| x as f32).filter(|&x| clear(x)).collect();
+    (!spots.is_empty()).then(|| spots[rng.gen_range(0..spots.len())])
 }
 
 impl Default for MatchConfig {
     fn default() -> Self {
-        Self { arena: ArenaId::default(), max_ticks: MAX_TICKS, countdown: COUNTDOWN, spawn_grace: SPAWN_GRACE, heals: HEALS_PER_ROUND, mode: Mode::default(), unstick: true }
+        Self { arena: ArenaId::default(), max_ticks: MAX_TICKS, countdown: COUNTDOWN, spawn_grace: SPAWN_GRACE, heals: HEALS_PER_ROUND, mode: Mode::default(), unstick: true, campfire: None }
     }
 }
 
@@ -815,6 +839,18 @@ impl Match {
         let mut heal_schedule: Vec<u32> = (0..rng.gen_range(config.heals.clone())).map(|_| rng.gen_range(HEAL_WINDOW)).collect();
         heal_schedule.sort_unstable_by(|a, b| b.cmp(a));
         let next_item = rng.gen_range(ITEM_SPAWN_EVERY);
+        // The campfire (on a map with one), somewhere new each match; anyone who'd start in it
+        // starts beside it instead. (Only such maps draw on the dice for it.)
+        let mut config = config.clone();
+        let mut f: [Fighter; N_BODIES] = f;
+        if arena.campfire && config.campfire.is_none() {
+            config.campfire = campfire_spot(rng, arena);
+        }
+        if let Some(fire) = config.campfire_area() {
+            for b in f.iter_mut().filter(|b| b.body().overlaps(&fire)) {
+                b.pos.x = if b.pos.x < fire.x + fire.w / 2.0 { fire.x - b.half_w() - 1.0 } else { fire.x + fire.w + b.half_w() + 1.0 };
+            }
+        }
         Self {
             f,
             items,
@@ -830,7 +866,7 @@ impl Match {
             effects: Vec::new(),
             effect_ids: Vec::new(),
             next_effect_id: 0,
-            config: config.clone(),
+            config,
         }
     }
 
@@ -2210,7 +2246,8 @@ mod tests {
     fn the_forests_campfire_burns_whoever_stands_in_it_all_match() {
         let (mut m, z) = quiet_match();
         m.config.arena = ArenaId::Forest;
-        let fire = crate::arena::FOREST_CAMPFIRE;
+        m.config.campfire = Some(120.0);
+        let fire = m.config.campfire_area().unwrap();
         m.f[0].pos = vec2(fire.x + fire.w / 2.0, FLOOR_Y);
         m.f[1].pos.x = fire.x - 30.0;
         // Late in the match, as at the start: it never goes out.

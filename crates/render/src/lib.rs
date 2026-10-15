@@ -2156,8 +2156,8 @@ impl Art {
         }
         draw_texture(&self.terrain, 0.0, 0.0, WHITE);
         draw_texture(&self.stain_tex, 0.0, 0.0, WHITE);
-        for c in self.arena.def().campfires {
-            draw_campfire(c, self.time);
+        if let Some(c) = m.config.campfire_area() {
+            draw_campfire(&c, self.time);
         }
 
         for &(p, c) in &self.flags {

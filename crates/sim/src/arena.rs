@@ -21,9 +21,9 @@ pub struct Arena {
     /// Solid blocks besides the box's walls, floor and ceiling: nothing passes through them, you
     /// can stand on top, and wall-jump off their sides.
     pub walls: &'static [Aabb],
-    /// Campfires: patches of flames on the ground, burning all match long (like a Molotov's
-    /// fire, but nobody's).
-    pub campfires: &'static [Aabb],
+    /// A campfire on the floor, burning all match long (like a Molotov's fire, but nobody's):
+    /// each match puts it somewhere new, always with open sky above (`MatchConfig::campfire`).
+    pub campfire: bool,
     /// Seat i starts somewhere in `spawn_x[i] .. spawn_x[i] + SPAWN_SPREAD` on the floor (seats
     /// left to right).
     pub spawn_x: [f32; N_FIGHTERS],
@@ -57,15 +57,15 @@ impl Arena {
     }
 }
 
-/// A fingerprint of every map's layout (ledges, walls, campfires, starting spots): the server
-/// sends its own, so a client built with different maps (an old browser tab) knows to reload
+/// A fingerprint of every map's layout (ledges, walls, starting spots, whether it has a
+/// campfire): the server sends its own, so a client built with different maps (an old browser tab) knows to reload
 /// rather than play on walls the server doesn't have.
 pub fn layout_fingerprint() -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for a in ArenaId::ALL {
         let d = a.def();
-        let boxes = d.platforms.iter().chain(d.walls).chain(d.campfires).flat_map(|s| [s.x, s.y, s.w, s.h]);
-        for v in boxes.chain(d.spawn_x) {
+        let boxes = d.platforms.iter().chain(d.walls).flat_map(|s| [s.x, s.y, s.w, s.h]);
+        for v in boxes.chain(d.spawn_x).chain([d.campfire as u8 as f32]) {
             h = (h ^ v.to_bits() as u64).wrapping_mul(0x100_0000_01b3);
         }
     }
@@ -104,7 +104,7 @@ const TIERS: Arena = Arena {
         Aabb::new(168.0, 106.0, 144.0, 5.0),
     ],
     walls: &[],
-    campfires: &[],
+    campfire: false,
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
 
@@ -127,14 +127,12 @@ const BRIDGES: Arena = Arena {
     // Two pillars hanging from the high bridge, high enough off the floor to walk under: wall-jump
     // up the shaft between them (or off their outsides) and through the bridge.
     walls: &[Aabb::new(204.0, 149.0, 8.0, 73.0), Aabb::new(268.0, 149.0, 8.0, 73.0)],
-    campfires: &[],
+    campfire: false,
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
 
 /// The trunks: the side trees stand in place of the box's walls, floor to ceiling, the middle
 /// one up to its two branches. (The renderer draws the trees from these, so they're named.)
-/// The Forest's campfire: on the floor against the left-hand tree.
-pub const FOREST_CAMPFIRE: Aabb = Aabb::new(18.0, 246.0, 18.0, 8.0);
 
 pub const FOREST_TRUNKS: [Aabb; 3] = [Aabb::new(0.0, 0.0, 16.0, 254.0), Aabb::new(464.0, 0.0, 16.0, 254.0), Aabb::new(234.0, 214.0, 12.0, 40.0)];
 
@@ -157,10 +155,9 @@ const FOREST: Arena = Arena {
         Aabb::new(246.0, 214.0, 26.0, 5.0),
     ],
     walls: &FOREST_TRUNKS,
-    // Against the left-hand tree, clear of where anyone starts.
-    campfires: &[FOREST_CAMPFIRE],
-    // (Clear of the trunks, and the campfire: nobody starts in either.)
-    spawn_x: [42.0, 130.0, 254.0, 356.0],
+    campfire: true,
+    // (Clear of the trunks: nobody starts in one.)
+    spawn_x: [28.0, 130.0, 254.0, 356.0],
 };
 
 /// The Desktop's windows, whole (title bar to bottom edge), in the order the renderer dresses
@@ -212,7 +209,7 @@ const DESKTOP: Arena = Arena {
         Aabb::new(349.0, 35.0, 4.0, 20.0),
         Aabb::new(465.0, 35.0, 4.0, 20.0),
     ],
-    campfires: &[],
+    campfire: false,
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
 
@@ -246,7 +243,7 @@ mod tests {
                 let mut m = Match::new(seed, &MatchConfig { arena: a, ..MatchConfig::default() });
                 for f in &m.f[..N_FIGHTERS] {
                     assert!(!a.def().walls.iter().any(|w| f.body().overlaps(w)), "{} seed {seed}: a fighter starts in a wall at {}", a.id(), f.pos);
-                    assert!(!a.def().campfires.iter().any(|c| f.body().overlaps(c)), "{} seed {seed}: a fighter starts in a campfire at {}", a.id(), f.pos);
+                    assert!(!m.config.campfire_area().is_some_and(|c| f.body().overlaps(&c)), "{} seed {seed}: a fighter starts in the campfire at {}", a.id(), f.pos);
                 }
                 for _ in 0..50 {
                     let p = m.random_surface_spot_between(0.0, W).unwrap() - glam::vec2(0.0, ITEM_R);
@@ -268,6 +265,30 @@ mod tests {
             assert_eq!(d.walls[2 * k + 1], side(w.x + w.w - WINDOW_SIDE), "window {k}'s right side");
         }
         assert_eq!(d.walls.len(), 2 * DESKTOP_WINDOWS.len());
+    }
+
+    #[test]
+    fn the_campfire_moves_about_but_always_has_open_sky_above() {
+        use crate::sim::{Match, MatchConfig};
+        for a in ArenaId::ALL {
+            let mut spots = Vec::new();
+            for seed in 0..60 {
+                let m = Match::new(seed, &MatchConfig { arena: a, ..MatchConfig::default() });
+                let Some(fire) = m.config.campfire_area() else {
+                    assert!(!a.def().campfire, "{} has a campfire", a.id());
+                    continue;
+                };
+                // Nothing above it, however high: no ledge, no wall.
+                let over = |s: &Aabb| s.x < fire.x + fire.w && s.x + s.w > fire.x;
+                assert!(!a.def().platforms.iter().chain(a.def().walls).any(over), "{} seed {seed}: something over the campfire at {}", a.id(), fire.x);
+                spots.push(fire.x as i32);
+            }
+            if a.def().campfire {
+                spots.sort();
+                spots.dedup();
+                assert!(spots.len() > 20, "{}: only {} different spots", a.id(), spots.len());
+            }
+        }
     }
 
     #[test]
