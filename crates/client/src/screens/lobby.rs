@@ -55,8 +55,9 @@ fn preview(ui: &Ui, r: Rect, c: Character, picked: bool, portraits: &[RenderTarg
 pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[RenderTarget]) {
     let (sw, sh) = (screen_width(), screen_height());
     let w = ui.px(860.0).min(sw - 32.0);
-    let results_h = if room.last_results.is_some() { ui.px(208.0) } else { 0.0 };
-    let h = (ui.px(560.0) + results_h).min(sh - 24.0);
+    // (Sized to what's in it: the header, last match's scoreboard, the seats, the picker.)
+    let results_h = if room.last_results.is_some() { ui.px(150.0) } else { 0.0 };
+    let h = (ui.px(526.0) + results_h).min(sh - 24.0);
     let r = Rect::new((sw - w) / 2.0, (sh - h) / 2.0, w, h);
     ui.panel(r);
     let pad = ui.px(24.0);
@@ -109,10 +110,10 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
         });
         for (place, i) in order.into_iter().enumerate() {
             let s = &res.seats[i];
-            y += ui.px(23.0);
+            y += ui.px(20.0);
             let color = render::look(s.character, i).accent;
             if res.winner == Some(i) {
-                draw_rectangle(r.x + pad - ui.px(6.0), y - ui.px(18.0), tw + ui.px(12.0), ui.px(23.0), Color::new(color.r, color.g, color.b, 0.18));
+                draw_rectangle(r.x + pad - ui.px(6.0), y - ui.px(16.0), tw + ui.px(12.0), ui.px(20.0), Color::new(color.r, color.g, color.b, 0.18));
             }
             let fate = match s.died_at {
                 Some(t) => mmss(t),
@@ -121,10 +122,10 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
             let cells = [seat_name(&s.name, s.character, s.bot), character_name(s.character).to_string(), s.kills.to_string(), s.headshots.to_string(), format!("{:.0}", s.damage_dealt), fate];
             let places = [t("lobby.place_1"), t("lobby.place_2"), t("lobby.place_3"), t("lobby.place_4")];
             if let Some(p) = places.get(place) {
-                ui.text(p, r.x + pad, y, 20.0, if place == 0 { ACCENT } else { DIM });
+                ui.text(p, r.x + pad, y, 18.0, if place == 0 { ACCENT } else { DIM });
             }
             for (k, cell) in cells.iter().enumerate() {
-                ui.text(cell, r.x + pad + cols[k] * tw, y, 20.0, if k == 0 { color } else { INK });
+                ui.text(cell, r.x + pad + cols[k] * tw, y, 18.0, if k == 0 { color } else { INK });
             }
         }
         y += ui.px(18.0);
@@ -156,7 +157,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     let char_x = r.x + pad + lines.iter().map(|l| ui.text_width(l, 22.0)).fold(ui.px(200.0), f32::max) + ui.px(24.0);
     let mut py = y;
     for (i, (p, line)) in seated.iter().zip(&lines).enumerate() {
-        py += ui.px(28.0);
+        py += ui.px(25.0);
         let color = render::look(p.character, i).accent;
         ui.text(line, r.x + pad, py, 22.0, color);
         let status = if p.ready && p.id != room.leader { t("lobby.ready_tag") } else { "" };
@@ -164,7 +165,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     }
     // Seats without a player: a bot or nobody. The leader picks; down to just you.
     for seat in seated.len()..MAX_PLAYERS {
-        py += ui.px(28.0);
+        py += ui.px(25.0);
         let fill = room.fills[seat];
         ui.text(&tf("lobby.seat", &[("n", &(seat + 1).to_string())]), r.x + pad, py, 20.0, DIM);
         let bx = r.x + pad + ui.px(72.0);
@@ -212,10 +213,11 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     y = py.max(my + ui.px(46.0)) + ui.px(20.0);
 
     // Character picker: small tiles (head and name) on the left; on the right, a preview of the
-    // one under the mouse (or the one you picked) with its special explained.
+    // one under the mouse (or the one you picked) with its special explained, and under that the
+    // buttons (so they're never pushed off the bottom by more characters).
     let mine = room.players.iter().find(|p| Some(p.id) == app.me).map(|p| p.character);
     let ch = ui.px(200.0);
-    let (tw, th, gap) = (ui.px(64.0), ui.px(70.0), ui.px(6.0));
+    let (tw, th, gap) = (ui.px(56.0), ui.px(62.0), ui.px(5.0));
     let cols = (((w - pad * 2.0) * 0.55 + gap) / (tw + gap)).floor().max(1.0) as usize;
     let grid_w = cols.min(Character::ALL.len()) as f32 * (tw + gap) - gap;
     let mut shown = mine.unwrap_or(Character::ALL[0]);
@@ -226,11 +228,11 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
         draw_rectangle(rr.x, rr.y, rr.w, rr.h, Color::new(color.r * 0.15, color.g * 0.15, color.b * 0.15, 0.9));
         draw_rectangle_lines(rr.x, rr.y, rr.w, rr.h, if selected { 4.0 } else { 1.0 }, if selected { color } else { ui::EDGE });
         // Just the head: the top of the portrait, blown up.
-        let hs = ui.px(40.0);
+        let hs = ui.px(36.0);
         let src = Rect::new(8.0, 5.0, 10.0, 10.0);
-        draw_texture_ex(&portraits[k].texture, rr.x + (rr.w - hs) / 2.0, rr.y + ui.px(4.0), WHITE, DrawTextureParams { dest_size: Some(vec2(hs, hs)), source: Some(src), ..Default::default() });
-        let name = ui.fit(character_name(c), 16.0, rr.w - ui.px(4.0));
-        ui.text_centered(&name, rr.x + rr.w / 2.0, rr.y + rr.h - ui.px(7.0), 16.0, color);
+        draw_texture_ex(&portraits[k].texture, rr.x + (rr.w - hs) / 2.0, rr.y + ui.px(3.0), WHITE, DrawTextureParams { dest_size: Some(vec2(hs, hs)), source: Some(src), ..Default::default() });
+        let name = ui.fit(character_name(c), 15.0, rr.w - ui.px(4.0));
+        ui.text_centered(&name, rr.x + rr.w / 2.0, rr.y + rr.h - ui.px(6.0), 15.0, color);
         let (clicked, hot) = ui.area_hover(rr);
         if hot {
             shown = c;
@@ -239,22 +241,22 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
             app.send(ClientMsg::SetCharacter(c));
         }
     }
-    preview(ui, Rect::new(r.x + pad + grid_w + ui.px(16.0), y, w - pad * 2.0 - grid_w - ui.px(16.0), ch), shown, mine == Some(shown), portraits);
-    let rows = Character::ALL.len().div_ceil(cols) as f32;
-    y += ch.max(rows * (th + gap) - gap) + ui.px(20.0);
+    let px = r.x + pad + grid_w + ui.px(16.0);
+    let pw = w - pad * 2.0 - grid_w - ui.px(16.0);
+    preview(ui, Rect::new(px, y, pw, ch), shown, mine == Some(shown), portraits);
 
-    // Play / ready / exit.
-    let bh = ui.px(48.0);
-    let bw = ui.px(220.0);
+    // Under the preview: exit (quietly, on the left), then play (or ready up) on the right, with
+    // who's ready under it.
+    let by = y + ch + ui.px(12.0);
+    let bh = ui.px(44.0);
     let others = seated.iter().filter(|p| p.id != room.leader).count();
     let ready = seated.iter().filter(|p| p.id != room.leader && p.ready).count();
-    // Exit, quietly, on the left; play (or ready up) on the right, with who's ready beside it.
-    let ew = ui.px(140.0);
-    if ui.ghost_button(Rect::new(r.x + pad, y, ew, bh), t("lobby.exit"), BAD) {
+    let ew = ui.px(96.0);
+    if ui.ghost_button(Rect::new(px, by, ew, bh), t("lobby.exit"), BAD) {
         app.send(ClientMsg::LeaveRoom);
     }
-    let play = Rect::new(r.x + w - pad - bw, y, bw, bh);
-    let note_right = play.x - ui.px(16.0);
+    let play = Rect::new(px + ew + ui.px(10.0), by, pw - ew - ui.px(10.0), bh);
+    let note_y = by + bh + ui.px(20.0);
     if leader {
         // Play, in green, once everyone else seated has said they're ready (the server holds to
         // that too).
@@ -263,12 +265,12 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
         }
         if others > 0 {
             let note = format!("{ready}/{others} ready");
-            ui.text(&note, note_right - ui.text_width(&note, 20.0), y + bh * 0.62, 20.0, DIM);
+            ui.text(&note, play.x + play.w - ui.text_width(&note, 18.0), note_y, 18.0, DIM);
         }
     } else if watching.iter().any(|p| Some(p.id) == app.me) {
         // Spectating: nothing to ready up for. A seat comes your way when someone leaves.
         let note = t("lobby.spectator_note");
-        ui.text(note, r.x + w - pad - ui.text_width(note, 18.0), y + bh * 0.62, 18.0, DIM);
+        ui.text(&ui.fit(note, 16.0, pw), px, note_y - bh / 2.0, 16.0, DIM);
     } else {
         let me_ready = room.players.iter().any(|p| Some(p.id) == app.me && p.ready);
         let label = if me_ready { t("lobby.is_ready") } else { t("lobby.ready") };
@@ -276,8 +278,6 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
             app.send(ClientMsg::SetReady(!me_ready));
         }
         let note = t("lobby.leader_starts");
-        ui.text(note, note_right - ui.text_width(note, 18.0), y + bh * 0.62, 18.0, DIM);
+        ui.text(&ui.fit(note, 16.0, pw), play.x + play.w - ui.text_width(note, 16.0).min(pw), note_y, 16.0, DIM);
     }
-    ui.text_centered(&app.controls_help(), sw / 2.0, sh - ui.px(12.0), 18.0, DIM);
 }
-
