@@ -12,10 +12,11 @@ kill_signal = "SIGTERM"
 kill_timeout = "10s"
 
 [env]
-  # Room for 4 matches at once (each up to 4 players and 8 spectators), 48 connections, 16 per
+  # Room for 10 matches at once (each up to 4 players and 8 spectators), 64 connections (10 full
+  # matches plus a couple dozen spectators or people on the home screen), 16 per
   # address (a whole office shares one).
-  GO_BOX_MAX_ROOMS = "4"
-  GO_BOX_MAX_CONNECTIONS = "48"
+  GO_BOX_MAX_ROOMS = "10"
+  GO_BOX_MAX_CONNECTIONS = "64"
   GO_BOX_MAX_PER_IP = "16"
   # Fly's proxy is the only way in, so its client-address header can be trusted.
   GO_BOX_TRUST_PROXY = "1"
@@ -35,8 +36,8 @@ kill_timeout = "10s"
   # A little over the server's own cap, so the server (not the proxy) says "full".
   [http_service.concurrency]
     type = "connections"
-    soft_limit = 32
-    hard_limit = 40
+    soft_limit = 64
+    hard_limit = 72
 
   [[http_service.checks]]
     grace_period = "10s"

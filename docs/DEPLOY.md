@@ -4,7 +4,7 @@ The game runs as one small machine on Fly.io: the server plus the browser client
 `Dockerfile` on Fly's own builders. `fly.toml` holds every cloud-only setting; run locally, the
 server keeps its safe defaults (this machine only, no passphrase).
 
-**Cost:** the smallest machine (shared CPU, 256MB) is many times more than 4 matches need (a match
+**Cost:** the smallest machine (shared CPU, 256MB) is many times more than 10 matches need (a match
 uses well under 1% of a CPU and ~8MB of memory). It stops when nobody's connected and starts when
 someone opens the page, so you mostly pay for the hours people play: a few cents to a dollar or
 two a month at light use. The first visitor after an idle spell waits a few seconds for it to wake.
@@ -65,6 +65,6 @@ two a month at light use. The first visitor after an idle spell waits a few seco
 - Creating a room needs the passphrase; five wrong passphrases or room codes on one connection
   closes it.
 - Only the game's own page may open game connections (`GO_BOX_ORIGINS`).
-- Caps: 4 rooms, 32 connections, 8 per address; per-connection message rate limits.
+- Caps: 10 rooms, 64 connections, 16 per address; per-connection message rate limits.
 - Dead connections are dropped after 45s of silence, so a closed tab can't hold a seat.
 - HTTPS is Fly's (automatic certificates); the server inside only talks to Fly's proxy.
