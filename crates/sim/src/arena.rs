@@ -294,6 +294,7 @@ mod tests {
     #[test]
     fn ids_are_unique() {
         let mut ids: Vec<_> = ArenaId::ALL.iter().map(|a| a.id()).collect();
+        ids.sort();
         ids.dedup();
         assert_eq!(ids.len(), ArenaId::ALL.len());
     }
