@@ -966,7 +966,7 @@ fn draw_scaffold(img: &mut Image, a: &Arena) {
         let mix = |o: f32, c: f32| o * (1.0 - k) + c / 255.0 * k;
         img.set_pixel(x as u32, y as u32, Color::new(mix(o.r, c.0), mix(o.g, c.1), mix(o.b, c.2), 1.0));
     };
-    let pole = (60.0, 64.0, 72.0);
+    let pole = (82.0, 88.0, 98.0);
     for s in a.platforms {
         let top = s.y + s.h;
         let mut xs: Vec<f32> = vec![s.x + 2.0];
@@ -978,7 +978,7 @@ fn draw_scaffold(img: &mut Image, a: &Arena) {
         let foot = |x: f32| a.platforms.iter().filter(|q| q.y > s.y && x >= q.x && x < q.x + q.w).map(|q| q.y).fold(FLOOR_Y, f32::min);
         for &x in &xs {
             for y in top as i32..foot(x) as i32 {
-                tint(x as i32, y, pole, 0.55);
+                tint(x as i32, y, pole, 0.75);
             }
         }
         for pair in xs.windows(2) {
@@ -987,7 +987,7 @@ fn draw_scaffold(img: &mut Image, a: &Arena) {
             let drop = (bottom - top).min(x1 - x0);
             for i in 0..(x1 - x0) as i32 {
                 let y = top + drop * i as f32 / (x1 - x0);
-                tint(x0 as i32 + i, y as i32, pole, 0.4);
+                tint(x0 as i32 + i, y as i32, pole, 0.55);
             }
         }
     }
