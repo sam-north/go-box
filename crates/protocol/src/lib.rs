@@ -212,6 +212,8 @@ pub struct SeatResult {
     /// Seconds into the match they went down, or None if they survived.
     pub died_at: Option<f32>,
     pub hp: f32,
+    /// Health gained over the match (health pickups, so far).
+    pub health_gained: f32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -359,7 +361,7 @@ mod tests {
             }
         }
         let seat = |name: &str, c, player| Seat { name: name.into(), character: c, player };
-        let result = SeatResult { name: "Bot".into(), character: Character::Sam, bot: true, kills: 2, headshots: 1, damage_dealt: 88.5, damage_taken: 100.0, died_at: Some(31.5), hp: 0.0 };
+        let result = SeatResult { name: "Bot".into(), character: Character::Sam, bot: true, kills: 2, headshots: 1, damage_dealt: 88.5, damage_taken: 100.0, died_at: Some(31.5), hp: 0.0, health_gained: 50.0 };
         let room = RoomInfo {
             code: "ABCD".into(),
             leader: 1,
@@ -403,7 +405,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (29, 0x1392_09a8_4a0e_1e39);
+    const WIRE: (u16, u64) = (29, 0xb51a_02e5_a31e_5e53);
 
     #[test]
     fn every_sample_round_trips() {

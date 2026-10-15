@@ -238,6 +238,9 @@ pub struct Fighter {
     pub dmg_dealt: f32,
     #[serde(skip)]
     pub dmg_taken: f32,
+    /// Health gained over the match (health pickups, so far; see `Fighter::heal`).
+    #[serde(skip)]
+    pub healed: f32,
     #[serde(skip)]
     pub headshots: u32,
     #[serde(skip)]
@@ -345,6 +348,7 @@ impl Fighter {
             died_at: None,
             dmg_dealt: 0.0,
             dmg_taken: 0.0,
+            healed: 0.0,
             headshots: 0,
             kills: 0,
             scale: 1.0,
@@ -389,6 +393,14 @@ impl Fighter {
         f.hp = 0.0;
         f.absent = true;
         f
+    }
+
+    /// Gains up to `amount` health (never past full), counted in `healed`. Every way of gaining
+    /// health goes through here.
+    pub fn heal(&mut self, amount: f32) {
+        let gain = amount.min(MAX_HP - self.hp).max(0.0);
+        self.hp += gain;
+        self.healed += gain;
     }
 
     pub fn alive(&self) -> bool {
@@ -768,14 +780,15 @@ impl Mode {
                     return None;
                 }
                 // Last one standing; at the timeout, the survivor with the most health, then (to break
-                // a tie) the most kills, damage dealt, headshots. A tie on all of those is a draw.
+                // a tie) the most kills, damage dealt, headshots, health gained. A tie on all of those is
+                // a draw. (The scoreboard's columns run in this order.)
                 let rank = |j: usize| {
                     let f = &m.f[j];
-                    (f.hp, f.kills, f.dmg_dealt, f.headshots)
+                    (f.hp, f.kills, f.dmg_dealt, f.headshots, f.healed)
                 };
                 let better = |a: usize, b: usize| {
                     let (x, y) = (rank(a), rank(b));
-                    x.0.total_cmp(&y.0).then(x.1.cmp(&y.1)).then(x.2.total_cmp(&y.2)).then(x.3.cmp(&y.3))
+                    x.0.total_cmp(&y.0).then(x.1.cmp(&y.1)).then(x.2.total_cmp(&y.2)).then(x.3.cmp(&y.3)).then(x.4.total_cmp(&y.4))
                 };
                 Some(match alive.len() {
                     0 => None,
@@ -1482,8 +1495,7 @@ impl Match {
             });
             match taker {
                 Some(j) => {
-                    let f = &mut self.f[j];
-                    f.hp += HEAL_AMOUNT.min(MAX_HP - f.hp);
+                    self.f[j].heal(HEAL_AMOUNT);
                     self.events.push(Event::Heal { who: j, pos: self.heals[hi] });
                     self.heals.swap_remove(hi);
                 }
@@ -2424,7 +2436,7 @@ mod tests {
     }
 
     #[test]
-    fn at_the_time_limit_health_wins_then_kills_damage_headshots() {
+    fn at_the_time_limit_health_wins_then_kills_damage_headshots_health_gained() {
         let finish = |set: &dyn Fn(&mut Match)| {
             let (mut m, _) = quiet_match();
             m.remove(2);
@@ -2437,7 +2449,23 @@ mod tests {
         assert_eq!(finish(&|m| m.f[1].kills = 1), Some(1), "level on health: more kills");
         assert_eq!(finish(&|m| m.f[0].dmg_dealt = 30.0), Some(0), "then damage");
         assert_eq!(finish(&|m| m.f[1].headshots = 2), Some(1), "then headshots");
+        assert_eq!(finish(&|m| m.f[0].healed = 50.0), Some(0), "then health gained");
         assert_eq!(finish(&|_| {}), None, "level on everything: a draw");
+    }
+
+    #[test]
+    fn health_gained_counts_what_each_pickup_actually_heals() {
+        let (mut m, z) = quiet_match();
+        // Down 30: a pickup heals the 30 (not its full 50).
+        m.f[0].hp = MAX_HP - 30.0;
+        m.heals.push(m.f[0].center());
+        m.step([&z; N_FIGHTERS]);
+        assert_eq!((m.f[0].hp, m.f[0].healed), (MAX_HP, 30.0));
+        // Down 80: the full 50.
+        m.f[0].hp = MAX_HP - 80.0;
+        m.heals.push(m.f[0].center());
+        m.step([&z; N_FIGHTERS]);
+        assert_eq!((m.f[0].hp, m.f[0].healed), (MAX_HP - 30.0, 80.0));
     }
 
     #[test]

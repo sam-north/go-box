@@ -120,15 +120,19 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
         ui.text(&length, r.x + w - pad - ui.text_width(&length, 18.0), y + ui.px(10.0), 18.0, DIM);
         y += ui.px(30.0);
         // (The place, 1st..4th, sits in front of the first column.)
-        let cols = [0.10, 0.32, 0.48, 0.58, 0.70, 0.82];
-        let heads = [t("lobby.col_player"), t("lobby.col_character"), t("lobby.col_kills"), t("lobby.col_headshots"), t("lobby.col_damage"), t("lobby.col_down")];
+        // After the player and their character, the columns run in the order the win is decided:
+        // how they ended (survived on how much health, or went down when), kills, damage dealt,
+        // headshots, health gained.
+        let cols = [0.09, 0.27, 0.41, 0.585, 0.665, 0.76, 0.875];
+        let heads = [t("lobby.col_player"), t("lobby.col_character"), t("lobby.col_down"), t("lobby.col_kills"), t("lobby.col_damage"), t("lobby.col_headshots"), t("lobby.col_health")];
         let tw = w - pad * 2.0;
         for (k, head) in heads.iter().enumerate() {
-            ui.text(head, r.x + pad + cols[k] * tw, y, 18.0, DIM);
+            ui.text(head, r.x + pad + cols[k] * tw, y, 16.0, DIM);
         }
         y += ui.px(8.0);
         // First to last, as the win is decided: the winner; then survivors by the health they ended
-        // on, and those who went down by how long they lasted; then kills, damage dealt, headshots.
+        // on, and those who went down by how long they lasted; then kills, damage dealt, headshots,
+        // health gained.
         let mut order: Vec<usize> = (0..res.seats.len()).collect();
         order.sort_by(|&ia, &ib| {
             let (a, b) = (&res.seats[ia], &res.seats[ib]);
@@ -142,6 +146,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
                 .then(b.kills.cmp(&a.kills))
                 .then(b.damage_dealt.total_cmp(&a.damage_dealt))
                 .then(b.headshots.cmp(&a.headshots))
+                .then(b.health_gained.total_cmp(&a.health_gained))
         });
         for (place, i) in order.into_iter().enumerate() {
             let s = &res.seats[i];
@@ -154,7 +159,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
                 Some(t) => mmss(t),
                 None => tf("lobby.survived", &[("hp", &format!("{:.0}", s.hp))]),
             };
-            let cells = [seat_name(&s.name, s.character, s.bot), character_name(s.character).to_string(), s.kills.to_string(), s.headshots.to_string(), format!("{:.0}", s.damage_dealt), fate];
+            let cells = [seat_name(&s.name, s.character, s.bot), character_name(s.character).to_string(), fate, s.kills.to_string(), format!("{:.0}", s.damage_dealt), s.headshots.to_string(), format!("{:.0}", s.health_gained)];
             let places = [t("lobby.place_1"), t("lobby.place_2"), t("lobby.place_3"), t("lobby.place_4")];
             // A medal for the top three (gold, silver, bronze) and a sad face for last, then the place.
             place_icon(ui, place, vec2(r.x + pad + ui.px(7.0), y - ui.px(2.0)));

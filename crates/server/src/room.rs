@@ -422,6 +422,7 @@ fn results(r: &Running) -> Results {
                 damage_taken: f.dmg_taken,
                 died_at: f.died_at.map(|t| t as f32 * DT),
                 hp: f.hp.max(0.0),
+                health_gained: f.healed,
             }
         })
         .collect();

@@ -33,6 +33,7 @@ lobby.col_kills = Kills
 lobby.col_headshots = Headshots
 lobby.col_damage = Damage
 lobby.col_down = Went down
+lobby.col_health = Health gain
 lobby.survived = survived, {hp} HP
 lobby.players = Players
 lobby.spectating = Spectating (next in line for a seat)
