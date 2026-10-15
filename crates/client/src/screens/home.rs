@@ -70,5 +70,6 @@ pub fn home_screen(ui: &mut Ui, app: &mut App) {
         let code = app.code.clone();
         app.enter(ClientMsg::JoinRoom { code });
     }
-    ui.text_centered(&app.controls_help(), cx, sh - ui.px(20.0), 18.0, DIM);
+    // The controls, where they show in a match (always open here).
+    crate::screens::hud::controls_overlay(ui, app, false);
 }

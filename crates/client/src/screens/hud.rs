@@ -272,20 +272,21 @@ pub fn controls_header(ui: &Ui) -> Rect {
 
 /// In a match: the controls, in the same groups and order as on the Controls page (movement,
 /// then actions), with what each is bound to on what you're playing with; or, collapsed, just
-/// its header. Returns where it ends (the debug overlay goes under it).
-pub fn controls_overlay(ui: &mut Ui, app: &mut App) -> f32 {
+/// its header. Returns where it ends (the debug overlay goes under it). Not `collapsible` (on the
+/// home screen), it's always open.
+pub fn controls_overlay(ui: &mut Ui, app: &mut App, collapsible: bool) -> f32 {
     let head = controls_header(ui);
-    let open = app.settings.controls_overlay;
+    let open = app.settings.controls_overlay || !collapsible;
     let pad_side = app.controls.using_pad;
     let groups = &CONTROL_GROUPS[..2];
     let line = ui.px(17.0);
     let rows: usize = if open { groups.iter().map(|(_, acts)| acts.len() + 1).sum() } else { 0 };
     let h = head.h + rows as f32 * line + if open { ui.px(8.0) } else { 0.0 };
     draw_rectangle(head.x, head.y, head.w, h, Color::new(0.0, 0.0, 0.0, 0.6));
-    let title = format!("{}  {}", t("controls.title"), if open { "[-]" } else { "[+]" });
+    let title = if !collapsible { t("controls.title").to_string() } else { format!("{}  {}", t("controls.title"), if open { "[-]" } else { "[+]" }) };
     ui.text(&title, head.x + ui.px(8.0), head.y + ui.px(17.0), 15.0, ACCENT);
     let (clicked, _) = ui.area_hover(head);
-    if clicked {
+    if clicked && collapsible {
         app.settings.controls_overlay = !open;
         app.settings.save();
     }

@@ -287,7 +287,7 @@ async fn main() {
                 hud(&ui, &app, m);
                 // (Only if they've asked for it, in the settings.)
                 if playing && app.settings.show_controls {
-                    overlay_bottom = controls_overlay(&mut ui, &mut app);
+                    overlay_bottom = controls_overlay(&mut ui, &mut app, true);
                 }
             }
         }

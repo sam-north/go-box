@@ -1287,9 +1287,10 @@ fn desktop_px(a: &Arena, x: i32, y: i32) -> Option<Option<(f32, f32, f32)>> {
             let icons = [(60.0, 130.0, 240.0), (240.0, 240.0, 245.0), (40.0, 40.0, 44.0), (34.0, 120.0, 210.0), (0.0, 168.0, 100.0), (52.0, 120.0, 250.0), (244.0, 90.0, 80.0), (250.0, 190.0, 60.0), (150.0, 90.0, 220.0), (120.0, 124.0, 132.0), (240.0, 140.0, 60.0), (70.0, 190.0, 210.0)];
             let slot = (x - x0 - 3) / 15;
             let ix = (x - x0 - 3) % 15;
-            if (1..=11).contains(&d) && (0..11).contains(&ix) && (slot as usize) < icons.len() {
+            // (Each icon centred in the shelf, top to bottom.)
+            if (2..=13).contains(&d) && (0..12).contains(&ix) && (slot as usize) < icons.len() {
                 let c = icons[slot as usize];
-                let shade = if d == 1 { 1.15 } else if d == 11 { 0.7 } else { 1.0 };
+                let shade = if d == 2 { 1.15 } else if d == 13 { 0.7 } else { 1.0 };
                 return Some(Some((c.0 * shade, c.1 * shade, c.2 * shade)));
             }
             return Some(Some(if d == 0 { (150.0, 154.0, 168.0) } else { (88.0, 92.0, 108.0) }));
