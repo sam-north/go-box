@@ -20,7 +20,7 @@ mod ui;
 
 use go_box_protocol::*;
 use go_box_render::sound::{Sfx, Sounds};
-use go_box_render::{self as render, Art};
+use go_box_render::{self as render, Art, Maps};
 use go_box_sim::character::Character;
 use go_box_sim::sim::{Action, DT, H, Match, W};
 use macroquad::prelude::*;
@@ -55,7 +55,9 @@ fn conf() -> Conf {
 async fn main() {
     let opts = Options::get();
     let mut ui = Ui::new();
-    let mut art = Art::new();
+    // Every map's pictures, shared by the arena behind the menus and How to Play's.
+    let maps = Maps::default();
+    let mut art = Art::new(&maps);
     let mut sfx = Sounds::load();
     let mut settings = Settings::load();
     settings.muted |= opts.mute;
@@ -186,6 +188,15 @@ async fn main() {
             debug.ticks(ticks);
         }
 
+        // Map pictures ahead of need: the room's map as soon as it's picked (well before the
+        // countdown), and the rest one a frame while no match is on.
+        if let Some(r) = &app.room {
+            maps.warm(r.arena);
+        }
+        if app.game.is_none() {
+            maps.warm_next();
+        }
+
         // The arena: the match you're in, or bots fighting behind the menus.
         let shown: Option<Match> = match &mut app.game {
             Some(g) => g.frame(dt),
@@ -256,7 +267,7 @@ async fn main() {
             app.howto_open = false;
         }
         if app.howto_open && in_lobby {
-            howto.get_or_insert_with(howto::HowTo::new).frame(dt);
+            howto.get_or_insert_with(|| howto::HowTo::new(&maps)).frame(dt);
         }
 
         set_default_camera();

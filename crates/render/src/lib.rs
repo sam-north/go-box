@@ -9,6 +9,8 @@ use sound::Sfx;
 use go_box_sim::character::*;
 use go_box_sim::sim::*;
 use macroquad::prelude::*;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 const CLOAK: Color = Color::new(0.27, 0.28, 0.33, 1.0);
 const HOOD: Color = Color::new(0.15, 0.16, 0.19, 1.0);
@@ -1730,18 +1732,55 @@ struct FighterVis {
     scarf_prev: [Vec2; 6],
 }
 
-pub struct Art {
+/// One map's pictures.
+#[derive(Clone)]
+struct MapArt {
     bg: Texture2D,
-    /// Every map's backdrop, built once at startup.
-    bgs: Vec<Texture2D>,
     /// What of the backdrop goes in front of its spotlight (the City's near towers), if any.
     front: Option<Texture2D>,
-    fronts: Vec<Option<Texture2D>>,
     terrain: Texture2D,
-    /// Every map's terrain, built once at startup (building one takes long enough to hitch, and
-    /// it used to happen right as a match's countdown began).
-    terrains: Vec<Texture2D>,
-    /// The map the terrain texture shows.
+}
+
+impl MapArt {
+    fn build(a: ArenaId) -> Self {
+        let (bg, front) = make_background(a);
+        Self { bg: tex(&bg), front: front.map(|f| tex(&f)), terrain: tex(&make_terrain(a)) }
+    }
+}
+
+/// Every map's pictures, each built the first time it's wanted and then kept. Building one takes
+/// long enough to hitch, so the client warms the ones it knows are coming (the room's map, and
+/// the rest one a frame in the menus) rather than all at startup, or as a countdown begins.
+/// Clones share the one cache, so every `Art` (the menus' and How to Play's) builds a map once.
+#[derive(Clone, Default)]
+pub struct Maps(Rc<RefCell<Vec<Option<MapArt>>>>);
+
+impl Maps {
+    fn get(&self, a: ArenaId) -> MapArt {
+        let mut maps = self.0.borrow_mut();
+        maps.resize(ArenaId::ALL.len(), None);
+        maps[a as usize].get_or_insert_with(|| MapArt::build(a)).clone()
+    }
+
+    /// Builds `a`'s pictures now, if they aren't yet.
+    pub fn warm(&self, a: ArenaId) {
+        self.get(a);
+    }
+
+    /// Builds one map not yet built, if any (for a frame with time to spare).
+    pub fn warm_next(&self) {
+        let next = ArenaId::ALL.into_iter().find(|&a| self.0.borrow().get(a as usize).is_none_or(Option::is_none));
+        if let Some(a) = next {
+            self.warm(a);
+        }
+    }
+}
+
+pub struct Art {
+    maps: Maps,
+    /// The pictures of the map being drawn.
+    map: MapArt,
+    /// The map being drawn.
     arena: ArenaId,
     vignette: Texture2D,
     stain_img: Image,
@@ -1776,20 +1815,15 @@ fn tex(img: &Image) -> Texture2D {
 }
 
 impl Art {
-    pub fn new() -> Self {
-        let terrains: Vec<Texture2D> = ArenaId::ALL.iter().map(|a| tex(&make_terrain(*a))).collect();
-        let (bgs, fronts): (Vec<Texture2D>, Vec<Option<Texture2D>>) = ArenaId::ALL.iter().map(|&a| make_background(a)).map(|(b, f)| (tex(&b), f.map(|f| tex(&f)))).unzip();
+    /// Draws with the map pictures in `maps` (building them there as they're wanted).
+    pub fn new(maps: &Maps) -> Self {
         let stain_img = Image::gen_image_color(W as u16, H as u16, Color::new(0.0, 0.0, 0.0, 0.0));
         let rain = (0..200)
             .map(|i| Drop { pos: vec2(hash(i, 0, 1) * W, hash(i, 1, 1) * H), speed: 200.0 + hash(i, 2, 1) * 120.0 })
             .collect();
         Self {
-            bg: bgs[ArenaId::default() as usize].clone(),
-            bgs,
-            front: fronts[ArenaId::default() as usize].clone(),
-            fronts,
-            terrain: terrains[ArenaId::default() as usize].clone(),
-            terrains,
+            map: maps.get(ArenaId::default()),
+            maps: maps.clone(),
             arena: ArenaId::default(),
             vignette: tex(&make_vignette()),
             stain_tex: tex(&stain_img),
@@ -1820,13 +1854,11 @@ impl Art {
         }
     }
 
-    /// Draws `arena`'s platforms from now on (rebuilding the terrain if it changed).
+    /// Draws `arena` from now on (building its pictures if they aren't yet).
     pub fn set_arena(&mut self, arena: ArenaId) {
         if arena != self.arena {
             self.arena = arena;
-            self.terrain = self.terrains[arena as usize].clone();
-            self.bg = self.bgs[arena as usize].clone();
-            self.front = self.fronts[arena as usize].clone();
+            self.map = self.maps.get(arena);
             self.reset();
         }
     }
@@ -2179,9 +2211,9 @@ impl Art {
             let part = self.stain_img.sub_image(Rect::new(x0 as f32, y0 as f32, w as f32, h as f32));
             self.stain_tex.update_part(&part, x0 as i32, y0 as i32, w as i32, h as i32);
         }
-        draw_texture(&self.bg, 0.0, 0.0, WHITE);
+        draw_texture(&self.map.bg, 0.0, 0.0, WHITE);
         // The City's spotlight sweeps the sky behind its near towers.
-        if let Some(front) = &self.front {
+        if let Some(front) = &self.map.front {
             draw_spotlight(self.time);
             draw_texture(front, 0.0, 0.0, WHITE);
         }
@@ -2189,7 +2221,7 @@ impl Art {
         for d in self.rain.iter().filter(|_| self.arena != ArenaId::Desktop) {
             draw_line(d.pos.x, d.pos.y, d.pos.x + 0.6, d.pos.y - 4.0, 1.0, Color::new(0.55, 0.62, 0.72, 0.22));
         }
-        draw_texture(&self.terrain, 0.0, 0.0, WHITE);
+        draw_texture(&self.map.terrain, 0.0, 0.0, WHITE);
         draw_texture(&self.stain_tex, 0.0, 0.0, WHITE);
         if let Some(c) = m.config.campfire_area() {
             draw_campfire(&c, self.time);

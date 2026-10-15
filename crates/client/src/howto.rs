@@ -3,7 +3,7 @@
 //! going after the one standing next to him. Drawn whole into its own picture; the popup shows
 //! the two parts of it (`ITEMS_VIEW`, `SPECIAL_VIEW`).
 
-use go_box_render::Art;
+use go_box_render::{Art, Maps};
 use go_box_sim::brain::Brain;
 use go_box_sim::character::Character;
 use go_box_sim::sim::{Action, DT, Event, FLOOR_Y, H, ITEM_R, Item, ItemKind, Match, MatchConfig, N_FIGHTERS, TICK_RATE, W};
@@ -36,10 +36,10 @@ pub struct HowTo {
 }
 
 impl HowTo {
-    pub fn new() -> Self {
+    pub fn new(maps: &Maps) -> Self {
         let rt = render_target(W as u32, H as u32);
         rt.texture.set_filter(FilterMode::Nearest);
-        Self { m: Self::fresh(), art: Art::new(), brain: Brain { w: vec![0.0; Brain::N_WEIGHTS] }, acc: 0.0, rt }
+        Self { m: Self::fresh(), art: Art::new(maps), brain: Brain { w: vec![0.0; Brain::N_WEIGHTS] }, acc: 0.0, rt }
     }
 
     fn fresh() -> Match {
