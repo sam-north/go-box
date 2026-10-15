@@ -2192,6 +2192,21 @@ mod tests {
     }
 
     #[test]
+    fn a_jump_from_the_floor_lands_inside_the_desktops_chat_window() {
+        let (mut m, z) = quiet_match();
+        m.config.arena = ArenaId::Desktop;
+        let chat = crate::arena::DESKTOP_WINDOWS[1];
+        let bottom = chat.y + chat.h - crate::arena::WINDOW_BAR;
+        m.f[0].pos = vec2(chat.x + chat.w / 2.0, FLOOR_Y);
+        let mut inside = false;
+        for t in 0..90 {
+            m.step_with([&z; N_FIGHTERS], Some((0, Action { jump: t < 30, ..Action::default() })));
+            inside |= m.f[0].grounded && m.f[0].pos.y == bottom;
+        }
+        assert!(inside, "landed on its bottom edge, inside (ended at {})", m.f[0].pos);
+    }
+
+    #[test]
     fn the_forests_campfire_burns_whoever_stands_in_it_all_match() {
         let (mut m, z) = quiet_match();
         m.config.arena = ArenaId::Forest;

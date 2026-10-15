@@ -171,7 +171,7 @@ const FOREST: Arena = Arena {
 /// (The chat is tall and narrow, up under the notification: climbing it takes wall jumps.)
 pub const DESKTOP_WINDOWS: [Aabb; 6] = [
     Aabb::new(250.0, 178.0, 120.0, 50.0),
-    Aabb::new(409.0, 72.0, 60.0, 139.0),
+    Aabb::new(409.0, 72.0, 60.0, 147.0),
     Aabb::new(24.0, 172.0, 150.0, 44.0),
     Aabb::new(40.0, 90.0, 116.0, 52.0),
     Aabb::new(256.0, 98.0, 90.0, 46.0),
@@ -187,7 +187,7 @@ const DESKTOP: Arena = Arena {
         Aabb::new(250.0, 178.0, 120.0, 5.0),
         Aabb::new(250.0, 223.0, 120.0, 5.0),
         Aabb::new(409.0, 72.0, 60.0, 5.0),
-        Aabb::new(409.0, 206.0, 60.0, 5.0),
+        Aabb::new(409.0, 214.0, 60.0, 5.0),
         Aabb::new(24.0, 172.0, 150.0, 5.0),
         Aabb::new(24.0, 211.0, 150.0, 5.0),
         Aabb::new(40.0, 90.0, 116.0, 5.0),
@@ -201,8 +201,8 @@ const DESKTOP: Arena = Arena {
     walls: &[
         Aabb::new(250.0, 183.0, 4.0, 40.0),
         Aabb::new(366.0, 183.0, 4.0, 40.0),
-        Aabb::new(409.0, 77.0, 4.0, 129.0),
-        Aabb::new(465.0, 77.0, 4.0, 129.0),
+        Aabb::new(409.0, 77.0, 4.0, 137.0),
+        Aabb::new(465.0, 77.0, 4.0, 137.0),
         Aabb::new(24.0, 177.0, 4.0, 34.0),
         Aabb::new(170.0, 177.0, 4.0, 34.0),
         Aabb::new(40.0, 95.0, 4.0, 42.0),
