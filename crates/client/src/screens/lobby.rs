@@ -73,7 +73,9 @@ fn place_icon(ui: &Ui, place: usize, c: Vec2) {
             draw_circle(c.x - r * 0.3, c.y - r * 0.3, r * 0.22, Color::new(1.0, 1.0, 1.0, 0.8));
         }
         None => {
-            // A sad face: yellow, two eyes, a frown.
+            // A sad face: yellow, two eyes, a frown. (No ribbon above it, so a little higher, level
+            // with the text.)
+            let c = c - vec2(0.0, r * 0.5);
             draw_circle(c.x, c.y, r, Color::new(0.95, 0.80, 0.25, 1.0));
             let dark = Color::new(0.20, 0.14, 0.05, 1.0);
             draw_circle(c.x - r * 0.35, c.y - r * 0.25, r * 0.13, dark);
@@ -155,7 +157,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
             let cells = [seat_name(&s.name, s.character, s.bot), character_name(s.character).to_string(), s.kills.to_string(), s.headshots.to_string(), format!("{:.0}", s.damage_dealt), fate];
             let places = [t("lobby.place_1"), t("lobby.place_2"), t("lobby.place_3"), t("lobby.place_4")];
             // A medal for the top three (gold, silver, bronze) and a sad face for last, then the place.
-            place_icon(ui, place, vec2(r.x + pad + ui.px(7.0), y - ui.px(6.0)));
+            place_icon(ui, place, vec2(r.x + pad + ui.px(7.0), y - ui.px(2.0)));
             if let Some(p) = places.get(place) {
                 ui.text(p, r.x + pad + ui.px(18.0), y, 18.0, if place == 0 { ACCENT } else { DIM });
             }
@@ -214,7 +216,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
         let bx = r.x + pad + ui.px(72.0);
         if leader {
             let bw = ui.px(64.0);
-            for (k, (label, f)) in [(t("lobby.fill_bot"), SeatFill::Bot), (t("lobby.fill_none"), SeatFill::Empty)].into_iter().enumerate() {
+            for (k, (label, f)) in [(t("lobby.fill_none"), SeatFill::Empty), (t("lobby.fill_bot"), SeatFill::Bot)].into_iter().enumerate() {
                 let br = Rect::new(bx + k as f32 * (bw + ui.px(6.0)), py - ui.px(20.0), bw, ui.px(26.0));
                 if ui.button(br, label, true, if fill == f { ACCENT } else { ui::EDGE }) && fill != f {
                     app.send(ClientMsg::SetSeatFill { seat: seat as u8, fill: f });

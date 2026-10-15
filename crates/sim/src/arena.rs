@@ -7,6 +7,8 @@
 //! in the client's text files. Platforms should be 36-40px apart vertically (a full jump
 //! clears ~48) and at least 3px from the walls; the bots were trained on the "Tiers"-style
 //! layout, so very different shapes may confuse them.
+//! The client shades every map's backdrop around its ledges and walls (`make_background` in the
+//! render crate) so they stand out; a new backdrop gets that for free.
 
 use crate::sim::{Aabb, N_FIGHTERS};
 use serde::{Deserialize, Serialize};

@@ -741,11 +741,38 @@ fn solid_px(a: &Arena, x: i32, y: i32) -> bool {
     is_stone(x, y) || is_metal(a, x, y) || is_girder(a, x, y)
 }
 
-/// What's behind a map: dim industrial pipes, or (the City) a night skyline.
+/// What's behind a map: dim industrial pipes, or (the City) a night skyline. Every map's
+/// backdrop is shaded around its ledges and walls, so what you can stand on reads at a glance.
 fn make_background(arena: ArenaId) -> Image {
-    if arena == ArenaId::Bridges {
-        return make_skyline(arena.def());
+    let mut img = if arena == ArenaId::Bridges {
+        let mut img = make_skyline();
+        draw_scaffold(&mut img, arena.def());
+        img
+    } else {
+        make_pipes()
+    };
+    shade_ledges(&mut img, arena.def());
+    img
+}
+
+/// A soft shadow on the backdrop just around each ledge and wall (darkest right at its edge).
+fn shade_ledges(img: &mut Image, a: &Arena) {
+    const REACH: f32 = 3.0;
+    for y in 0..H as u32 {
+        for x in 0..W as u32 {
+            let p = vec2(x as f32 + 0.5, y as f32 + 0.5);
+            let near = a.platforms.iter().chain(a.walls).map(|s| vec2(p.x.clamp(s.x, s.x + s.w), p.y.clamp(s.y, s.y + s.h)).distance(p)).fold(f32::MAX, f32::min);
+            if near < REACH {
+                let k = 0.6 + 0.4 * (near / REACH);
+                let c = img.get_pixel(x, y);
+                img.set_pixel(x, y, Color::new(c.r * k, c.g * k, c.b * k, c.a));
+            }
+        }
     }
+}
+
+/// Dim industrial pipes, vines and grime.
+fn make_pipes() -> Image {
     let mut img = Image::gen_image_color(W as u16, H as u16, BLACK);
     // Laid out on a 320x180 grid, stretched to the arena.
     let (sx, sy) = (W / 320.0, H / 180.0);
@@ -800,7 +827,7 @@ fn make_background(arena: ArenaId) -> Image {
 
 /// The City's backdrop: a night sky glowing warm toward the street, stars and a moon, and two
 /// rows of towers (the far one hazy) with lit windows.
-fn make_skyline(a: &Arena) -> Image {
+fn make_skyline() -> Image {
     let mut img = Image::gen_image_color(W as u16, H as u16, BLACK);
     let (moon, moon_r) = (vec2(64.0, 40.0), 13.0);
     // A row of towers: (top of the tower over column x, where it starts, how wide).
@@ -861,27 +888,123 @@ fn make_skyline(a: &Arena) -> Image {
                     }
                 }
             }
-            // A night haze over it all (so the towers stay behind the fight), and a shadow around
-            // the ledges and pillars so they stand out from the windows.
+            // A night haze over it all, so the towers stay behind the fight.
             let fog = 0.38;
             (r, g, b) = (r * (1.0 - fog) + 18.0 * fog, g * (1.0 - fog) + 20.0 * fog, b * (1.0 - fog) + 30.0 * fog);
-            let p = vec2(fx + 0.5, fy + 0.5);
-            let near = a.platforms.iter().chain(a.walls).map(|s| vec2(p.x.clamp(s.x, s.x + s.w), p.y.clamp(s.y, s.y + s.h)).distance(p)).fold(f32::MAX, f32::min);
-            if near < 5.0 {
-                let k = 0.35 + 0.65 * (near / 5.0);
-                (r, g, b) = (r * k, g * k, b * k);
-            }
             img.set_pixel(x, y, dither(x, y, r, g, b));
         }
     }
     img
 }
 
-fn make_terrain(a: &Arena) -> Image {
+/// The City's ledges and walls, one pixel: None if (x, y) isn't one of them; Some(None) for a
+/// pixel left clear (between a chute's sections); else its colour (0..255).
+fn city_px(a: &Arena, x: i32, y: i32) -> Option<Option<(f32, f32, f32)>> {
+    let p = vec2(x as f32 + 0.5, y as f32 + 0.5);
+    if let Some(s) = a.platforms.iter().find(|s| s.contains(p)) {
+        // Scaffolding: wooden boards, seams every 16px, on a steel tube with clamps.
+        let (lx, d) = (x - s.x as i32, y - s.y as i32);
+        let end = lx == 0 || lx == s.w as i32 - 1;
+        let seam = lx % 16 == 0;
+        let grain = hash(x / 3, y, 71) * 12.0 - 6.0;
+        let (mut r, mut g, mut b) = match d {
+            0 => (158.0, 114.0, 68.0),
+            1 | 2 => (122.0 + grain, 84.0 + grain * 0.7, 46.0),
+            3 => (82.0, 56.0, 32.0),
+            _ if lx % 16 <= 1 => (146.0, 150.0, 156.0),
+            _ => (88.0, 96.0, 108.0),
+        };
+        if seam && d < 4 {
+            (r, g, b) = (r * 0.55, g * 0.55, b * 0.55);
+        }
+        if end {
+            (r, g, b) = (r * 0.7, g * 0.7, b * 0.7);
+        }
+        return Some(Some((r, g, b)));
+    }
+    if let Some(s) = a.walls.iter().find(|s| s.contains(p)) {
+        // A trash chute: stacked orange plastic sections, each a little narrower at its top (so
+        // the one above sits in it), a steel bracket where it hangs, a dark open mouth below.
+        let (lx, d, w, h) = (x - s.x as i32, y - s.y as i32, s.w as i32, s.h as i32);
+        if d < 3 {
+            let (r, g, b) = if d == 0 { (130.0, 136.0, 144.0) } else { (78.0, 84.0, 94.0) };
+            return Some(Some((r, g, b)));
+        }
+        let seg = (d - 3) % 10;
+        if seg == 0 && (lx == 0 || lx == w - 1) {
+            return Some(None);
+        }
+        let (mut r, mut g, mut b) = (200.0, 118.0, 36.0);
+        if seg <= 1 {
+            (r, g, b) = (150.0, 84.0, 26.0);
+        } else if seg == 9 {
+            (r, g, b) = (226.0, 146.0, 56.0);
+        }
+        if d >= h - 2 && lx > 1 && lx < w - 2 {
+            (r, g, b) = (24.0, 18.0, 14.0);
+        }
+        if lx <= 1 {
+            (r, g, b) = (r + 26.0, g + 22.0, b + 14.0);
+        } else if lx == w - 1 {
+            (r, g, b) = (r * 0.55, g * 0.55, b * 0.55);
+        }
+        return Some(Some((r, g, b)));
+    }
+    None
+}
+
+/// Behind the City's ledges: the scaffold they're part of, faint, steel poles down to whatever
+/// is under them, with a brace across each bay.
+fn draw_scaffold(img: &mut Image, a: &Arena) {
+    let mut tint = |x: i32, y: i32, c: (f32, f32, f32), k: f32| {
+        if x < 0 || y < 0 || x >= W as i32 || y >= H as i32 {
+            return;
+        }
+        let o = img.get_pixel(x as u32, y as u32);
+        let mix = |o: f32, c: f32| o * (1.0 - k) + c / 255.0 * k;
+        img.set_pixel(x as u32, y as u32, Color::new(mix(o.r, c.0), mix(o.g, c.1), mix(o.b, c.2), 1.0));
+    };
+    let pole = (60.0, 64.0, 72.0);
+    for s in a.platforms {
+        let top = s.y + s.h;
+        let mut xs: Vec<f32> = vec![s.x + 2.0];
+        let n = ((s.w - 5.0) / 44.0).ceil().max(1.0) as usize;
+        for k in 1..=n {
+            xs.push(s.x + 2.0 + (s.w - 5.0) * k as f32 / n as f32);
+        }
+        // Down to the ledge below it, or the floor.
+        let foot = |x: f32| a.platforms.iter().filter(|q| q.y > s.y && x >= q.x && x < q.x + q.w).map(|q| q.y).fold(FLOOR_Y, f32::min);
+        for &x in &xs {
+            for y in top as i32..foot(x) as i32 {
+                tint(x as i32, y, pole, 0.55);
+            }
+        }
+        for pair in xs.windows(2) {
+            let (x0, x1) = (pair[0], pair[1]);
+            let bottom = foot(x0).min(foot(x1));
+            let drop = (bottom - top).min(x1 - x0);
+            for i in 0..(x1 - x0) as i32 {
+                let y = top + drop * i as f32 / (x1 - x0);
+                tint(x0 as i32 + i, y as i32, pole, 0.4);
+            }
+        }
+    }
+}
+
+fn make_terrain(arena: ArenaId) -> Image {
+    let a = arena.def();
+    // (The City has its own ledges and walls: scaffolding and trash chutes.)
+    let city = arena == ArenaId::Bridges;
     let mut img = Image::gen_image_color(W as u16, H as u16, Color::new(0.0, 0.0, 0.0, 0.0));
     for y in 0..H as i32 {
         for x in 0..W as i32 {
             let (ux, uy) = (x as u32, y as u32);
+            if city && let Some(c) = city_px(a, x, y) {
+                if let Some((r, g, b)) = c {
+                    img.set_pixel(ux, uy, dither(ux, uy, r, g, b));
+                }
+                continue;
+            }
             if is_stone(x, y) {
                 let row = y / 5;
                 let off = (row % 2) * 5;
@@ -1115,7 +1238,7 @@ fn tex(img: &Image) -> Texture2D {
 
 impl Art {
     pub fn new() -> Self {
-        let terrains: Vec<Texture2D> = ArenaId::ALL.iter().map(|a| tex(&make_terrain(a.def()))).collect();
+        let terrains: Vec<Texture2D> = ArenaId::ALL.iter().map(|a| tex(&make_terrain(*a))).collect();
         let bgs: Vec<Texture2D> = ArenaId::ALL.iter().map(|&a| tex(&make_background(a))).collect();
         let stain_img = Image::gen_image_color(W as u16, H as u16, Color::new(0.0, 0.0, 0.0, 0.0));
         let rain = (0..200)

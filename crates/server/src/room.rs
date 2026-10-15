@@ -281,6 +281,10 @@ impl Room {
             }
             ClientMsg::SetSeatFill { seat, fill } if is_leader && lobby => {
                 if let Some(f) = self.fills.get_mut(seat as usize) {
+                    // A bot brought back from nobody starts out random again.
+                    if *f == SeatFill::Empty && fill == SeatFill::Bot {
+                        self.bots[seat as usize] = None;
+                    }
                     *f = fill;
                     self.broadcast_room();
                 }
@@ -502,6 +506,15 @@ mod tests {
         // Settings can't change mid-match.
         r.on_msg(1, ClientMsg::SetSeatFill { seat: 2, fill: SeatFill::Empty });
         assert_eq!(r.fills[2], SeatFill::Bot);
+        // The pick stays from match to match, until the seat goes to nobody and back to a bot:
+        // then it's random again.
+        r.running = None;
+        r.on_msg(1, ClientMsg::SetSeatFill { seat: 2, fill: SeatFill::Bot });
+        assert_eq!(r.bots[2], Some(Character::Vid), "already a bot: kept");
+        r.on_msg(1, ClientMsg::SetSeatFill { seat: 2, fill: SeatFill::Empty });
+        assert_eq!(r.bots[2], Some(Character::Vid));
+        r.on_msg(1, ClientMsg::SetSeatFill { seat: 2, fill: SeatFill::Bot });
+        assert_eq!(r.bots[2], None, "back from nobody: random");
     }
 
     #[test]
