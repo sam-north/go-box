@@ -83,9 +83,16 @@ mod tests {
             if let Some(s) = c.special() {
                 keys.insert(format!("special.{}", s.id()));
             }
+            if let Some(p) = c.passive() {
+                keys.insert(format!("passive.{}", p.id()));
+            }
         }
         for a in go_box_sim::sim::ArenaId::ALL {
             keys.insert(format!("arena.{}", a.id()));
+        }
+        // Every special there is (Ryan can pick up any of them, whoever else has it).
+        for s in go_box_sim::character::ALL_SPECIALS {
+            keys.insert(format!("special.{}", s.id()));
         }
         for r in Refusal::ALL {
             keys.insert(format!("refusal.{}", r.id()));

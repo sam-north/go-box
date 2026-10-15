@@ -36,8 +36,9 @@ const DOG_DARK: Color = Color::new(0.28, 0.19, 0.12, 1.0);
 const RICE: Color = Color::new(0.96, 0.95, 0.90, 1.0);
 /// Jake's hologram light, and how long the beam lasts going into or out of the phone.
 const HOLO: Color = Color::new(0.35, 0.95, 1.0, 1.0);
-/// Kyle's pin glow, and Robert's lightning.
-const PIN: Color = Color::new(0.55, 1.0, 0.75, 1.0);
+/// Michelle's colour, and her freeze's glow (a little paler); Robert's lightning.
+const MICHELLE: Color = Color::new(0.45, 0.40, 1.0, 1.0);
+const PIN: Color = Color::new(0.66, 0.62, 1.0, 1.0);
 const BOLT: Color = Color::new(0.75, 0.85, 1.0, 1.0);
 const HOLO_PINK: Color = Color::new(1.0, 0.45, 0.85, 1.0);
 /// Vid's falling code.
@@ -130,6 +131,8 @@ pub struct Look {
     pub belt: bool,
     pub beaver_suit: bool,
     pub mustache: bool,
+    pub backwards_cap: Option<Color>,
+    pub grey_flecks: bool,
 }
 
 /// How hair is cut (drawn over a bare head).
@@ -177,13 +180,17 @@ pub struct CharacterArt {
     pub beaver_suit: bool,
     /// A light mustache under the nose (Matt).
     pub mustache: bool,
+    /// A ballcap worn backwards, in this colour (Kyle).
+    pub backwards_cap: Option<Color>,
+    /// Salt-and-pepper: flecks of grey through the hair and beard (Shawn).
+    pub grey_flecks: bool,
     /// Played when it uses its special (None: the special's own effects make the sound).
     pub special_sound: Option<Sfx>,
 }
 
 pub fn art(c: Character) -> &'static CharacterArt {
     match c {
-        Character::Classic => &CharacterArt { color: None, body: CLOAK, legs: [HOOD, CLOAK], arms: HOOD, hair: None, headband: false, skin: SKIN, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false, stubble: None, belt: false, beaver_suit: false, mustache: false, special_sound: None },
+        Character::Classic => &CharacterArt { color: None, body: CLOAK, legs: [HOOD, CLOAK], arms: HOOD, hair: None, headband: false, skin: SKIN, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false, stubble: None, belt: false, beaver_suit: false, mustache: false, backwards_cap: None, grey_flecks: false, special_sound: None },
         // Brown hair and stubble, green-grey jacket; forest green.
         Character::Sam => {
             const ART: CharacterArt = CharacterArt {
@@ -202,6 +209,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: false,
                 beaver_suit: false,
                 mustache: false,
+                backwards_cap: None,
+                grey_flecks: false,
                 special_sound: Some(Sfx::GlueShot),
             };
             &ART
@@ -224,6 +233,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: false,
                 beaver_suit: false,
                 mustache: false,
+                backwards_cap: None,
+                grey_flecks: false,
                 special_sound: None,
             };
             &ART
@@ -246,6 +257,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: false,
                 beaver_suit: false,
                 mustache: false,
+                backwards_cap: None,
+                grey_flecks: false,
                 special_sound: Some(Sfx::Hounds),
             };
             &ART
@@ -268,6 +281,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: false,
                 beaver_suit: false,
                 mustache: false,
+                backwards_cap: None,
+                grey_flecks: false,
                 special_sound: Some(Sfx::Split),
             };
             &ART
@@ -290,6 +305,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: false,
                 beaver_suit: false,
                 mustache: false,
+                backwards_cap: None,
+                grey_flecks: false,
                 special_sound: Some(Sfx::Meow),
             };
             &ART
@@ -312,6 +329,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: false,
                 beaver_suit: false,
                 mustache: false,
+                backwards_cap: None,
+                grey_flecks: false,
                 special_sound: Some(Sfx::Serve),
             };
             &ART
@@ -334,6 +353,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: false,
                 beaver_suit: false,
                 mustache: false,
+                backwards_cap: None,
+                grey_flecks: false,
                 special_sound: Some(Sfx::ChainThrow),
             };
             &ART
@@ -356,11 +377,13 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: false,
                 beaver_suit: false,
                 mustache: false,
+                backwards_cap: None,
+                grey_flecks: false,
                 special_sound: Some(Sfx::Thunder),
             };
             &ART
         }
-        // Dirty-blonde hair and stubble, a tidy polo; mint.
+        // Dirty-blonde hair and stubble under a backwards ballcap, a tidy polo; mint.
         Character::Kyle => {
             const ART: CharacterArt = CharacterArt {
                 color: Some(Color::new(0.45, 0.95, 0.70, 1.0)),
@@ -378,7 +401,9 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: false,
                 beaver_suit: false,
                 mustache: false,
-                special_sound: Some(Sfx::Organize),
+                backwards_cap: Some(rgb(36, 88, 70)),
+                grey_flecks: false,
+                special_sound: Some(Sfx::Backlog),
             };
             &ART
         }
@@ -401,6 +426,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: false,
                 beaver_suit: false,
                 mustache: false,
+                backwards_cap: None,
+                grey_flecks: false,
                 special_sound: Some(Sfx::BookOpen),
             };
             &ART
@@ -423,6 +450,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: false,
                 beaver_suit: false,
                 mustache: false,
+                backwards_cap: None,
+                grey_flecks: false,
                 special_sound: None,
             };
             &ART
@@ -445,6 +474,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: true,
                 beaver_suit: false,
                 mustache: false,
+                backwards_cap: None,
+                grey_flecks: false,
                 special_sound: Some(Sfx::JudoGrab),
             };
             &ART
@@ -468,6 +499,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: false,
                 beaver_suit: false,
                 mustache: false,
+                backwards_cap: None,
+                grey_flecks: false,
                 special_sound: Some(Sfx::Flex),
             };
             &ART
@@ -491,6 +524,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: false,
                 beaver_suit: true,
                 mustache: false,
+                backwards_cap: None,
+                grey_flecks: false,
                 special_sound: Some(Sfx::Bugs),
             };
             &ART
@@ -514,6 +549,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: false,
                 beaver_suit: false,
                 mustache: true,
+                backwards_cap: None,
+                grey_flecks: false,
                 special_sound: Some(Sfx::Skate),
             };
             &ART
@@ -537,6 +574,8 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: false,
                 beaver_suit: false,
                 mustache: false,
+                backwards_cap: None,
+                grey_flecks: false,
                 special_sound: Some(Sfx::Tornado),
             };
             &ART
@@ -560,7 +599,59 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 belt: false,
                 beaver_suit: false,
                 mustache: false,
+                backwards_cap: None,
+                grey_flecks: false,
                 // (Each call of the arrow whistles; see `Event::ArrowCall`.)
+                special_sound: None,
+            };
+            &ART
+        }
+        // Long straight brown hair, a soft lavender cardigan; storm indigo. (Her freeze glows in
+        // it, and an eye opens over her as she casts it.)
+        Character::Michelle => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(MICHELLE),
+                body: rgb(176, 160, 200),
+                legs: [rgb(44, 46, 62), rgb(58, 60, 80)],
+                arms: rgb(162, 146, 188),
+                hair: Some(rgb(112, 74, 46)),
+                headband: false,
+                skin: SKIN,
+                hair_style: HairStyle::Long,
+                beard: false,
+                glasses: false,
+                goatee: false,
+                stubble: None,
+                belt: false,
+                beaver_suit: false,
+                mustache: false,
+                backwards_cap: None,
+                grey_flecks: false,
+                special_sound: Some(Sfx::Freeze),
+            };
+            &ART
+        }
+        // Short black hair going grey and a full beard to match (salt and pepper), a long black
+        // coat; silver.
+        Character::Shawn => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(Color::new(0.80, 0.82, 0.88, 1.0)),
+                body: rgb(30, 32, 34),
+                legs: [rgb(22, 24, 26), rgb(34, 36, 38)],
+                arms: rgb(38, 40, 42),
+                hair: Some(rgb(48, 46, 46)),
+                headband: false,
+                skin: SKIN,
+                hair_style: HairStyle::Short,
+                beard: true,
+                glasses: false,
+                goatee: false,
+                stubble: None,
+                belt: false,
+                beaver_suit: false,
+                mustache: false,
+                backwards_cap: None,
+                grey_flecks: true,
                 special_sound: None,
             };
             &ART
@@ -570,13 +661,23 @@ pub fn art(c: Character) -> &'static CharacterArt {
 
 /// The colour that stands for a character in menus and the HUD (a neutral grey for one that
 /// wears its seat's colour).
+/// The sound fighter `f`'s special makes: their character's, or for one Ryan picked up
+/// (Hobbyist), the sound of whoever has it (his old chain if nobody does).
+pub fn special_sound(f: &Fighter) -> Option<Sfx> {
+    let Some(sp) = f.special().filter(|_| f.hobby.is_some()) else { return art(f.character).special_sound };
+    match Character::ALL.into_iter().find(|c| c.special().is_some_and(|s| s.id() == sp.id())) {
+        Some(c) => art(c).special_sound,
+        None => Some(Sfx::ChainThrow),
+    }
+}
+
 pub fn character_color(c: Character) -> Color {
     art(c).color.unwrap_or(Color::new(0.62, 0.64, 0.70, 1.0))
 }
 
 pub fn look(c: Character, seat: usize) -> Look {
     let a = art(c);
-    Look { body: a.body, legs: a.legs, arms: a.arms, hair: a.hair, accent: a.color.unwrap_or(ACCENTS[seat]), headband: a.headband, skin: a.skin, hair_style: a.hair_style, beard: a.beard, glasses: a.glasses, goatee: a.goatee, stubble: a.stubble, belt: a.belt, beaver_suit: a.beaver_suit, mustache: a.mustache }
+    Look { body: a.body, legs: a.legs, arms: a.arms, hair: a.hair, accent: a.color.unwrap_or(ACCENTS[seat]), headband: a.headband, skin: a.skin, hair_style: a.hair_style, beard: a.beard, glasses: a.glasses, goatee: a.goatee, stubble: a.stubble, belt: a.belt, beaver_suit: a.beaver_suit, mustache: a.mustache, backwards_cap: a.backwards_cap, grey_flecks: a.grey_flecks }
 }
 
 const fn rgb(r: u8, g: u8, b: u8) -> Color {
@@ -773,8 +874,8 @@ fn make_vignette() -> Image {
 enum Visual {
     /// Robert's bolts, from his hand to each foe they struck.
     Bolts(Lightning),
-    /// Kyle's organize, and whose (his glow is drawn on him).
-    Order(Order, usize),
+    /// Michelle's Eye of the Storm, and whose (the eye is drawn over her).
+    Eye(Freeze, usize),
     /// Carrie's laptop, and whose (it's drawn in her hands).
     Laptop(Laptop, usize),
     /// One of Travis's steps, rippling out.
@@ -786,7 +887,7 @@ impl Visual {
     fn lifetime(&self) -> f32 {
         (match self {
             Visual::Bolts(_) => LIGHTNING_TICKS,
-            Visual::Order(..) => PIN_TICKS,
+            Visual::Eye(..) => PIN_TICKS,
             Visual::Laptop(..) => LAPTOP_TICKS,
             Visual::Quake(_) => QUAKE_TICKS,
         }) as f32
@@ -795,7 +896,7 @@ impl Visual {
     fn set_ticks(&mut self, t: u32) {
         match self {
             Visual::Bolts(l) => l.ticks = t,
-            Visual::Order(o, _) => o.ticks = t,
+            Visual::Eye(o, _) => o.ticks = t,
             Visual::Laptop(l, _) => l.ticks = t,
             Visual::Quake(q) => q.ticks = t,
         }
@@ -811,8 +912,8 @@ struct Lightning {
     ticks: u32,
 }
 
-/// Kyle's organize: where he cast it (the shockwave starts there).
-struct Order {
+/// Michelle's Eye of the Storm: where she cast it (the shockwave starts there).
+struct Freeze {
     at: Vec2,
     ticks: u32,
 }
@@ -1054,6 +1155,10 @@ impl Art {
                     let radius = if big { QUAKE_BIG_R } else { QUAKE_R };
                     self.visuals.push((Visual::Quake(Quake { at: pos, radius, ticks: QUAKE_TICKS }), QUAKE_TICKS as f32));
                 }
+                Event::BacklogBurst { pos } => {
+                    // Paperwork everywhere.
+                    self.burst(pos + vec2(0.0, -12.0), vec2(0.0, -1.0), 6.3, 18, PAGE, false, 90.0, 0.6, 200.0);
+                }
                 Event::Blocked { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 10, EYE_GLOW, false, 60.0, 0.25, 0.0);
                 }
@@ -1072,8 +1177,8 @@ impl Art {
                         }
                     }
                 }
-                Event::Organize { who, at } => {
-                    let v = Visual::Order(Order { at, ticks: PIN_TICKS }, who);
+                Event::EyeOfTheStorm { who, at } => {
+                    let v = Visual::Eye(Freeze { at, ticks: PIN_TICKS }, who);
                     let left = v.lifetime();
                     self.visuals.push((v, left));
                 }
@@ -1304,12 +1409,19 @@ impl Art {
         for e in &m.effects {
             match e {
                 Effect::Glue(g) => draw_glue(g, m, self.time),
-                Effect::Pet(p) => match p.breed {
-                    Breed::Hound => draw_dog(p),
-                    Breed::Cat(coat) => draw_cat(p, coat),
-                    Breed::Spider(_) => draw_spider(p),
-                    Breed::Fly(k) => draw_fly(p, k, self.time),
-                },
+                Effect::Pet(p) => {
+                    // Frozen by Michelle: a ring of her glow at its feet.
+                    if p.frozen > 0 {
+                        let fade = (p.frozen as f32 / 20.0).min(1.0);
+                        ellipse_outline(p.pos.x, p.pos.y - 0.5, 5.0, 2.0, 1.0, Color::new(PIN.r, PIN.g, PIN.b, 0.9 * fade));
+                    }
+                    match p.breed {
+                        Breed::Hound => draw_dog(p),
+                        Breed::Cat(coat) => draw_cat(p, coat),
+                        Breed::Spider(_) => draw_spider(p),
+                        Breed::Fly(k) => draw_fly(p, k, self.time),
+                    }
+                }
                 Effect::Table(t) => draw_table(t),
                 Effect::Chain(c) => draw_chain(c, chain_anchor(&m.f[c.owner])),
                 Effect::Rocket(r) => draw_rocket(r, self.time),
@@ -1349,7 +1461,7 @@ impl Art {
             }
         }
 
-        // Kyle's pin: a glowing ring at the feet of everyone stuck. Tyler's haste and Matt's
+        // Michelle's freeze: a glowing ring at the feet of everyone stuck. Tyler's haste and Matt's
         // skateboard: speed streaks.
         for f in m.f.iter().filter(|f| f.present()) {
             if f.pinned > 0 {
@@ -1398,6 +1510,10 @@ impl Art {
                 draw_human(&self.vis[i], f, &look(f.character, i), flash);
             }
         }
+        // Kyle's backlog: his inbox over his head, piling up.
+        for f in m.f.iter().filter(|f| f.present() && f.backlog > 0) {
+            draw_inbox(f, self.time);
+        }
         // Vid reading: his shield, over him.
         for f in m.f.iter().filter(|f| f.present() && f.reading > 0) {
             draw_book_shield(f, self.time);
@@ -1410,7 +1526,7 @@ impl Art {
         for (v, _) in &self.visuals {
             match v {
                 Visual::Bolts(l) => draw_lightning(l, self.time),
-                Visual::Order(o, who) => draw_order(o, &m.f[*who], self.time),
+                Visual::Eye(o, who) => draw_eye(o, &m.f[*who], self.time),
                 Visual::Laptop(l, who) => draw_laptop(l, &m.f[*who], self.time),
                 // (Under the fighters, above.)
                 Visual::Quake(_) => {}
@@ -1620,7 +1736,7 @@ fn tumble(m: &Match, i: usize) -> Option<(f32, f32)> {
     Some((angle, if j.landed() { 5.0 * angle.sin().abs() } else { 0.0 }))
 }
 
-/// One of Travis's steps: like Kyle's pin glow but softer and in earth colours, a flat ring
+/// One of Travis's steps: like the freeze's ring but softer and in earth colours, a flat ring
 /// on the ground that runs out from his feet to exactly how far the step reaches, with tufts of
 /// moss and grit thrown up around its edge.
 fn draw_quake(q: &Quake, time: f32) {
@@ -1915,8 +2031,30 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
                 px(-1.0, 1.0, 4.0, 2.0, hair);
                 px(0.0, 3.0, 3.0, 1.0, hair);
             }
+            if look.grey_flecks {
+                // Salt and pepper: grey through the hair, at the temple and in the beard.
+                let grey = tint(Color::new(0.68, 0.68, 0.70, 1.0), flash);
+                px(-1.0, -3.0, 1.0, 1.0, grey);
+                px(1.0, -2.0, 1.0, 1.0, grey);
+                px(-3.0, -1.0, 1.0, 1.0, grey);
+                if look.beard {
+                    px(0.0, 2.0, 1.0, 1.0, grey);
+                    px(2.0, 1.0, 1.0, 1.0, grey);
+                    px(1.0, 3.0, 1.0, 1.0, grey);
+                }
+            }
             if look.headband {
                 draw_rectangle(hx - 2.0, hy - 2.0, 5.0, 1.0, tint(look.accent, flash));
+            }
+            if let Some(cap) = look.backwards_cap {
+                // A ballcap turned round: a tall crown over the top (lit on the front, a button on
+                // top), and the brim sticking well out behind his head.
+                let dark = tint(mix(cap, Color::new(0.0, 0.0, 0.0, 1.0), 0.4), flash);
+                px(-3.0, -5.0, 6.0, 3.0, tint(cap, flash));
+                px(0.0, -5.0, 2.0, 1.0, tint(mix(cap, Color::new(1.0, 1.0, 1.0, 1.0), 0.3), flash));
+                px(0.0, -6.0, 1.0, 1.0, dark);
+                px(-7.0, -3.0, 4.0, 1.0, dark);
+                px(-6.0, -2.0, 2.0, 1.0, dark);
             }
             if look.beaver_suit {
                 // Buc-ee's red cap, the brim out front, a spot of yellow badge on it.
@@ -1979,6 +2117,27 @@ fn draw_cat(c: &Pet, coat: u8) {
     draw_rectangle(hx + 1.0, y - 5.0, 1.0, 1.0, dark);
     let tx = if s > 0.0 { x - 3.0 } else { x + 2.0 };
     draw_rectangle(tx, y - 5.0 - stride, 1.0, 3.0, dark);
+}
+
+/// Kyle's backlog: an inbox tray over his head with a sheet of paper for everything he's put off,
+/// the stack shaking as it grows, and a bar of how long until it all goes.
+fn draw_inbox(f: &Fighter, time: f32) {
+    let (x, y) = (f.pos.x.round(), (f.pos.y - f.height() - 8.0).round());
+    let n = f.inbox.min(10) as f32;
+    let shake = if n >= 4.0 { ((time * 30.0).sin() * 0.5).round() } else { 0.0 };
+    // The tray.
+    draw_rectangle(x - 4.0, y, 9.0, 2.0, Color::new(0.42, 0.40, 0.36, 1.0));
+    draw_rectangle(x - 4.0, y - 1.0, 1.0, 1.0, Color::new(0.42, 0.40, 0.36, 1.0));
+    draw_rectangle(x + 4.0, y - 1.0, 1.0, 1.0, Color::new(0.42, 0.40, 0.36, 1.0));
+    // The pile, a sheet a thing, each a little askew.
+    for k in 0..n as i32 {
+        let off = if k % 2 == 0 { 0.0 } else { 1.0 } + shake;
+        let c = if k % 3 == 2 { Color::new(0.86, 0.84, 0.76, 1.0) } else { PAGE };
+        draw_rectangle(x - 3.0 + off, y - 1.0 - k as f32, 6.0, 1.0, c);
+    }
+    // Time left.
+    let left = f.backlog as f32 / BACKLOG_TICKS as f32;
+    draw_rectangle(x - 4.0, y + 3.0, (9.0 * left).ceil(), 1.0, Color::new(0.45, 0.95, 0.70, 0.9));
 }
 
 /// Vid's book, open in his hands: two pale pages in a dark cover, glowing faintly.
@@ -2142,9 +2301,9 @@ fn draw_lightning(l: &Lightning, time: f32) {
     draw_circle(l.from.x, l.from.y, 3.0, Color::new(1.0, 1.0, 1.0, 0.6 * fade));
 }
 
-/// Kyle's organize, on Kyle: a shockwave ring sweeping out across the arena as he casts it, then
-/// while it holds a pillar of light and little blocks orbiting him, so everyone sees who did it.
-fn draw_order(o: &Order, kyle: &Fighter, time: f32) {
+/// Michelle's Eye of the Storm: a shockwave ring sweeping out across the arena as she casts it,
+/// and while it holds, a great eye open over her, glowing, so everyone sees who did it.
+fn draw_eye(o: &Freeze, michelle: &Fighter, time: f32) {
     let t = (PIN_TICKS - o.ticks.min(PIN_TICKS)) as f32 * DT;
     let fade = (o.ticks as f32 * DT / 0.3).min(1.0);
     for (lag, width) in [(0.0, 2.0), (0.08, 1.0)] {
@@ -2153,28 +2312,35 @@ fn draw_order(o: &Order, kyle: &Fighter, time: f32) {
             draw_circle_lines(o.at.x, o.at.y, 8.0 + k * W, width, Color::new(PIN.r, PIN.g, PIN.b, 0.9 * (1.0 - k)));
         }
     }
-    if !kyle.present() {
+    if !michelle.present() {
         return;
     }
-    let c = kyle.center();
-    let pulse = 0.5 + 0.5 * (time * 6.0).sin();
-    draw_rectangle(c.x - 5.0, c.y - 40.0, 10.0, 40.0 + kyle.height() * 0.5, Color::new(PIN.r, PIN.g, PIN.b, (0.10 + 0.08 * pulse) * fade));
-    draw_rectangle(c.x - 2.0, c.y - 60.0, 4.0, 60.0 + kyle.height() * 0.5, Color::new(PIN.r, PIN.g, PIN.b, (0.12 + 0.1 * pulse) * fade));
-    draw_circle(c.x, c.y, 11.0 + pulse * 2.0, Color::new(PIN.r, PIN.g, PIN.b, 0.18 * fade));
-    draw_circle_lines(c.x, c.y, 11.0 + pulse * 2.0, 1.0, Color::new(PIN.r, PIN.g, PIN.b, 0.9 * fade));
-    for k in 0..4 {
-        let a = time * 3.0 + k as f32 * std::f32::consts::FRAC_PI_2;
-        let p = c + vec2(a.cos() * 13.0, a.sin() * 6.0);
-        draw_rectangle((p.x - 1.0).round(), (p.y - 1.0).round(), 2.0, 2.0, Color::new(1.0, 1.0, 1.0, fade));
-        draw_rectangle_lines((p.x - 2.0).round(), (p.y - 2.0).round(), 4.0, 4.0, 1.0, Color::new(PIN.r, PIN.g, PIN.b, fade));
+    // Opening over the first moment, closing as it ends.
+    let open = (t / 0.25).min(1.0).min(o.ticks as f32 * DT / 0.25);
+    let pulse = 0.5 + 0.5 * (time * 4.0).sin();
+    // (Up above her health bar and name, so it's never hidden.)
+    let c = vec2(michelle.pos.x, michelle.pos.y - 54.0);
+    let (w, h) = (9.0, 4.5 * open);
+    draw_circle(c.x, c.y, 9.0 + pulse, Color::new(PIN.r, PIN.g, PIN.b, (0.12 + 0.06 * pulse) * fade));
+    // A faint beam down to her.
+    draw_rectangle(c.x - 1.0, c.y + 4.0, 2.0, 34.0, Color::new(PIN.r, PIN.g, PIN.b, 0.15 * fade));
+    if h >= 0.5 {
+        fill_ellipse(c.x, c.y, w, h, Color::new(0.93, 0.92, 1.0, 0.95 * fade));
+        // The iris and pupil, looking out over the arena, and a glint.
+        let r = (2.8 * open).min(h);
+        draw_circle(c.x, c.y, r, Color::new(MICHELLE.r, MICHELLE.g, MICHELLE.b, fade));
+        draw_circle(c.x, c.y, r * 0.45, Color::new(0.05, 0.04, 0.12, fade));
+        draw_rectangle((c.x + 1.0).round(), (c.y - 1.0).round(), 1.0, 1.0, Color::new(1.0, 1.0, 1.0, fade));
     }
+    // The lids.
+    ellipse_outline(c.x, c.y, w, h.max(0.5), 1.0, Color::new(MICHELLE.r, MICHELLE.g, MICHELLE.b, fade));
 }
 
 /// Someone Vid is riding: a black silhouette of them with green 0s and 1s raining down through
 /// it, bright at the head of each stream.
 fn draw_ridden(v: &FighterVis, f: &Fighter, time: f32) {
     let black = Color::new(0.02, 0.03, 0.02, 1.0);
-    let dark = Look { body: black, legs: [black, black], arms: black, hair: Some(black), accent: Color::new(0.05, 0.25, 0.08, 1.0), headband: false, skin: black, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false, stubble: None, belt: false, beaver_suit: false, mustache: false };
+    let dark = Look { body: black, legs: [black, black], arms: black, hair: Some(black), accent: Color::new(0.05, 0.25, 0.08, 1.0), headband: false, skin: black, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false, stubble: None, belt: false, beaver_suit: false, mustache: false, backwards_cap: None, grey_flecks: false };
     draw_human(v, f, &dark, false);
     let (x0, top, h) = (f.pos.x.round() - 3.0, (f.pos.y - f.height()).round() - 1.0, f.height() + 1.0);
     for col in 0..4 {

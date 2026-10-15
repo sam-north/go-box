@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn as_the_chosen_one_inside_someone_their_body_moves_the_moment_you_press() {
         let (mut m, z) = server();
-        m.f[0].character = Character::Classic;
+        m.f[0].character = Character::Shawn;
         m.f[0].special_cd = 0;
         // The Chosen One (seat 0) goes into the fighter in seat 1.
         let cursor = m.f[1].center();

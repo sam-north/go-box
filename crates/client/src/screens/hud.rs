@@ -74,7 +74,7 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
         draw_rectangle(x, by, bw, ui.px(4.0), Color::new(0.0, 0.0, 0.0, 0.6));
         draw_rectangle(x, by, bw * (f.hp.max(0.0) / go_box_sim::sim::MAX_HP), ui.px(4.0), color);
         // Their special: a little clock filling up as it recharges, solid when it's ready.
-        if let Some(sp) = f.character.special().filter(|_| f.alive()) {
+        if let Some(sp) = f.special().filter(|_| f.alive()) {
             let ready = 1.0 - f.special_cd as f32 / sp.cooldown() as f32;
             special_pie(vec2(x + bw + ui.px(11.0), by + ui.px(2.0)), ui.px(7.0), ready, render::character_color(f.character));
         }
@@ -82,7 +82,7 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
         // someone: theirs, which is the one his key fires.)
         let own = f.host.filter(|_| f.digital > 0).map_or(f, |j| &m.f[j as usize]);
         if you && f.alive()
-            && let Some(sp) = own.character.special()
+            && let Some(sp) = own.special()
         {
             let c = render::character_color(own.character);
             let ready = own.special_cd == 0;
@@ -95,6 +95,29 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
             let label = if ready { tf("hud.special_ready", &[("key", &key), ("special", special_name(sp))]) } else { tf("hud.special_cooling", &[("special", special_name(sp)), ("secs", &secs)]) };
             ui.text(&ui.fit(&label, 13.0, colw * 1.6), x, sy + ui.px(15.0), 13.0, if ready { c } else { DIM });
         }
+        // Ryan (Hobbyist): which special he picked up this match, under his column.
+        if let Some(sp) = f.special().filter(|_| f.hobby.is_some()) {
+            let hy = by + if you { ui.px(39.0) } else { ui.px(18.0) };
+            let line = tf("hud.hobby", &[("special", special_name(sp))]);
+            ui.text(&ui.fit(&line, 13.0, colw * 1.6), x, hy, 13.0, color);
+        }
+    }
+    // As the match starts, if you're Ryan: what you've picked up, big, so you know before you use it.
+    if let Some(s) = g.seat()
+        && let Some(sp) = m.f[s].special().filter(|_| m.f[s].hobby.is_some())
+        && m.play_ticks() < 3 * TICK_RATE
+    {
+        let (sw, sh) = (screen_width(), screen_height());
+        let c = render::character_color(m.f[s].character);
+        let line = tf("hud.hobby_banner", &[("special", special_name(sp))]);
+        let y = sh * 0.24;
+        let o = ui.px(2.0);
+        for (dx, dy) in [(-o, 0.0), (o, 0.0), (0.0, -o), (0.0, o)] {
+            ui.text_centered(&line, sw / 2.0 + dx, y + dy, 30.0, Color::new(0.0, 0.0, 0.0, 0.9));
+        }
+        ui.text_centered(&line, sw / 2.0, y, 30.0, c);
+        let sub = t("hud.hobby_sub");
+        ui.text_centered(sub, sw / 2.0, y + ui.px(26.0), 16.0, DIM);
     }
     // Whole seconds left, counted in ticks (float maths made 45s show as 0:46).
     let left = m.config.max_ticks.saturating_sub(m.play_ticks()).div_ceil(TICK_RATE);
@@ -132,7 +155,7 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
             let f = &m.f[s];
             if !f.alive() {
                 ui.text_centered(t("hud.down"), sw / 2.0, sh - ui.px(24.0), 24.0, DIM);
-            } else if f.character.special().is_some() {
+            } else if f.special().is_some() {
                 // (Your special's bar is up by your health, top left.)
             } else {
                 ui.text_centered(&app.controls_help(), sw / 2.0, sh - ui.px(16.0), 18.0, DIM);
@@ -194,10 +217,11 @@ fn names_over_heads(ui: &Ui, app: &App, m: &Match) {
     let Some(g) = &app.game else { return };
     let (origin, scale) = app.view;
     let to_screen = |p: Vec2| origin + p * scale;
-    // Kyle's pin: a pie in its colour beside each pinned fighter's feet, running down until they're free.
+    // Michelle's freeze: a pie in its colour beside each frozen fighter's feet, running down until
+    // they're free.
     for f in m.f.iter().filter(|f| f.pinned > 0 && f.present()) {
         let left = f.pinned as f32 / go_box_sim::character::PIN_TICKS as f32;
-        special_pie(to_screen(f.pos + vec2(13.0 * f.scale, -3.0)), ui.px(4.0), left.min(0.999), Color::new(0.55, 1.0, 0.75, 1.0));
+        special_pie(to_screen(f.pos + vec2(13.0 * f.scale, -3.0)), ui.px(4.0), left.min(0.999), Color::new(0.66, 0.62, 1.0, 1.0));
     }
     for i in 0..N_FIGHTERS {
         let f = &m.f[i];
@@ -205,7 +229,7 @@ fn names_over_heads(ui: &Ui, app: &App, m: &Match) {
             continue;
         }
         // A small recharge clock just right of the health bar floating over them.
-        if let Some(sp) = f.character.special().filter(|_| f.present()) {
+        if let Some(sp) = f.special().filter(|_| f.present()) {
             let ready = 1.0 - f.special_cd as f32 / sp.cooldown() as f32;
             special_pie(to_screen(f.pos + vec2(8.5, -21.5)), ui.px(3.5), ready, render::character_color(f.character));
         }

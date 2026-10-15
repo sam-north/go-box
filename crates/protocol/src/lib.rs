@@ -28,7 +28,7 @@ use go_box_sim::sim::{Action, ArenaId, Event, MatchConfig, MatchView, N_FIGHTERS
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 28;
+pub const PROTOCOL_VERSION: u16 = 29;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -245,7 +245,7 @@ mod tests {
 
     /// Matches of bots playing every character, with a snapshot taken the first time each
     /// special's leftovers are about (stuck glue, dogs, minis, cats, a table and its sushi,
-    /// a chain, Jake in his phone, lightning, a pin, someone thrown, a quake, bugs, a tornado, an arrow in flight, Vid reading), so their layouts are
+    /// a chain, Jake in his phone, lightning, a pin, someone thrown, a quake, bugs, a tornado, an arrow in flight, Vid reading, Kyle's inbox), so their layouts are
     /// on the wire too.
     fn sample_snapshots() -> Vec<Snapshot> {
         use go_box_sim::brain::Brain;
@@ -260,7 +260,6 @@ mod tests {
             ("cats", |m| m.effects.iter().any(|e| matches!(e, Effect::Pet(p) if matches!(p.breed, Breed::Cat(_))))),
             ("table", |m| m.effects.iter().any(|e| matches!(e, Effect::Table(_)))),
             ("sushi", |m| m.items.iter().any(|it| it.kind == ItemKind::Sushi)),
-            ("chain", |m| m.effects.iter().any(|e| matches!(e, Effect::Chain(_)))),
             ("phone", |m| m.items.iter().any(|it| it.carries.is_some())),
             ("lightning", |m| m.events.iter().any(|e| matches!(e, go_box_sim::sim::Event::Zap { .. }))),
             ("pinned", |m| m.f.iter().any(|f| f.pinned > 0)),
@@ -271,13 +270,14 @@ mod tests {
             ("tornado", |m| m.effects.iter().any(|e| matches!(e, Effect::Tornado(_)))),
             ("arrow", |m| m.effects.iter().any(|e| matches!(e, Effect::Arrow(a) if a.state != go_box_sim::character::ArrowState::Hover))),
             ("books", |m| m.effects.iter().any(|e| matches!(e, Effect::Book(_))) && m.f.iter().any(|f| f.reading > 0)),
+            ("inbox", |m| m.f.iter().any(|f| f.backlog > 0 && f.inbox > 0)),
         ];
         let mut found: Vec<Option<Snapshot>> = vec![None; wanted.len()];
         let casts = [
             [Character::Seth, Character::Sam, Character::Austin, Character::Tyler],
             [Character::Corwin, Character::Justin, Character::Ryan, Character::Jake],
-            [Character::Robert, Character::Kyle, Character::Zack, Character::Sam],
-            [Character::Vid, Character::Jake, Character::Classic, Character::Jake],
+            [Character::Robert, Character::Michelle, Character::Zack, Character::Kyle],
+            [Character::Vid, Character::Jake, Character::Shawn, Character::Jake],
             [Character::Doug, Character::Travis, Character::Carrie, Character::Matt],
             [Character::Doug, Character::Classic, Character::Doug, Character::Classic],
             [Character::Kaleb, Character::Classic, Character::Kaleb, Character::Classic],
@@ -310,6 +310,10 @@ mod tests {
         let mut rng = <go_box_sim::sim::SimRng as rand::SeedableRng>::seed_from_u64(4);
         m.add_effect(Effect::Plane(go_box_sim::character::Plane::new(&mut rng, 2)));
         m.add_effect(Effect::AirBomb(go_box_sim::character::AirBomb { pos: glam_vec(150.0, 60.0), vel: glam_vec(40.0, 90.0), owner: 2, ticks: 300 }));
+        // (Nobody has the chain now: Ryan only sometimes picks it up. So one is set up by hand.)
+        m.add_effect(Effect::Chain(go_box_sim::character::Chain { tip: glam_vec(120.0, 230.0), dir: glam_vec(1.0, 0.0), owner: 0, out: 40.0, hooked: None, back: false, ticks: 60 }));
+        m.f[1].character = go_box_sim::character::Character::Ryan;
+        m.f[1].hobby = Some(6);
         let rocket = Snapshot { ack: 3, view: m.view(), events: vec![go_box_sim::sim::Event::RocketLaunch { pos: glam_vec(100.0, 200.0) }] };
         std::iter::once(first).chain(std::iter::once(rocket)).chain(found.into_iter().zip(wanted).map(|(s, (name, _))| s.unwrap_or_else(|| panic!("no {name} in the sample matches")))).collect()
     }
@@ -391,7 +395,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (28, 0xb3a1_bdff_72db_784a);
+    const WIRE: (u16, u64) = (29, 0x8f9a_7228_024a_c104);
 
     #[test]
     fn every_sample_round_trips() {

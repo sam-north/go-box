@@ -50,7 +50,7 @@ go_box_sim::enum_all! {
         Materialize,
         Thunder,
         Zap,
-        Organize,
+        Freeze,
         RocketLaunch,
         Dash,
         SwordSwing,
@@ -73,6 +73,8 @@ go_box_sim::enum_all! {
         ArrowWhistle,
         BookOpen,
         ShieldBlock,
+        Backlog,
+        BacklogBurst,
         Start,
         Win,
         Lose,
@@ -247,8 +249,8 @@ impl Sfx {
                 s.noise(0.0, 0.12, 7000.0, 3000.0, 0.001, 22.0, 0.35);
                 s.tone(0.0, 0.1, 1800.0, 600.0, Wave::Saw, 0.001, 25.0, 0.12);
             }
-            // Kyle's organize: a firm clunk, then a bright tidy chime.
-            Sfx::Organize => {
+            // Michelle's Eye of the Storm: a firm clunk, then a bright, still chime.
+            Sfx::Freeze => {
                 s.tone(0.0, 0.1, 140.0, 90.0, Wave::Square, 0.001, 25.0, 0.3);
                 s.tone(0.08, 0.4, 1318.0, 1318.0, Wave::Sine, 0.002, 9.0, 0.22);
                 s.tone(0.14, 0.4, 1976.0, 1976.0, Wave::Sine, 0.002, 9.0, 0.16);
@@ -394,6 +396,21 @@ impl Sfx {
             Sfx::ShieldBlock => {
                 s.tone(0.0, 0.25, 1760.0, 1700.0, Wave::Sine, 0.001, 10.0, 0.22);
                 s.tone(0.0, 0.2, 2640.0, 2600.0, Wave::Sine, 0.001, 14.0, 0.1);
+            }
+            // Kyle putting it all off: a shuffle of papers into a pile.
+            Sfx::Backlog => {
+                for k in 0..3 {
+                    s.noise(k as f32 * 0.07, 0.07, 2500.0, 1200.0, 0.005, 25.0, 0.25);
+                }
+                s.tone(0.0, 0.08, 300.0, 220.0, Wave::Tri, 0.002, 30.0, 0.12);
+            }
+            // ...and it all going at once: a flurry of whooshes and slaps.
+            Sfx::BacklogBurst => {
+                for k in 0..5 {
+                    let t = k as f32 * 0.03;
+                    s.noise(t, 0.12, 1200.0, 4000.0, 0.005, 18.0, 0.3);
+                    s.tone(t, 0.08, 160.0, 70.0, Wave::Sine, 0.001, 30.0, 0.25);
+                }
             }
             Sfx::Start => {
                 s.tone(0.0, 0.12, 440.0, 440.0, Wave::Square, 0.003, 10.0, 0.14);
@@ -655,7 +672,7 @@ impl Sounds {
                 Event::Heal { pos, .. } => self.at(Sfx::Heal, pos, ear, 1.0),
                 Event::Spawn { pos } => self.at(Sfx::Spawn, pos, ear, 0.8),
                 Event::Special { who } => {
-                    if let Some(s) = crate::art(m.f[who].character).special_sound {
+                    if let Some(s) = crate::special_sound(&m.f[who]) {
                         self.at(s, m.f[who].center(), ear, 1.0);
                     }
                 }
@@ -675,7 +692,8 @@ impl Sounds {
                 Event::Zap { pos, .. } => self.at(Sfx::Zap, pos, ear, 0.8),
                 Event::Blocked { pos } => self.at(Sfx::ShieldBlock, pos, ear, 0.8),
                 // (Their special's own sound covers these.)
-                Event::Organize { .. } | Event::LaptopOpen { .. } => {}
+                Event::EyeOfTheStorm { .. } | Event::LaptopOpen { .. } => {}
+                Event::BacklogBurst { pos } => self.at(Sfx::BacklogBurst, pos, ear, 1.0),
                 Event::ArrowCall { pos } => self.at(Sfx::ArrowWhistle, pos, ear, 0.9),
                 Event::Slam { pos } => self.at(Sfx::Slam, pos, ear, 1.0),
                 Event::Quake { pos, big } => self.at(if big { Sfx::BigStomp } else { Sfx::Stomp }, pos, ear, if big { 1.0 } else { 0.7 }),
@@ -789,7 +807,7 @@ impl Sounds {
             }
             None => self.wind_acc = 0.0,
         }
-        let cd = own.map(|s| &m.f[s]).filter(|f| f.alive() && f.character.special().is_some()).map(|f| f.special_cd);
+        let cd = own.map(|s| &m.f[s]).filter(|f| f.alive() && f.special().is_some()).map(|f| f.special_cd);
         if let (Some(prev), Some(0)) = (self.special_cd, cd)
             && prev > 0
         {

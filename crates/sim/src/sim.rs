@@ -252,11 +252,11 @@ pub struct Fighter {
     /// Jake inside his phone: ticks until he comes back out (0 = he's here as normal). Meanwhile
     /// he can't act or be hurt, and his position follows the phone.
     pub digital: u32,
-    /// The Chosen One (Classic) inside someone: whose body he's riding (while `digital` counts down).
+    /// The Chosen One (Shawn) inside someone: whose body he's riding (while `digital` counts down).
     pub host: Option<u8>,
     /// Ridden by the Chosen One: ticks left (his input drives this body, and it's drawn as falling code).
     pub ridden: u32,
-    /// Pinned in place by Kyle: ticks left. Can't move or jump (can still swing and throw).
+    /// Frozen in place by Michelle's Eye of the Storm: ticks left. Can't move or jump (can still swing and throw).
     pub pinned: u32,
     /// Running faster (Tyler, while his dogs are out): ticks left.
     pub haste: u32,
@@ -270,6 +270,17 @@ pub struct Fighter {
     /// Just shaken by one of Travis's steps: ticks before another can hurt them.
     #[serde(skip)]
     pub shaken: u32,
+    /// Ryan's special for this match (Hobbyist): which of `ALL_SPECIALS`, picked as it starts.
+    pub hobby: Option<u8>,
+    /// Kyle's backlog (ticks left): his swings and throws pile up instead of happening.
+    pub backlog: u32,
+    /// How much has piled up in his backlog (drawn as his inbox).
+    pub inbox: u8,
+    /// What he's thrown into it, and which way; and how many swings.
+    #[serde(skip)]
+    pub stash: Vec<(Item, Vec2)>,
+    #[serde(skip)]
+    pub swings: u8,
     /// Vid reading (ticks left): sitting with his book, shielded from every attack, unable to move
     /// or act. (Sent to clients: they predict his movement with it, and draw him.)
     pub reading: u32,
@@ -348,6 +359,11 @@ impl Fighter {
             bulked: 0,
             stride: 0.0,
             shaken: 0,
+            hobby: None,
+            backlog: 0,
+            inbox: 0,
+            stash: Vec::new(),
+            swings: 0,
             reading: 0,
             skate: 0,
             skate_hit: 0,
@@ -377,6 +393,20 @@ impl Fighter {
 
     pub fn alive(&self) -> bool {
         self.hp > 0.0
+    }
+
+    /// Their special: their character's, or (Ryan's Hobbyist) the one picked up this match.
+    pub fn special(&self) -> Option<&'static dyn crate::character::Special> {
+        match self.hobby {
+            Some(k) => crate::character::ALL_SPECIALS.get(k as usize).copied(),
+            None => self.character.special(),
+        }
+    }
+
+    /// Can't be pushed around (Michelle's Resting Zen Face): no knockback, stuns, pins, grabs,
+    /// pulls or riding; hits still hurt.
+    pub fn unshakeable(&self) -> bool {
+        self.character.passive() == Some(crate::character::Passive::RestingZenFace)
     }
 
     /// Alive and in the arena: not tucked away inside a phone (Jake).
@@ -526,8 +556,11 @@ pub enum Event {
     Zap { from: Vec2, pos: Vec2 },
     /// An attack stopped by Vid's shield while he reads.
     Blocked { pos: Vec2 },
-    /// Kyle organizing, from where he stands (`at`): the client draws the shockwave and his glow.
-    Organize { who: usize, at: Vec2 },
+    /// Michelle casting Eye of the Storm, from where she stands (`at`): the client draws the
+    /// shockwave, and the eye over her.
+    EyeOfTheStorm { who: usize, at: Vec2 },
+    /// Kyle's backlog all going at once (at his middle).
+    BacklogBurst { pos: Vec2 },
     /// Carrie opening her laptop: the client draws it in her hands for a moment.
     LaptopOpen { who: usize },
     /// Someone Doug threw hitting the ground.
@@ -831,6 +864,11 @@ impl Match {
 
     /// True with probability `p`, from the match's own random stream (so it plays out the same
     /// everywhere).
+    /// A whole number below `n`, from the match's own random stream.
+    pub(crate) fn roll(&mut self, n: u32) -> u32 {
+        self.rng.gen_range(0..n)
+    }
+
     pub(crate) fn chance(&mut self, p: f64) -> bool {
         self.rng.gen_bool(p)
     }
@@ -962,6 +1000,10 @@ impl Match {
         if self.over {
             return;
         }
+        // As the match starts, Ryan (Hobbyist) picks up his special for it.
+        if self.tick == 0 {
+            self.pick_hobbies();
+        }
 
         // 1. Perceive + think (not during the countdown: nobody acts until it's over).
         let mut actions = [Action::default(); N_BODIES];
@@ -997,7 +1039,7 @@ impl Match {
                 cursor: None,
                 // (On cooldown, a special may still have something in play to steer: Kaleb's arrow.)
                 special: !self.protected()
-                    && self.f[i].character.special().is_some_and(|s| if self.f[i].special_cd == 0 { s.bot_wants(self, i) } else { s.bot_presses_again(self, i) }),
+                    && self.f[i].special().is_some_and(|s| if self.f[i].special_cd == 0 { s.bot_wants(self, i) } else { s.bot_presses_again(self, i) }),
                 target: None,
             };
             self.f[i].memory.copy_from_slice(&out[OUT_MEM..]);
@@ -1021,7 +1063,7 @@ impl Match {
             };
             // (His special key fires theirs, if it's ready. And one that breaks free, Matt's, the
             // body's owner can still fire himself.)
-            if self.f[j].character.special().is_some_and(|s| s.breaks_free()) {
+            if self.f[j].special().is_some_and(|s| s.breaks_free()) {
                 a.special |= actions[j].special;
             }
             actions[j] = a;
@@ -1059,12 +1101,14 @@ impl Match {
         for i in 0..N_BODIES {
             self.hands(i, actions[i]);
         }
+        // Kyle's backlog counts down, and lets everything go when it's up.
+        self.step_backlog();
 
         // 4. Melee (resolved simultaneously).
         let mut hits = Vec::new();
         for i in 0..N_BODIES {
             let a = &self.f[i];
-            if !a.alive() || !a.attack_active() {
+            if !a.alive() || !a.attack_active() || a.backlog > 0 {
                 continue;
             }
             for j in 0..N_BODIES {
@@ -1208,6 +1252,24 @@ impl Match {
             };
             f.holding = None;
             f.hand_cd = THROW_COOLDOWN;
+            // Kyle's backlog: it leaves his hand but goes nowhere yet (see `step_backlog`).
+            if f.backlog > 0 {
+                let it = self.items.swap_remove(k);
+                let f = &mut self.f[i];
+                f.stash.push((it, dir));
+                f.inbox = f.inbox.saturating_add(1);
+                self.events.push(Event::Throw { who: i });
+                return;
+            }
+            self.launch(i, k, dir);
+        }
+    }
+
+    /// Fighter `i` lets go of the item they hold (`k`) the way `dir`: thrown, or used (a rocket
+    /// launcher fires, a radio calls in an air strike).
+    pub(crate) fn launch(&mut self, i: usize, k: usize, dir: Vec2) {
+        let f = &self.f[i];
+        {
             // A rocket launcher fires its rocket that way instead, and a radio calls in an air
             // strike; either is used up.
             match self.items[k].kind.def().on_throw {
@@ -1437,10 +1499,13 @@ impl Match {
         let v = &mut self.f[victim];
         v.hp -= dmg;
         v.dmg_taken += dmg;
-        v.vel = knockback;
-        v.grounded = false;
-        v.hitstun = stun;
-        v.atk_timer = 0;
+        // (Michelle's Resting Zen Face: it hurts, but it doesn't move her or stop her.)
+        if !v.unshakeable() {
+            v.vel = knockback;
+            v.grounded = false;
+            v.hitstun = stun;
+            v.atk_timer = 0;
+        }
         let pos = v.center();
         let died = !v.alive();
         self.events.push(Event::Hit { pos, dir, headshot, source });
@@ -1766,6 +1831,11 @@ fn control(f: &mut Fighter, who: usize, a: Action, wall: f32, events: &mut Vec<E
         if a.attack && f.atk_timer == 0 && f.cooldown == 0 {
             f.atk_timer = 1;
             f.hit_mask = 0;
+            // (In Kyle's backlog it's put off: it swings, but lands later, with the rest.)
+            if f.backlog > 0 {
+                f.swings = f.swings.saturating_add(1);
+                f.inbox = f.inbox.saturating_add(1);
+            }
             // A player aiming swings toward their aim, whichever way they were running.
             if let Some(t) = a.target
                 && t.x.abs() > 1e-3
@@ -1896,9 +1966,9 @@ mod tests {
         }
         assert_eq!(h, CLASSIC_HASH, "classic match fingerprint changed: {h:#018x}");
     }
-    // Last deliberately changed by Classic getting a special (The Chosen One). It must
+    // Last deliberately changed by Classic losing its special again (to Shawn). It must
     // come out the same on 32-bit targets too: `cargo test -p go-box-sim --target i686-pc-windows-msvc`.
-    const CLASSIC_HASH: u64 = 0x1f65_a5c0_ac2f_8ffc;
+    const CLASSIC_HASH: u64 = 0xbece_11b9_7afb_0a97;
 
     /// Everyone on the floor, nothing lying around, nobody thinking (all-zero brains stand still).
     #[test]

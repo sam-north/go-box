@@ -102,7 +102,7 @@ const BUG_BITE_EVERY: u32 = SECOND / 2;
 pub const LAPTOP_TICKS: u32 = SECOND;
 
 // Matt — Skate Strike: he drops a skateboard and shoots off along it, fast and far, the way he
-// faces, hitting everyone he goes through. He can do it pinned by Kyle or ridden by the Chosen One, and it
+// faces, hitting everyone he goes through. He can do it frozen by Michelle or ridden by the Chosen One, and it
 // frees him (only him: whoever he hits stays however they were).
 const SKATE_COOLDOWN: u32 = 8 * SECOND;
 pub const SKATE_SPEED: f32 = 520.0;
@@ -187,7 +187,7 @@ const CHAIN_TICKS: u32 = 90;
 const PHONE_COOLDOWN: u32 = 20 * SECOND;
 pub const PHONE_TICKS: u32 = 5 * SECOND;
 
-// Classic — The Chosen One: he goes inside the opponent nearest the cursor and drives their body
+// Shawn — The Chosen One: he goes inside the opponent nearest the cursor and drives their body
 // for a few seconds (they're drawn as falling code), then steps back out.
 const CHOSEN_COOLDOWN: u32 = 20 * SECOND;
 pub const RIDE_TICKS: u32 = 3 * SECOND;
@@ -216,9 +216,21 @@ const LIGHTNING_REACH: f32 = 300.0;
 /// How long the bolts stay on screen.
 pub const LIGHTNING_TICKS: u32 = 20;
 
-// Kyle — Organize: pins every foe exactly where they are for a few seconds.
-const ORGANIZE_COOLDOWN: u32 = 20 * SECOND;
+// Michelle — Eye of the Storm: everyone else is frozen exactly where they are for a few seconds
+// (in mid-air too), a great eye opening over her.
+const EYE_COOLDOWN: u32 = 20 * SECOND;
 pub const PIN_TICKS: u32 = 3 * SECOND;
+
+// Kyle — Backlog: for a few seconds his swings and throws don't happen; they pile up in an inbox
+// over his head (a thrown item leaves his hand, so he can pick up another), and when it ends they
+// all go at once: every throw the way it was aimed, every swing in one big punch.
+const BACKLOG_COOLDOWN: u32 = 15 * SECOND;
+pub const BACKLOG_TICKS: u32 = 3 * SECOND;
+/// The punch his piled-up swings make: this much a swing (up to so many swings), reaching this
+/// much further than a fist.
+const BACKLOG_PUNCH: f32 = 8.0;
+const BACKLOG_PUNCHES: u8 = 6;
+const BACKLOG_REACH: f32 = 8.0;
 
 // Doug — Judo Throw: lunges forward into a grab, and the first foe he gets hold of is thrown like
 // a ragdoll; wherever they land they slam down (taking the damage) and lie there a second,
@@ -285,6 +297,8 @@ crate::enum_all! {
         Matt,
         Zack,
         Kaleb,
+        Michelle,
+        Shawn,
     }
 }
 
@@ -298,29 +312,93 @@ pub struct CharacterDef {
     /// A stable id (lowercase, no spaces): names it in text files and on the command line.
     pub id: &'static str,
     pub special: Option<&'static dyn Special>,
+    /// Something they always are, not something they do (only some characters have one; its
+    /// name is `passive.<id>` in the text files).
+    pub passive: Option<Passive>,
+}
+
+/// A character's passive: always on, nothing to press.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Passive {
+    /// Michelle's Resting Zen Face: nobody pushes her around. Hits still hurt her, but never
+    /// knock her back or stun her, and she can't be pinned or frozen, glued, grabbed and thrown,
+    /// knocked down, hooked by a chain, carried off by a tornado or ridden by the Chosen One.
+    RestingZenFace,
+    /// Ryan's Hobbyist: no special of his own. Each match, as it starts, he picks one up at random
+    /// from every special in the game (`ALL_SPECIALS`, Yanking Your Chain the likeliest) and has it
+    /// for the whole match (`Fighter::hobby`).
+    Hobbyist,
+}
+
+impl Passive {
+    /// A stable id; players see the text `passive.<id>`.
+    pub fn id(self) -> &'static str {
+        match self {
+            Passive::RestingZenFace => "resting_zen_face",
+            Passive::Hobbyist => "hobbyist",
+        }
+    }
+}
+
+/// Every special in the game, whether or not a character has it now: what Ryan's Hobbyist draws
+/// from (a new special goes here too; a test checks every character's is).
+pub static ALL_SPECIALS: [&dyn Special; 19] = [
+    &GlueGun, &PopUp, &Hounds, &MiniMe, &CatHerder, &SushiTable, &YankChain, &IntoThePhone, &ForkedLightning, &EyeOfTheStorm, &Backlog, &StoryTime, &ChosenOne, &JudoThrow, &LegDay,
+    &BugReport, &SkateStrike, &TwinTornadoes, &GoldenArrow,
+];
+
+/// How likely Hobbyist is to pick each special, relative to the rest: Ryan's old chain the
+/// likeliest.
+fn hobby_weight(s: &dyn Special) -> u32 {
+    if s.id() == "yank_chain" { 3 } else { 1 }
+}
+
+impl Match {
+    /// At the start of a match, everyone with Hobbyist picks up their special for it.
+    pub(crate) fn pick_hobbies(&mut self) {
+        let total: u32 = ALL_SPECIALS.iter().map(|s| hobby_weight(*s)).sum();
+        for i in 0..N_FIGHTERS {
+            if self.f[i].absent || self.f[i].character.passive() != Some(Passive::Hobbyist) || self.f[i].hobby.is_some() {
+                continue;
+            }
+            let mut roll = self.roll(total);
+            let k = ALL_SPECIALS.iter().position(|s| {
+                let w = hobby_weight(*s);
+                if roll < w {
+                    true
+                } else {
+                    roll -= w;
+                    false
+                }
+            });
+            self.f[i].hobby = k.map(|k| k as u8);
+        }
+    }
 }
 
 impl Character {
     pub fn def(self) -> &'static CharacterDef {
         match self {
-            Character::Classic => &CharacterDef { id: "classic", special: Some(&ChosenOne) },
-            Character::Sam => &CharacterDef { id: "sam", special: Some(&GlueGun) },
-            Character::Austin => &CharacterDef { id: "austin", special: Some(&PopUp) },
-            Character::Tyler => &CharacterDef { id: "tyler", special: Some(&Hounds) },
-            Character::Seth => &CharacterDef { id: "seth", special: Some(&MiniMe) },
-            Character::Corwin => &CharacterDef { id: "corwin", special: Some(&CatHerder) },
-            Character::Justin => &CharacterDef { id: "justin", special: Some(&SushiTable) },
-            Character::Ryan => &CharacterDef { id: "ryan", special: Some(&YankChain) },
-            Character::Jake => &CharacterDef { id: "jake", special: Some(&IntoThePhone) },
-            Character::Robert => &CharacterDef { id: "robert", special: Some(&ForkedLightning) },
-            Character::Kyle => &CharacterDef { id: "kyle", special: Some(&Organize) },
-            Character::Vid => &CharacterDef { id: "vid", special: Some(&StoryTime) },
-            Character::Doug => &CharacterDef { id: "doug", special: Some(&JudoThrow) },
-            Character::Travis => &CharacterDef { id: "travis", special: Some(&LegDay) },
-            Character::Carrie => &CharacterDef { id: "carrie", special: Some(&BugReport) },
-            Character::Matt => &CharacterDef { id: "matt", special: Some(&SkateStrike) },
-            Character::Zack => &CharacterDef { id: "zack", special: Some(&TwinTornadoes) },
-            Character::Kaleb => &CharacterDef { id: "kaleb", special: Some(&GoldenArrow) },
+            Character::Classic => &CharacterDef { id: "classic", special: None, passive: None },
+            Character::Sam => &CharacterDef { id: "sam", special: Some(&GlueGun), passive: None },
+            Character::Austin => &CharacterDef { id: "austin", special: Some(&PopUp), passive: None },
+            Character::Tyler => &CharacterDef { id: "tyler", special: Some(&Hounds), passive: None },
+            Character::Seth => &CharacterDef { id: "seth", special: Some(&MiniMe), passive: None },
+            Character::Corwin => &CharacterDef { id: "corwin", special: Some(&CatHerder), passive: None },
+            Character::Justin => &CharacterDef { id: "justin", special: Some(&SushiTable), passive: None },
+            Character::Ryan => &CharacterDef { id: "ryan", special: None, passive: Some(Passive::Hobbyist) },
+            Character::Jake => &CharacterDef { id: "jake", special: Some(&IntoThePhone), passive: None },
+            Character::Robert => &CharacterDef { id: "robert", special: Some(&ForkedLightning), passive: None },
+            Character::Kyle => &CharacterDef { id: "kyle", special: Some(&Backlog), passive: None },
+            Character::Vid => &CharacterDef { id: "vid", special: Some(&StoryTime), passive: None },
+            Character::Doug => &CharacterDef { id: "doug", special: Some(&JudoThrow), passive: None },
+            Character::Travis => &CharacterDef { id: "travis", special: Some(&LegDay), passive: None },
+            Character::Carrie => &CharacterDef { id: "carrie", special: Some(&BugReport), passive: None },
+            Character::Matt => &CharacterDef { id: "matt", special: Some(&SkateStrike), passive: None },
+            Character::Zack => &CharacterDef { id: "zack", special: Some(&TwinTornadoes), passive: None },
+            Character::Kaleb => &CharacterDef { id: "kaleb", special: Some(&GoldenArrow), passive: None },
+            Character::Michelle => &CharacterDef { id: "michelle", special: Some(&EyeOfTheStorm), passive: Some(Passive::RestingZenFace) },
+            Character::Shawn => &CharacterDef { id: "shawn", special: Some(&ChosenOne), passive: None },
         }
     }
 
@@ -330,6 +408,10 @@ impl Character {
 
     pub fn special(self) -> Option<&'static dyn Special> {
         self.def().special
+    }
+
+    pub fn passive(self) -> Option<Passive> {
+        self.def().passive
     }
 }
 
@@ -342,7 +424,7 @@ pub trait Special: Sync {
     fn activate(&self, m: &mut Match, who: usize);
     /// When a bot fires it: brains were never trained with specials, so a simple rule decides.
     fn bot_wants(&self, m: &Match, who: usize) -> bool;
-    /// It can be used while pinned by Kyle, ridden by the Chosen One or carried up a tornado, and frees you
+    /// It can be used while frozen by Michelle, ridden by the Chosen One or carried up a tornado, and frees you
     /// (Matt's).
     fn breaks_free(&self) -> bool {
         false
@@ -529,7 +611,8 @@ impl Special for MiniMe {
             mini.scale = MINI_SCALE;
             mini.owner = Some(who);
             mini.life = Some(MINI_LIFE);
-            mini.character = Character::Seth;
+            // (Looking like whoever summoned them: Seth, or Ryan with Mini Me as his hobby.)
+            mini.character = seth.character;
             m.events.push(Event::Poof { pos: mini.center() });
             m.f[slot] = mini;
         }
@@ -713,30 +796,63 @@ fn lightning_damage(d: f32) -> f32 {
     LIGHTNING_MIN + (LIGHTNING_MAX - LIGHTNING_MIN) * (1.0 - d / LIGHTNING_REACH).max(0.0)
 }
 
-struct Organize;
+struct EyeOfTheStorm;
 
-impl Special for Organize {
+impl Special for EyeOfTheStorm {
     fn id(&self) -> &'static str {
-        "organize"
+        "eye_of_the_storm"
     }
     fn cooldown(&self) -> u32 {
-        ORGANIZE_COOLDOWN
+        EYE_COOLDOWN
     }
     fn activate(&self, m: &mut Match, who: usize) {
-        // Only his opponents: Kyle (and anyone on his side) moves freely.
-        let caught: Vec<usize> = (0..N_BODIES).filter(|&j| m.foes(who, j)).collect();
+        // Only her opponents (she and anyone on her side move freely), and nobody who can't be
+        // pushed around (another Michelle).
+        let caught: Vec<usize> = (0..N_BODIES).filter(|&j| m.foes(who, j) && !m.f[j].unshakeable()).collect();
         for j in caught {
             m.f[j].pinned = PIN_TICKS;
             m.f[j].vel = Vec2::ZERO;
         }
-        // (Its shockwave and glow are drawn by the client, from this.)
+        // (Its shockwave and the eye are drawn by the client, from this.)
         let at = m.f[who].center();
-        m.events.push(Event::Organize { who, at });
+        // Her opponents' dogs, cats and bugs already out are frozen too (not any let out later).
+        let team = m.f[who].team(who);
+        for e in m.effects.iter_mut() {
+            if let Effect::Pet(p) = e
+                && m.f[p.owner].team(p.owner) != team
+            {
+                p.frozen = PIN_TICKS;
+            }
+        }
+        m.events.push(Event::EyeOfTheStorm { who, at });
     }
     /// Someone close enough to hit while they're stuck.
     fn bot_wants(&self, m: &Match, who: usize) -> bool {
         let me = m.f[who].center();
         foes(m, who).any(|f| f.center().distance(me) < 50.0)
+    }
+}
+
+struct Backlog;
+
+impl Special for Backlog {
+    fn id(&self) -> &'static str {
+        "backlog"
+    }
+    fn cooldown(&self) -> u32 {
+        BACKLOG_COOLDOWN
+    }
+    fn activate(&self, m: &mut Match, who: usize) {
+        let f = &mut m.f[who];
+        f.backlog = BACKLOG_TICKS;
+        f.inbox = 0;
+        f.swings = 0;
+        f.stash.clear();
+    }
+    /// Someone close enough to pile it all onto.
+    fn bot_wants(&self, m: &Match, who: usize) -> bool {
+        let me = m.f[who].center();
+        foes(m, who).any(|f| f.center().distance(me) < 120.0)
     }
 }
 
@@ -806,7 +922,7 @@ impl Special for ChosenOne {
     fn activate(&self, m: &mut Match, who: usize) {
         // The opponent nearest the cursor (or, without one, nearest him) who isn't already ridden.
         let near = m.f[who].action.cursor.unwrap_or(m.f[who].center());
-        let target = (0..N_FIGHTERS).filter(|&j| m.foes(who, j) && m.f[j].ridden == 0).min_by(|&a, &b| m.f[a].center().distance(near).total_cmp(&m.f[b].center().distance(near)));
+        let target = (0..N_FIGHTERS).filter(|&j| m.foes(who, j) && m.f[j].ridden == 0 && !m.f[j].unshakeable()).min_by(|&a, &b| m.f[a].center().distance(near).total_cmp(&m.f[b].center().distance(near)));
         let Some(j) = target else { return };
         if let Some(k) = m.held_item(who) {
             m.items[k].held_by = None;
@@ -872,7 +988,7 @@ fn judo_grip(f: &Fighter) -> Aabb {
 fn judo_target(m: &Match, who: usize) -> Option<usize> {
     let me = &m.f[who];
     let grip = judo_grip(me);
-    (0..N_BODIES).filter(|&j| m.foes(who, j) && grip.overlaps(&m.f[j].body())).min_by(|&a, &b| m.f[a].pos.distance(me.pos).total_cmp(&m.f[b].pos.distance(me.pos)))
+    (0..N_BODIES).filter(|&j| m.foes(who, j) && !m.f[j].unshakeable() && grip.overlaps(&m.f[j].body())).min_by(|&a, &b| m.f[a].pos.distance(me.pos).total_cmp(&m.f[b].pos.distance(me.pos)))
 }
 
 /// Doug gets hold of `j`: lifted up over his shoulder, then thrown the way he faces (whatever
@@ -1017,7 +1133,7 @@ impl Special for SkateStrike {
         SKATE_COOLDOWN
     }
     fn activate(&self, m: &mut Match, who: usize) {
-        // Free of Kyle's pin, and of the Chosen One (who steps out next tick).
+        // Free of Michelle's freeze, and of the Chosen One (who steps out next tick).
         m.f[who].pinned = 0;
         if m.f[who].ridden > 0 {
             for i in 0..N_FIGHTERS {
@@ -1366,13 +1482,15 @@ pub struct Pet {
     pub bites: Option<u8>,
     /// A cat that's found sushi and is sitting eating it (it's forgotten about fighting).
     pub eating: bool,
+    /// Frozen by Michelle's Eye of the Storm (ticks left): stock still, biting nobody.
+    pub frozen: u32,
     #[serde(skip)]
     bite_cd: [u32; N_BODIES],
 }
 
 impl Pet {
     fn new(breed: Breed, pos: Vec2, dir: f32, speed: f32, owner: usize, ticks: u32) -> Self {
-        Self { breed, pos, dir, speed, vy: 0.0, vx: 0.0, owner, ticks, bites: None, eating: false, bite_cd: [0; N_BODIES] }
+        Self { breed, pos, dir, speed, vy: 0.0, vx: 0.0, owner, ticks, bites: None, eating: false, frozen: 0, bite_cd: [0; N_BODIES] }
     }
     pub fn body(&self) -> Aabb {
         let (hw, h) = self.breed.size();
@@ -1388,7 +1506,7 @@ impl Match {
     pub(crate) fn step_specials(&mut self, wants: [bool; N_BODIES]) {
         // Seats only: minis have no specials.
         for i in 0..N_FIGHTERS {
-            let Some(special) = self.f[i].character.special() else { continue };
+            let Some(special) = self.f[i].special() else { continue };
             let able = self.f[i].present() && self.f[i].hitstun == 0;
             let f = &mut self.f[i];
             if f.special_cd > 0 {
@@ -1537,6 +1655,12 @@ impl Match {
     }
 
     fn step_pet(&mut self, pet: &mut Pet) {
+        // Frozen by Michelle: stock still, biting nobody (its time still runs down).
+        if pet.frozen > 0 {
+            pet.frozen -= 1;
+            pet.ticks = pet.ticks.saturating_sub(1);
+            return;
+        }
         // Cats can't resist sushi: one lying close by (on the floor or up on a table) and they all
         // crowd round it, each taking its own spot, and forget about scratching anyone.
         let goal = match pet.breed {
@@ -1654,7 +1778,7 @@ impl Match {
                 c.tip += c.dir * CHAIN_SPEED * DT;
                 c.out += CHAIN_SPEED * DT;
                 let hook = Aabb::around(c.tip, 2.0);
-                let caught = (0..N_BODIES).filter(|&j| self.foes(owner, j) && hook.overlaps(&self.f[j].body())).min_by(|&a, &b| self.f[a].center().distance(anchor).total_cmp(&self.f[b].center().distance(anchor)));
+                let caught = (0..N_BODIES).filter(|&j| self.foes(owner, j) && !self.f[j].unshakeable() && hook.overlaps(&self.f[j].body())).min_by(|&a, &b| self.f[a].center().distance(anchor).total_cmp(&self.f[b].center().distance(anchor)));
                 // (Nobody can be hooked during the protected start.)
                 if let Some(j) = caught.filter(|_| !self.protected()) {
                     c.hooked = Some(j);
@@ -1685,7 +1809,7 @@ impl Match {
             let f = &mut self.f[j];
             let dx = t.at.x - f.pos.x;
             // (Not Matt on his skateboard: he rides straight out of it.)
-            if !f.present() || f.pinned > 0 || f.skate > 0 || dx.abs() > TORNADO_R {
+            if !f.present() || f.pinned > 0 || f.skate > 0 || f.unshakeable() || dx.abs() > TORNADO_R {
                 continue;
             }
             if dx.abs() < FUNNEL_HALF {
@@ -1816,6 +1940,57 @@ impl Match {
         }
     }
 
+    /// Kyle's backlog counts down; when it's up, everything in it goes at once: each throw the way
+    /// it was aimed (grenades lit, rockets fired, air strikes called in), and every swing in one
+    /// big punch in front of him. (If he goes down first, what he'd thrown just drops.)
+    pub(crate) fn step_backlog(&mut self) {
+        for i in 0..N_FIGHTERS {
+            if self.f[i].backlog == 0 {
+                continue;
+            }
+            if !self.f[i].present() {
+                let pos = self.f[i].hand();
+                let f = &mut self.f[i];
+                (f.backlog, f.inbox, f.swings) = (0, 0, 0);
+                for (mut it, _) in std::mem::take(&mut f.stash) {
+                    (it.pos, it.vel, it.held_by) = (pos, Vec2::ZERO, None);
+                    self.items.push(it);
+                }
+                continue;
+            }
+            self.f[i].backlog -= 1;
+            if self.f[i].backlog > 0 {
+                continue;
+            }
+            let f = &mut self.f[i];
+            let (stash, swings) = (std::mem::take(&mut f.stash), f.swings);
+            (f.inbox, f.swings) = (0, 0);
+            let pos = f.center();
+            self.events.push(Event::BacklogBurst { pos });
+            for (mut it, dir) in stash {
+                it.held_by = Some(i);
+                it.pos = self.f[i].hand();
+                self.items.push(it);
+                let k = self.items.len() - 1;
+                self.launch(i, k, dir);
+            }
+            if swings > 0 {
+                // Every swing he put off, landing at once.
+                let f = &self.f[i];
+                let mut reach = f.attack_box();
+                reach.w += BACKLOG_REACH;
+                if f.facing < 0.0 {
+                    reach.x -= BACKLOG_REACH;
+                }
+                let (dir, dmg) = (f.facing, BACKLOG_PUNCH * swings.min(BACKLOG_PUNCHES) as f32);
+                let hit: Vec<usize> = (0..N_BODIES).filter(|&j| self.foes(i, j) && reach.overlaps(&self.f[j].body())).collect();
+                for j in hit {
+                    self.damage(i, j, dmg, vec2(dir * 260.0, -200.0), 20, dir, Source::Fist, false);
+                }
+            }
+        }
+    }
+
     /// Matt on his skateboard hits everyone he goes through, once each per run.
     pub(crate) fn step_skate(&mut self) {
         for i in 0..N_FIGHTERS {
@@ -1857,13 +2032,13 @@ impl Match {
     /// Someone Doug threw: helpless in the air until they come down on something; then they slam
     /// down (that's the damage) and lie there, stunned, getting back up.
     /// Someone Doug threw, flying into others on their side: they're knocked flat too, and lie
-    /// there getting up just as long. (Pinned people stay put: Kyle's pin holds.)
+    /// there getting up just as long. (Pinned people stay put: Michelle's freeze holds.)
     fn bowl_over(&mut self, judo: &mut Judo) {
         let body = self.f[judo.victim].body();
         let down: Vec<usize> = self.effects.iter().filter_map(|e| if let Effect::Judo(o) = e { Some(o.victim) } else { None }).collect();
         for k in 0..N_BODIES {
             let f = &self.f[k];
-            if judo.bowled & (1 << k) != 0 || !self.foes(judo.owner, k) || f.pinned > 0 || down.contains(&k) || !body.overlaps(&f.body()) {
+            if judo.bowled & (1 << k) != 0 || !self.foes(judo.owner, k) || f.pinned > 0 || f.unshakeable() || down.contains(&k) || !body.overlaps(&f.body()) {
                 continue;
             }
             judo.bowled |= 1 << k;
@@ -2092,7 +2267,7 @@ impl Match {
         g.pos += g.vel * DT;
         let props = props(&self.effects);
         let hit = Aabb::around(g.pos, 2.0);
-        let victim = (0..N_BODIES).find(|&j| self.foes(g.owner, j) && hit.overlaps(&self.f[j].body()));
+        let victim = (0..N_BODIES).find(|&j| self.foes(g.owner, j) && !self.f[j].unshakeable() && hit.overlaps(&self.f[j].body()));
         if let Some(j) = victim.filter(|_| !self.protected()) {
             let c = self.f[j].center();
             g.pos = nearest_surface(self.arena(), &props, c);
@@ -2118,7 +2293,7 @@ impl Match {
     fn hold_glue(&mut self, g: &mut Glue) {
         let anchor = g.pos;
         for j in 0..N_BODIES {
-            if g.held.contains(&(j as u8)) || !self.foes(g.owner, j) {
+            if g.held.contains(&(j as u8)) || !self.foes(g.owner, j) || self.f[j].unshakeable() {
                 continue;
             }
             let f = &self.f[j];
@@ -2404,6 +2579,48 @@ mod tests {
         m.step_with([brain; N_FIGHTERS], Some((0, a)));
     }
 
+    /// Yanking Your Chain's place in `ALL_SPECIALS` (what Ryan's tests give him as his hobby).
+    fn chain_hobby() -> u8 {
+        ALL_SPECIALS.iter().position(|s| s.id() == "yank_chain").unwrap() as u8
+    }
+
+    #[test]
+    fn every_special_is_in_all_specials_once() {
+        for c in Character::ALL {
+            if let Some(s) = c.special() {
+                assert!(ALL_SPECIALS.iter().any(|t| t.id() == s.id()), "{}'s special isn't in ALL_SPECIALS (Ryan can't draw it)", c.id());
+            }
+        }
+        let mut ids: Vec<&str> = ALL_SPECIALS.iter().map(|s| s.id()).collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), ALL_SPECIALS.len(), "a special is in ALL_SPECIALS twice");
+    }
+
+    #[test]
+    fn ryan_picks_up_a_special_for_each_match_and_it_s_most_often_the_chain() {
+        let z = zero_brain();
+        let mut picked = [0u32; ALL_SPECIALS.len()];
+        for seed in 0..400u64 {
+            let mut m = Match::new(seed, &MatchConfig { heals: 0..=0, unstick: false, ..MatchConfig::default() });
+            m.f[0].character = Character::Ryan;
+            assert!(m.f[0].special().is_none(), "nothing before the match starts");
+            m.step([&z; N_FIGHTERS]);
+            let k = m.f[0].hobby.expect("picked one as it started") as usize;
+            assert_eq!(m.f[0].special().map(|s| s.id()), Some(ALL_SPECIALS[k].id()));
+            picked[k] += 1;
+            // It stays the same all match.
+            for _ in 0..60 {
+                m.step([&z; N_FIGHTERS]);
+            }
+            assert_eq!(m.f[0].hobby, Some(k as u8));
+            assert!(m.f[1].hobby.is_none(), "only Ryan");
+        }
+        let chain = picked[chain_hobby() as usize];
+        assert!(picked.iter().all(|&n| n > 0), "every special comes up: {picked:?}");
+        assert!(picked.iter().enumerate().all(|(k, &n)| k == chain_hobby() as usize || n < chain), "the chain's the likeliest: {picked:?}");
+    }
+
     fn zero_brain() -> Brain {
         Brain { w: vec![0.0; Brain::N_WEIGHTS] }
     }
@@ -2441,9 +2658,10 @@ mod tests {
         }
         for c in Character::ALL {
             let n = fired[c as usize];
-            match c.special() {
-                None => assert_eq!(n, 0, "{c:?} has no special"),
-                Some(_) => assert!(n > 0, "bots never used {c:?}'s special: {fired:?}"),
+            // (Ryan has no special of his own, but always picks one up for the match.)
+            match (c.special(), c.passive()) {
+                (None, Some(Passive::Hobbyist)) | (Some(_), _) => assert!(n > 0, "bots never used {c:?}'s special: {fired:?}"),
+                (None, _) => assert_eq!(n, 0, "{c:?} has no special"),
             }
         }
     }
@@ -2718,6 +2936,7 @@ mod tests {
     fn ryans_chain_hauls_in_the_first_foe_ahead_and_dazes_them() {
         let z = zero_brain();
         let mut m = staged([Character::Ryan, Character::Classic, Character::Classic, Character::Classic], [100.0, 180.0, 300.0, 400.0]);
+        m.f[0].hobby = Some(chain_hobby());
         m.f[0].facing = 1.0;
         step_idle(&mut m, &z, true);
         let mut hooked = false;
@@ -2742,6 +2961,7 @@ mod tests {
     fn ryans_chain_reels_back_after_a_miss() {
         let z = zero_brain();
         let mut m = staged([Character::Ryan, Character::Classic, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
+        m.f[0].hobby = Some(chain_hobby());
         m.f[0].facing = 1.0;
         step_idle(&mut m, &z, true);
         for _ in 0..CHAIN_TICKS {
@@ -2798,9 +3018,9 @@ mod tests {
     }
 
     #[test]
-    fn kyle_pins_everyone_else_where_they_stand_for_three_seconds() {
+    fn michelles_eye_of_the_storm_freezes_everyone_else_for_three_seconds() {
         let z = zero_brain();
-        let mut m = staged([Character::Kyle, Character::Classic, Character::Classic, Character::Classic], [100.0, 200.0, 300.0, 400.0]);
+        let mut m = staged([Character::Michelle, Character::Classic, Character::Classic, Character::Classic], [100.0, 200.0, 300.0, 400.0]);
         m.f[2].pos.y = 150.0;
         m.f[2].grounded = false;
         step_idle(&mut m, &z, true);
@@ -2815,8 +3035,8 @@ mod tests {
         }
         assert_eq!(m.f[1].pos.x, x1, "pinned: can't run");
         assert_eq!(m.f[2].pos.y, y2, "pinned in mid-air");
-        assert!(m.f[0].pos.x > 150.0, "Kyle moves freely");
-        assert_eq!(m.f[0].pinned, 0, "Kyle isn't pinned by his own organize");
+        assert!(m.f[0].pos.x > 150.0, "Michelle moves freely");
+        assert_eq!(m.f[0].pinned, 0, "nor is she frozen by her own");
         for _ in 0..30 {
             let mut humans = [None; N_FIGHTERS];
             humans[1] = Some(run);
@@ -2824,6 +3044,141 @@ mod tests {
         }
         assert!(m.f[1].pos.x > x1 + 5.0, "free again after 3s");
         assert!(m.f[2].pos.y > y2, "and falling");
+    }
+
+    #[test]
+    fn the_eye_of_the_storm_freezes_dogs_and_minis_already_out_but_not_ones_let_out_after() {
+        let z = zero_brain();
+        let pets = |m: &Match| m.effects.iter().filter_map(|e| if let Effect::Pet(p) = e { Some(p.clone()) } else { None }).collect::<Vec<_>>();
+        // Tyler's dogs and Seth's minis out first.
+        let mut m = staged([Character::Michelle, Character::Tyler, Character::Seth, Character::Classic], [440.0, 60.0, 200.0, 300.0]);
+        m.f[1].facing = 1.0;
+        let press = |m: &mut Match, seats: &[usize]| {
+            let mut h = [None; N_FIGHTERS];
+            for &s in seats {
+                h[s] = Some(Action { special: true, ..Action::default() });
+            }
+            m.step_humans([&z; N_FIGHTERS], h);
+        };
+        press(&mut m, &[1, 2]);
+        for _ in 0..20 {
+            press(&mut m, &[]);
+        }
+        let minis: Vec<usize> = (N_FIGHTERS..N_BODIES).filter(|&j| !m.f[j].absent).collect();
+        assert!(!minis.is_empty());
+        // Michelle freezes them.
+        press(&mut m, &[0]);
+        let before: Vec<Vec2> = pets(&m).iter().map(|p| p.pos).collect();
+        let mini_before: Vec<Vec2> = minis.iter().map(|&j| m.f[j].pos).collect();
+        assert!(pets(&m).iter().all(|p| p.frozen > 0));
+        assert!(minis.iter().all(|&j| m.f[j].pinned > 0), "the minis too");
+        for _ in 0..SECOND {
+            press(&mut m, &[]);
+        }
+        let after: Vec<Vec2> = pets(&m).iter().take(before.len()).map(|p| p.pos).collect();
+        assert_eq!(before, after, "the dogs stood still");
+        assert_eq!(mini_before, minis.iter().map(|&j| m.f[j].pos).collect::<Vec<_>>(), "and the minis");
+        // Cats let out now, while Corwin's frozen, run as normal.
+        let mut m = staged([Character::Michelle, Character::Corwin, Character::Classic, Character::Classic], [440.0, 60.0, 300.0, 380.0]);
+        m.f[1].facing = 1.0;
+        press(&mut m, &[0]);
+        assert!(m.f[1].pinned > 0);
+        press(&mut m, &[1]);
+        let start: Vec<Vec2> = pets(&m).iter().map(|p| p.pos).collect();
+        assert!(!start.is_empty() && pets(&m).iter().all(|p| p.frozen == 0), "let out after: not frozen");
+        for _ in 0..30 {
+            press(&mut m, &[]);
+        }
+        assert!(pets(&m).iter().zip(&start).any(|(p, s)| p.pos.distance(*s) > 10.0), "and they run");
+    }
+
+    #[test]
+    fn nothing_pushes_michelle_around() {
+        let z = zero_brain();
+        // A hit hurts but doesn't move her or stun her.
+        let mut m = staged([Character::Classic, Character::Michelle, Character::Classic, Character::Classic], [100.0, 200.0, 300.0, 400.0]);
+        m.damage(0, 1, 20.0, vec2(300.0, -300.0), 30, 1.0, Source::Fist, false);
+        assert_eq!(m.f[1].hp, MAX_HP - 20.0);
+        assert!(m.f[1].vel == Vec2::ZERO && m.f[1].hitstun == 0 && m.f[1].grounded, "unmoved, unstunned");
+        // Nobody else's Eye of the Storm freezes her.
+        let mut m = staged([Character::Michelle, Character::Michelle, Character::Classic, Character::Classic], [100.0, 200.0, 300.0, 400.0]);
+        step_idle(&mut m, &z, true);
+        assert!(m.f[2].pinned > 0 && m.f[1].pinned == 0, "the Classic's frozen, the other Michelle isn't");
+        // Doug can't get hold of her.
+        let mut m = staged([Character::Doug, Character::Michelle, Character::Classic, Character::Classic], [100.0, 110.0, 300.0, 400.0]);
+        m.f[0].facing = 1.0;
+        step_idle(&mut m, &z, true);
+        for _ in 0..LUNGE_TICKS + 2 {
+            step_idle(&mut m, &z, false);
+        }
+        assert!(m.effects.iter().all(|e| !matches!(e, Effect::Judo(_))), "not thrown");
+        // Ryan's chain goes straight past her.
+        let mut m = staged([Character::Ryan, Character::Michelle, Character::Classic, Character::Classic], [100.0, 160.0, 300.0, 440.0]);
+        m.f[0].hobby = Some(chain_hobby());
+        m.f[0].facing = 1.0;
+        step_idle(&mut m, &z, true);
+        for _ in 0..CHAIN_TICKS {
+            step_idle(&mut m, &z, false);
+        }
+        assert_eq!(m.f[1].pos.x, 160.0, "not hauled in");
+        // A tornado doesn't pull at her.
+        let mut m = staged([Character::Zack, Character::Michelle, Character::Classic, Character::Classic], [200.0, 300.0, 30.0, 470.0]);
+        step_idle(&mut m, &z, true);
+        for _ in 0..SECOND {
+            step_idle(&mut m, &z, false);
+        }
+        assert_eq!(m.f[1].pos.x, 300.0, "not pulled");
+        // And the Chosen One can't ride her.
+        let mut m = staged([Character::Shawn, Character::Michelle, Character::Classic, Character::Classic], [100.0, 200.0, 300.0, 400.0]);
+        m.f[0].special_cd = 0;
+        m.step_with([&z; N_FIGHTERS], Some((0, Action { special: true, cursor: Some(m.f[1].center()), ..Action::default() })));
+        assert_eq!(m.f[1].ridden, 0, "not ridden");
+    }
+
+    #[test]
+    fn kyles_backlog_piles_up_swings_and_throws_then_lets_them_all_go() {
+        use crate::sim::{Item, ItemKind};
+        let z = zero_brain();
+        let mut m = staged([Character::Kyle, Character::Classic, Character::Classic, Character::Classic], [100.0, 108.0, 250.0, 440.0]);
+        m.f[0].facing = 1.0;
+        let kyle = |m: &mut Match, a: Action| m.step_with([&z; N_FIGHTERS], Some((0, a)));
+        kyle(&mut m, Action { special: true, ..Action::default() });
+        assert!(m.f[0].backlog > 0);
+        // Swinging at the fighter right in front: it swings, but nothing lands.
+        for _ in 0..3 {
+            kyle(&mut m, Action { attack: true, ..Action::default() });
+            for _ in 0..40 {
+                kyle(&mut m, Action::default());
+            }
+        }
+        assert_eq!(m.f[1].hp, MAX_HP, "nothing lands yet");
+        // Two rocks thrown at the one further off: each leaves his hand, but goes nowhere.
+        for _ in 0..2 {
+            let mut rock = Item::new(ItemKind::Rock, m.f[0].hand());
+            rock.held_by = Some(0);
+            m.items.push(rock);
+            m.f[0].holding = Some(ItemKind::Rock);
+            kyle(&mut m, Action { throw: true, target: Some(vec2(1.0, -0.15)), ..Action::default() });
+            assert!(m.f[0].holding.is_none(), "his hand's free again");
+            for _ in 0..25 {
+                kyle(&mut m, Action::default());
+            }
+        }
+        assert!(m.items.is_empty(), "the rocks are in his backlog, not the arena");
+        assert_eq!(m.f[0].inbox, 5, "three swings and two throws piled up");
+        // When it's up, it all goes at once.
+        let mut burst = false;
+        for _ in 0..BACKLOG_TICKS {
+            kyle(&mut m, Action::default());
+            burst |= m.events.iter().any(|e| matches!(e, Event::BacklogBurst { .. }));
+            if burst {
+                break;
+            }
+        }
+        assert!(burst, "the backlog went off");
+        assert_eq!(m.f[0].inbox, 0);
+        assert_eq!(m.f[1].hp, MAX_HP - 3.0 * BACKLOG_PUNCH, "three swings' worth in one punch");
+        assert_eq!(m.items.iter().filter(|it| it.kind == ItemKind::Rock && it.lethal).count(), 2, "both rocks thrown at once");
     }
 
     #[test]
@@ -2952,7 +3307,7 @@ mod tests {
     #[test]
     fn the_chosen_one_rides_the_opponent_nearest_the_cursor_then_steps_out() {
         let z = zero_brain();
-        let mut m = staged([Character::Classic, Character::Classic, Character::Classic, Character::Classic], [100.0, 200.0, 300.0, 400.0]);
+        let mut m = staged([Character::Shawn, Character::Classic, Character::Classic, Character::Classic], [100.0, 200.0, 300.0, 400.0]);
         m.f[0].special_cd = 0;
         // The cursor is nearest the fighter at 300.
         let a = Action { special: true, cursor: Some(vec2(290.0, 240.0)), ..Action::default() };
@@ -3181,10 +3536,10 @@ mod tests {
     }
 
     #[test]
-    fn matts_skate_frees_him_of_kyles_pin_and_the_chosen_one_but_nobody_else() {
+    fn matts_skate_frees_him_of_the_eye_of_the_storm_and_the_chosen_one_but_nobody_else() {
         let z = zero_brain();
-        // Pinned by Kyle (with a pinned Classic in his path).
-        let mut m = staged([Character::Matt, Character::Kyle, Character::Classic, Character::Classic], [100.0, 400.0, 160.0, 440.0]);
+        // Frozen by Michelle (with a frozen Classic in his path).
+        let mut m = staged([Character::Matt, Character::Michelle, Character::Classic, Character::Classic], [100.0, 400.0, 160.0, 440.0]);
         m.f[0].facing = 1.0;
         let mut h = [None; N_FIGHTERS];
         h[0] = Some(Action::default());
@@ -3198,7 +3553,7 @@ mod tests {
         assert!(m.f[0].pos.x > 200.0, "skated off out of the pin: {}", m.f[0].pos.x);
         assert!(m.f[2].pinned > 0 && m.f[2].hp < MAX_HP, "the one he went through is still pinned");
         // Ridden by the Chosen One: he takes his body back, and the rider's put out.
-        let mut m = staged([Character::Matt, Character::Classic, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
+        let mut m = staged([Character::Matt, Character::Shawn, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
         m.f[1].special_cd = 0;
         let mut h = [None; N_FIGHTERS];
         h[1] = Some(Action { special: true, cursor: Some(vec2(100.0, 240.0)), ..Action::default() });
@@ -3216,7 +3571,7 @@ mod tests {
     #[test]
     fn the_chosen_one_inside_someone_fires_their_special_if_its_ready() {
         let z = zero_brain();
-        let mut m = staged([Character::Classic, Character::Tyler, Character::Classic, Character::Classic], [100.0, 200.0, 380.0, 440.0]);
+        let mut m = staged([Character::Shawn, Character::Tyler, Character::Classic, Character::Classic], [100.0, 200.0, 380.0, 440.0]);
         m.f[0].special_cd = 0;
         let ride = Action { special: true, cursor: Some(vec2(200.0, 240.0)), ..Action::default() };
         let mut h = [None; N_FIGHTERS];

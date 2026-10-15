@@ -32,11 +32,19 @@ fn preview(ui: &Ui, r: Rect, c: Character, picked: bool, portraits: &[RenderTarg
     }
     let heading = match c.special() {
         Some(s) => format!("{}  -  {}", special_name(s), tf("lobby.cooldown", &[("secs", &(s.cooldown() / TICK_RATE).to_string())])),
+        // (Ryan: one picked up at random each match.)
+        None if c.passive() == Some(go_box_sim::character::Passive::Hobbyist) => t("lobby.random_special").to_string(),
         None => t("lobby.no_special").to_string(),
     };
     ui.text(&ui.fit(&heading, 18.0, tw), tx, r.y + ui.px(60.0), 18.0, INK);
     // Up to `text::ABOUT_MAX` characters fit (a test holds the text files to it).
     let mut ly = r.y + ui.px(82.0);
+    // A passive (only some have one), named under the special.
+    if let Some(p) = c.passive() {
+        let line = tf("lobby.passive", &[("passive", t(&format!("passive.{}", p.id())))]);
+        ui.text(&ui.fit(&line, 16.0, tw), tx, ly, 16.0, color);
+        ly += ui.px(20.0);
+    }
     let about: String = t(&format!("about.{}", c.id())).chars().take(crate::text::ABOUT_MAX).collect();
     for line in ui.wrap(&about, 15.0, tw) {
         ui.text(&line, tx, ly, 15.0, DIM);

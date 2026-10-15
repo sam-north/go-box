@@ -34,7 +34,7 @@ pub struct Options {
     pub shots: Option<String>,
     pub shot_every: f32,
     /// Only take a shot while the match has this kind of effect in it (glue, pet, table, chain,
-    /// lightning; or phone: Jake inside his; or pinned: Kyle's pin),
+    /// lightning; or phone: Jake inside his; or pinned: Michelle's freeze),
     /// e.g. to catch a special in action.
     pub shot_when: Option<String>,
     pub quit_after: Option<f32>,

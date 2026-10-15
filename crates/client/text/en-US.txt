@@ -49,7 +49,9 @@ lobby.seat_bot = bot
 lobby.seat_empty = empty
 lobby.picked = picked
 lobby.no_special = No special
+lobby.random_special = A random special every match
 lobby.cooldown = every {secs}s
+lobby.passive = Passive: {passive}
 lobby.play = Play
 lobby.ready = Ready
 lobby.is_ready = Ready!
@@ -66,6 +68,9 @@ hud.watching = Watching - you'll play in the next match
 hud.spectating = Spectating - you'll get a seat when one frees up
 hud.down = You're down - watch the rest
 hud.special_ready = [{key}] {special} - ready
+hud.hobby = Hobbyist: {special}
+hud.hobby_banner = Your hobby this match: {special}
+hud.hobby_sub = (Hobbyist: a different special every match)
 hud.special_cooling = {special} - {secs}s
 
 # Characters and their specials (by id)
@@ -87,6 +92,8 @@ character.carrie = Carrie
 character.matt = Matt
 character.zack = Zack
 character.kaleb = Kaleb
+character.michelle = Michelle
+character.shawn = Shawn
 special.glue_gun = Glue Gun
 special.pop_up = Pop-Up
 special.hounds = Release the Hounds
@@ -96,7 +103,8 @@ special.sushi_table = Sushi Table
 special.yank_chain = Yanking Your Chain
 special.into_the_phone = Into the Phone
 special.forked_lightning = Forked Lightning
-special.organize = Organize
+special.backlog = Backlog
+special.eye_of_the_storm = Eye of the Storm
 special.chosen_one = The Chosen One
 special.story_time = Story Time
 special.judo_throw = Judo Throw
@@ -105,6 +113,10 @@ special.bug_report = Bug Report
 special.skate_strike = Skate Strike
 special.twin_tornadoes = Twin Tornadoes
 special.golden_arrow = Golden Arrow
+
+# Passives (by id): always on, nothing to press.
+passive.resting_zen_face = Resting Zen Face
+passive.hobbyist = Hobbyist
 
 # Maps (by id)
 arena.tiers = Tiers
@@ -215,21 +227,23 @@ pad.right = D-pad right
 pad.home = Home
 
 # What each character's special does, shown in the lobby preview.
-about.classic = The hooded fighter the bots learned to fight as. Goes inside the opponent nearest your cursor and drives their body for 3 seconds (press special inside to fire theirs), then steps back out.
+about.classic = No special. The hooded fighter the bots learned to fight as: just fists, rocks, spears and grenades.
 about.sam = Fires a glob of glue. Whoever it hits is stuck: slowed right down and tethered to the nearest surface for 5 seconds (strain hard enough and it snaps). A miss leaves a blob that catches anyone who runs into it.
 about.austin = Teleports a third of the arena ahead in the direction he's facing, away from the crowd.
 about.tyler = Three dogs run the floors for 5 seconds, biting anyone but Tyler. He runs a third faster while they're out.
 about.seth = Two smaller clones hop out and fight beside him for 15 seconds. They have 30% of a fighter's health; their kills count as his.
 about.corwin = Twenty cats pour out and run the floors for 5 seconds. Each scratch is light, but there are a lot of them.
 about.justin = A table drops in front of him, serving three pieces of sushi to throw. It's solid: run into it or jump on top.
-about.ryan = Throws a chain a short way ahead. Whoever it hooks gets yanked right up to him, dazed for a moment.
+about.ryan = No special of his own: as each match starts he picks one up at random from every special in the game (Yanking Your Chain the likeliest), and has it all match. It's shown at the top of the screen.
 about.jake = Turns into light and hides inside his phone for 5 seconds; anyone can grab and throw it. Then he pops back out, wherever the phone ended up.
 about.robert = Lightning forks out to every opponent in the arena at once. It hits hardest up close (30) and still stings from across the map (5).
-about.kyle = Pins every opponent right where they are, even in mid-air, for 3 seconds. They can still swing and throw, but they can't move.
+about.kyle = For 3 seconds his swings and throws pile up in an inbox over his head (a thrown item still leaves his hand, so he can grab another). Then they all go at once: every throw, and every swing in one big punch.
 about.vid = Sits down with a book from his dimensional bag and reads for 4 seconds, eyes glowing: a shield stops every attack on him (he can't move meanwhile) and three books fly out to hit anyone close by (6 each).
 about.doug = Black-belt judo: lunges into a grab and throws whoever he catches like a ragdoll. They slam down (12) and lie stunned for a second; anyone they fly into is knocked flat too (6). A lunge that catches nobody is ready again in a second.
 about.travis = Straps on a weighted vest and bulks up for 5 seconds: every step he takes sends a shockwave along the ground that hurts anyone standing near him (4), and landing from a jump a bigger one (8). Jump to dodge it.
 about.carrie = Opens her laptop and bugs pour out every which way: spiders that run the floors (leaping up after you) and horseflies that fly straight at you. Each one hunts down the nearest opponent and bites a couple of times (3 a bite).
-about.matt = Drops his skateboard and shoots off along it, fast and far, the way he's facing, hitting everyone he goes through (14). He can do it pinned by Kyle, ridden by the Chosen One or caught in a tornado, and it frees him.
+about.matt = Drops his skateboard and shoots off along it, fast and far, the way he's facing, hitting everyone he goes through (14). He can do it frozen by Michelle, ridden by the Chosen One or caught in a tornado, and it frees him.
 about.zack = Two tornadoes, each reaching floor to ceiling, spin up either side of him for 5 seconds and pull everyone toward them, Zack too. Get caught in one and you're carried up and flung out. Rocks, spears and swords whipped round hurt (never Zack).
 about.kaleb = A golden arrow appears over his head for 5 seconds. Press again and it flies off and chases your cursor wherever you move it, going through everyone it meets (8 each). Press again to call it back.
+about.michelle = Freezes everyone else exactly where they are for 3 seconds. And nothing pushes her around: hits still hurt, but never knock her back or stun her, and freezes, grabs, glue, chains, tornadoes and riding don't work on her.
+about.shawn = Goes inside the opponent nearest your cursor and drives their body for 3 seconds (press special inside to fire theirs), then steps back out beside them.
