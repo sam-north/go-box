@@ -1189,7 +1189,10 @@ fn make_terrain(arena: ArenaId) -> Image {
     img
 }
 
-/// The Desktop's window frames, sticky notes, menu bar (the ceiling), screen bezel (the side
+/// Which of `DESKTOP_WINDOWS` is the notification toast.
+const TOAST: usize = 5;
+
+/// The Desktop's window frames, notification toast, menu bar (the ceiling), screen bezel (the side
 /// walls) and dock (the floor), one pixel (as `city_px`). Window insides are `draw_window_apps`.
 fn desktop_px(a: &Arena, x: i32, y: i32) -> Option<Option<(f32, f32, f32)>> {
     use go_box_sim::arena::{DESKTOP_WINDOWS, WINDOW_BAR};
@@ -1200,6 +1203,16 @@ fn desktop_px(a: &Arena, x: i32, y: i32) -> Option<Option<(f32, f32, f32)>> {
         let solid = a.platforms.iter().chain(a.walls).any(|s| s.contains(p));
         if !solid {
             return None;
+        }
+        if k == TOAST {
+            // The notification: a rounded light card all round, no title bar.
+            let (w, h) = (win.w as i32, win.h as i32);
+            let corner = |cx: i32, cy: i32| (lx == cx || lx == w - 1 - cx) && (d == cy || d == h - 1 - cy);
+            if corner(0, 0) || corner(0, 1) || corner(1, 0) {
+                return Some(None);
+            }
+            let edge = lx == 0 || lx == w - 1 || d == 0 || d == h - 1;
+            return Some(Some(if d == 0 { (250.0, 250.0, 252.0) } else if edge { (150.0, 152.0, 160.0) } else { (224.0, 226.0, 232.0) }));
         }
         // The terminal and VS Code have dark title bars; the rest light.
         let dark = k == 0 || k == 3;
@@ -1229,14 +1242,6 @@ fn desktop_px(a: &Arena, x: i32, y: i32) -> Option<Option<(f32, f32, f32)>> {
             if outer { (150.0, 152.0, 160.0) } else if dark { (64.0, 64.0, 70.0) } else { (206.0, 208.0, 214.0) }
         };
         return Some(Some(c));
-    }
-    if let Some(s) = a.platforms.iter().find(|s| s.contains(p)) {
-        // A sticky note, its bottom edge in shadow and a corner curling up.
-        let (lx, d) = (x - s.x as i32, y - s.y as i32);
-        if lx == s.w as i32 - 1 && d == 0 {
-            return Some(None);
-        }
-        return Some(Some(if d == s.h as i32 - 1 { (196.0, 166.0, 60.0) } else if lx >= s.w as i32 - 3 && d <= 1 { (232.0, 206.0, 110.0) } else { (252.0, 224.0, 104.0) }));
     }
     if y < WALL as i32 {
         // The menu bar: a frosted strip, an apple-ish blob and menus on the left, the clock right.
@@ -1337,6 +1342,25 @@ fn draw_window_apps(img: &mut Image) {
                             } else {
                                 (30.0, 30.0, 30.0)
                             }
+                        }
+                    }
+                    // The notification: a grey settings gear, a bold title, two lines of text,
+                    // and "now" in the corner.
+                    TOAST => {
+                        let h = y1 - y0;
+                        let g = vec2((lx - 7) as f32, (ly - h / 2) as f32).length();
+                        let gear = g <= 5.0 && g >= 2.0 && !(g > 3.5 && (lx + ly) % 2 == 0);
+                        let title = ly == 4 && (16..16 + w / 3).contains(&lx);
+                        let body = (ly == 10 || ly == 14) && (16..w - 6 - if ly == 14 { 22 } else { 0 }).contains(&lx);
+                        let now = ly == 4 && (w - 12..w - 4).contains(&lx) && lx % 2 == 0;
+                        if gear {
+                            (128.0, 130.0, 138.0)
+                        } else if title {
+                            (40.0, 42.0, 48.0)
+                        } else if body || now {
+                            (130.0, 132.0, 140.0)
+                        } else {
+                            (240.0, 241.0, 245.0)
                         }
                     }
                     // Calendar: a week's grid with coloured events.

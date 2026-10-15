@@ -139,15 +139,18 @@ const FOREST: Arena = Arena {
 };
 
 /// The Desktop's windows, whole (title bar to bottom edge), in the order the renderer dresses
-/// them: a terminal, a chat, a Jira board, VS Code and a calendar. Each is a title bar
+/// them: a terminal, a chat, a Jira board, VS Code, a calendar, and a settings notification
+/// up in the top right corner. Each is a title bar
 /// and a bottom edge (`WINDOW_BAR` thick, ledges) with a wall (`WINDOW_SIDE` wide) down each
 /// side between them; `DESKTOP`'s ledges and walls are exactly these (a test holds them to it).
-pub const DESKTOP_WINDOWS: [Aabb; 5] = [
-    Aabb::new(40.0, 178.0, 104.0, 43.0),
-    Aabb::new(336.0, 178.0, 104.0, 43.0),
-    Aabb::new(164.0, 104.0, 152.0, 43.0),
-    Aabb::new(20.0, 104.0, 80.0, 43.0),
-    Aabb::new(380.0, 104.0, 80.0, 43.0),
+/// (The chat is tall and narrow, up under the notification: climbing it takes wall jumps.)
+pub const DESKTOP_WINDOWS: [Aabb; 6] = [
+    Aabb::new(250.0, 178.0, 120.0, 50.0),
+    Aabb::new(396.0, 72.0, 60.0, 139.0),
+    Aabb::new(24.0, 172.0, 150.0, 44.0),
+    Aabb::new(40.0, 90.0, 116.0, 52.0),
+    Aabb::new(196.0, 112.0, 90.0, 46.0),
+    Aabb::new(368.0, 30.0, 96.0, 34.0),
 ];
 pub const WINDOW_BAR: f32 = 5.0;
 pub const WINDOW_SIDE: f32 = 4.0;
@@ -156,33 +159,33 @@ const DESKTOP: Arena = Arena {
     id: "desktop",
     platforms: &[
         // Each window's title bar and bottom edge, in `DESKTOP_WINDOWS` order.
-        Aabb::new(40.0, 178.0, 104.0, 5.0),
-        Aabb::new(40.0, 216.0, 104.0, 5.0),
-        Aabb::new(336.0, 178.0, 104.0, 5.0),
-        Aabb::new(336.0, 216.0, 104.0, 5.0),
-        Aabb::new(164.0, 104.0, 152.0, 5.0),
-        Aabb::new(164.0, 142.0, 152.0, 5.0),
-        Aabb::new(20.0, 104.0, 80.0, 5.0),
-        Aabb::new(20.0, 142.0, 80.0, 5.0),
-        Aabb::new(380.0, 104.0, 80.0, 5.0),
-        Aabb::new(380.0, 142.0, 80.0, 5.0),
-        // Sticky notes up high.
-        Aabb::new(44.0, 70.0, 30.0, 4.0),
-        Aabb::new(225.0, 70.0, 30.0, 4.0),
-        Aabb::new(406.0, 70.0, 30.0, 4.0),
+        Aabb::new(250.0, 178.0, 120.0, 5.0),
+        Aabb::new(250.0, 223.0, 120.0, 5.0),
+        Aabb::new(396.0, 72.0, 60.0, 5.0),
+        Aabb::new(396.0, 206.0, 60.0, 5.0),
+        Aabb::new(24.0, 172.0, 150.0, 5.0),
+        Aabb::new(24.0, 211.0, 150.0, 5.0),
+        Aabb::new(40.0, 90.0, 116.0, 5.0),
+        Aabb::new(40.0, 137.0, 116.0, 5.0),
+        Aabb::new(196.0, 112.0, 90.0, 5.0),
+        Aabb::new(196.0, 153.0, 90.0, 5.0),
+        Aabb::new(368.0, 30.0, 96.0, 5.0),
+        Aabb::new(368.0, 59.0, 96.0, 5.0),
     ],
     // Each window's sides, between its title bar and bottom edge.
     walls: &[
-        Aabb::new(40.0, 183.0, 4.0, 33.0),
-        Aabb::new(140.0, 183.0, 4.0, 33.0),
-        Aabb::new(336.0, 183.0, 4.0, 33.0),
-        Aabb::new(436.0, 183.0, 4.0, 33.0),
-        Aabb::new(164.0, 109.0, 4.0, 33.0),
-        Aabb::new(312.0, 109.0, 4.0, 33.0),
-        Aabb::new(20.0, 109.0, 4.0, 33.0),
-        Aabb::new(96.0, 109.0, 4.0, 33.0),
-        Aabb::new(380.0, 109.0, 4.0, 33.0),
-        Aabb::new(456.0, 109.0, 4.0, 33.0),
+        Aabb::new(250.0, 183.0, 4.0, 40.0),
+        Aabb::new(366.0, 183.0, 4.0, 40.0),
+        Aabb::new(396.0, 77.0, 4.0, 129.0),
+        Aabb::new(452.0, 77.0, 4.0, 129.0),
+        Aabb::new(24.0, 177.0, 4.0, 34.0),
+        Aabb::new(170.0, 177.0, 4.0, 34.0),
+        Aabb::new(40.0, 95.0, 4.0, 42.0),
+        Aabb::new(152.0, 95.0, 4.0, 42.0),
+        Aabb::new(196.0, 117.0, 4.0, 36.0),
+        Aabb::new(282.0, 117.0, 4.0, 36.0),
+        Aabb::new(368.0, 35.0, 4.0, 24.0),
+        Aabb::new(460.0, 35.0, 4.0, 24.0),
     ],
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
