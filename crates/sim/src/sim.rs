@@ -633,21 +633,45 @@ fn fast_atan2(y: f32, x: f32) -> f32 {
     if y < 0.0 { -a } else { a }
 }
 
-/// If `target` is in line of sight from `eye`, returns (proximity 0.05..1, retina sector).
-fn glimpse(arena: &Arena, eye: Vec2, target: Vec2) -> Option<(f32, usize)> {
+/// Where `target` would be seen from `eye`, line of sight aside: (proximity 0.05..1, retina
+/// sector, distance, direction), or None if it's too far.
+fn bearing(eye: Vec2, target: Vec2) -> Option<(f32, usize, f32, Vec2)> {
     let to = target - eye;
     let dist = to.length().max(0.001);
-    if dist >= VIS_MAX || terrain_ray(arena, eye, to / dist, dist) < dist - 0.5 {
+    if dist >= VIS_MAX {
         return None;
     }
     let ang = fast_atan2(to.y, to.x) + std::f32::consts::PI;
     let sector = ((ang / std::f32::consts::TAU * N_SECTORS as f32) as usize) % N_SECTORS;
-    Some(((1.0 - dist / VIS_MAX).max(0.05), sector))
+    Some(((1.0 - dist / VIS_MAX).max(0.05), sector, dist, to / dist))
+}
+
+/// Whether nothing solid is between `eye` and a point `dist` away along `dir`.
+fn in_sight(arena: &Arena, eye: Vec2, dir: Vec2, dist: f32) -> bool {
+    terrain_ray(arena, eye, dir, dist) >= dist - 0.5
+}
+
+/// If `target` is in line of sight from `eye`, returns (proximity 0.05..1, retina sector).
+fn glimpse(arena: &Arena, eye: Vec2, target: Vec2) -> Option<(f32, usize)> {
+    let (p, sector, dist, dir) = bearing(eye, target)?;
+    in_sight(arena, eye, dir, dist).then_some((p, sector))
 }
 
 fn mark(s: &mut [f32; N_IN], base: usize, seen: Option<(f32, usize)>) {
     if let Some((p, sector)) = seen {
         s[base + sector] = s[base + sector].max(p);
+    }
+}
+
+/// `mark(s, base, glimpse(arena, eye, target))`, but only casting the ray when the target would
+/// count: each sector keeps the nearest thing seen there, so one no nearer changes nothing
+/// either way. (A swarm of cats mostly falls in a sector or two.)
+fn glance(s: &mut [f32; N_IN], base: usize, arena: &Arena, eye: Vec2, target: Vec2) {
+    if let Some((p, sector, dist, dir)) = bearing(eye, target)
+        && p > s[base + sector]
+        && in_sight(arena, eye, dir, dist)
+    {
+        s[base + sector] = p;
     }
 }
 
@@ -970,20 +994,16 @@ impl Match {
             s[IN_NEAREST + 2..IN_NEAREST + 5].copy_from_slice(&one_hot(o.holding));
         }
         for it in self.items.iter().filter(|it| it.held_by.is_none()) {
-            let seen = glimpse(arena, eye, it.pos);
-            if it.lethal || it.fuse.is_some() {
-                mark(&mut s, IN_THREAT, seen);
-            } else {
-                mark(&mut s, IN_ITEMS + it.kind.def().sensed_as as usize * N_SECTORS, seen);
-            }
+            let base = if it.lethal || it.fuse.is_some() { IN_THREAT } else { IN_ITEMS + it.kind.def().sensed_as as usize * N_SECTORS };
+            glance(&mut s, base, arena, eye, it.pos);
         }
         for &h in &self.heals {
-            mark(&mut s, IN_HEAL, glimpse(arena, eye, h));
+            glance(&mut s, IN_HEAL, arena, eye, h);
         }
         // Brains never saw specials in training; someone else's dog or glue reads as a threat.
         for e in self.effects.iter().filter(|e| e.owner() != i) {
             if let Some(p) = e.threat_pos() {
-                mark(&mut s, IN_THREAT, glimpse(arena, eye, p));
+                glance(&mut s, IN_THREAT, arena, eye, p);
             }
         }
         let k = IN_SELF;
@@ -2524,6 +2544,25 @@ mod tests {
             }
         }
         assert!(worst < 1e-4, "max error {worst}");
+    }
+
+    #[test]
+    fn a_glance_senses_just_what_a_full_look_does() {
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand::rngs::SmallRng::seed_from_u64(7);
+        for a in ArenaId::ALL {
+            for _ in 0..200 {
+                let eye = vec2(rng.gen_range(0.0..W), rng.gen_range(0.0..H));
+                let (mut looked, mut glanced) = ([0.0; N_IN], [0.0; N_IN]);
+                // A crowd of things to see, many in the same few sectors.
+                for _ in 0..40 {
+                    let target = eye + vec2(rng.gen_range(-200.0..200.0), rng.gen_range(-120.0..120.0));
+                    super::mark(&mut looked, IN_THREAT, super::glimpse(a.def(), eye, target));
+                    super::glance(&mut glanced, IN_THREAT, a.def(), eye, target);
+                }
+                assert_eq!(looked, glanced, "{a:?} from {eye}");
+            }
+        }
     }
 }
 
