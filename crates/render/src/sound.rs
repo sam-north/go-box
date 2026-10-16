@@ -75,6 +75,7 @@ go_box_sim::enum_all! {
         ShieldBlock,
         Backlog,
         BacklogBurst,
+        LockIn,
         Start,
         Win,
         Lose,
@@ -412,6 +413,14 @@ impl Sfx {
                     s.tone(t, 0.08, 160.0, 70.0, Wave::Sine, 0.001, 30.0, 0.25);
                 }
             }
+            // Weston locking in: a sharp click, then a low hum swelling as the things round him stir.
+            Sfx::LockIn => {
+                s.tone(0.0, 0.03, 2200.0, 1800.0, Wave::Square, 0.001, 80.0, 0.15);
+                s.noise(0.0, 0.02, 6000.0, 4000.0, 0.001, 100.0, 0.25);
+                s.tone(0.04, 0.6, 110.0, 220.0, Wave::Saw, 0.15, 3.0, 0.12);
+                s.tone(0.04, 0.6, 660.0, 990.0, Wave::Sine, 0.2, 3.0, 0.08);
+                s.wobble(0.04, 0.6, 330.0, 9.0, 0.06);
+            }
             Sfx::Start => {
                 s.tone(0.0, 0.12, 440.0, 440.0, Wave::Square, 0.003, 10.0, 0.14);
                 s.tone(0.16, 0.3, 660.0, 660.0, Wave::Square, 0.003, 6.0, 0.16);
@@ -704,7 +713,7 @@ impl Sounds {
                 Event::Zap { pos, .. } => self.at(Sfx::Zap, pos, ear, 0.8),
                 Event::Blocked { pos } => self.at(Sfx::ShieldBlock, pos, ear, 0.8),
                 // (Their special's own sound covers these.)
-                Event::EyeOfTheStorm { .. } | Event::LaptopOpen { .. } => {}
+                Event::EyeOfTheStorm { .. } | Event::LaptopOpen { .. } | Event::Awaken { .. } => {}
                 Event::BacklogBurst { pos } => self.at(Sfx::BacklogBurst, pos, ear, 1.0),
                 Event::ArrowCall { pos } => self.at(Sfx::ArrowWhistle, pos, ear, 0.9),
                 Event::Slam { pos } => self.at(Sfx::Slam, pos, ear, 1.0),

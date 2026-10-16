@@ -104,6 +104,7 @@ character.zack = Zack
 character.kaleb = Kaleb
 character.michelle = Michelle
 character.shawn = Shawn
+character.weston = Weston
 special.glue_gun = Glue Gun
 special.pop_up = Pop-Up
 special.hounds = Release the Hounds
@@ -123,6 +124,7 @@ special.bug_report = Bug Report
 special.skate_strike = Skate Strike
 special.twin_tornadoes = Twin Tornadoes
 special.golden_arrow = Golden Arrow
+special.locked_in = Locked In
 
 # Passives (by id): always on, nothing to press.
 passive.resting_zen_face = Resting Zen Face
@@ -266,3 +268,4 @@ about.zack = Two tornadoes, each reaching floor to ceiling, spin up either side 
 about.kaleb = A golden arrow appears over his head for 5 seconds. Press again and it flies off and chases your cursor wherever you move it, going through everyone it meets (8 each). Press again to call it back.
 about.michelle = Freezes everyone else exactly where they are for 3 seconds. And nothing pushes her around: hits still hurt, but never knock her back or stun her, and freezes, grabs, glue, chains, tornadoes and riding don't work on her.
 about.shawn = Goes inside the opponent nearest your cursor and drives their body for 3 seconds (press special inside to fire theirs), then steps back out beside them.
+about.weston = Locks in for 5 seconds: the 3 items nearest him come alive and chase down anyone close by, doing what they'd do thrown when they reach them (a grenade blows, a spear stabs). With nobody close, they follow him.

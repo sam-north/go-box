@@ -277,6 +277,23 @@ const QUAKE_EVERY: u32 = SECOND * 2 / 5;
 /// How long a shockwave ripples out (for drawing).
 pub const QUAKE_TICKS: u32 = 15;
 
+// Weston — Locked In: the loose items nearest him come alive, chase down his foes and go off on contact.
+const LOCK_IN_COOLDOWN: u32 = 25 * SECOND;
+pub const LOCK_IN_TICKS: u32 = 5 * SECOND;
+const LIVE_ITEMS: usize = 3;
+/// A little under a full run (150), so you can get away from them.
+const LIVE_SPEED: f32 = 125.0;
+const LIVE_ACCEL: f32 = 450.0;
+/// Faster when following him, so they keep up with his run.
+const LIVE_FOLLOW: f32 = 190.0;
+/// A foe this close to him (or to the item) is one it goes after.
+const LIVE_RANGE: f32 = 140.0;
+const LIVE_ORBIT: f32 = 14.0;
+const LIVE_HOP: f32 = 90.0;
+/// A bot locks in with at least LIVE_BOT_ITEMS items this close.
+const LIVE_BOT_REACH: f32 = 200.0;
+const LIVE_BOT_ITEMS: usize = 2;
+
 crate::enum_all! {
     /// Who you play. Everyone has the same body; a character adds a special (see `def`).
     #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
@@ -303,6 +320,7 @@ crate::enum_all! {
         Kaleb,
         Michelle,
         Shawn,
+        Weston,
     }
 }
 
@@ -346,9 +364,9 @@ impl Passive {
 
 /// Every special in the game, whether or not a character has it now: what Ryan's Hobbyist draws
 /// from (a new special goes here too; a test checks every character's is).
-pub static ALL_SPECIALS: [&dyn Special; 19] = [
+pub static ALL_SPECIALS: [&dyn Special; 20] = [
     &GlueGun, &PopUp, &Hounds, &MiniMe, &CatHerder, &SushiTable, &YankChain, &IntoThePhone, &ForkedLightning, &EyeOfTheStorm, &Backlog, &StoryTime, &ChosenOne, &JudoThrow, &LegDay,
-    &BugReport, &SkateStrike, &TwinTornadoes, &GoldenArrow,
+    &BugReport, &SkateStrike, &TwinTornadoes, &GoldenArrow, &LockedIn,
 ];
 
 /// How likely Hobbyist is to pick each special, relative to the rest: Ryan's old chain the
@@ -403,6 +421,7 @@ impl Character {
             Character::Kaleb => &CharacterDef { id: "kaleb", special: Some(&GoldenArrow), passive: None },
             Character::Michelle => &CharacterDef { id: "michelle", special: Some(&EyeOfTheStorm), passive: Some(Passive::RestingZenFace) },
             Character::Shawn => &CharacterDef { id: "shawn", special: Some(&ChosenOne), passive: None },
+            Character::Weston => &CharacterDef { id: "weston", special: Some(&LockedIn), passive: None },
         }
     }
 
@@ -819,13 +838,13 @@ impl Special for EyeOfTheStorm {
         }
         // (Its shockwave and the eye are drawn by the client, from this.)
         let at = m.f[who].center();
-        // Her opponents' dogs, cats and bugs already out are frozen too (not any let out later).
+        // Her opponents' dogs, cats, bugs and living items already out are frozen too (not any let out later).
         let team = m.f[who].team(who);
         for e in m.effects.iter_mut() {
-            if let Effect::Pet(p) = e
-                && m.f[p.owner].team(p.owner) != team
-            {
-                p.frozen = PIN_TICKS;
+            match e {
+                Effect::Pet(p) if m.f[p.owner].team(p.owner) != team => p.frozen = PIN_TICKS,
+                Effect::Living(l) if m.f[l.owner].team(l.owner) != team => l.frozen = PIN_TICKS,
+                _ => {}
             }
         }
         m.events.push(Event::EyeOfTheStorm { who, at });
@@ -1325,6 +1344,62 @@ impl Special for LegDay {
     }
 }
 
+struct LockedIn;
+
+impl Special for LockedIn {
+    fn id(&self) -> &'static str {
+        "locked_in"
+    }
+    fn cooldown(&self) -> u32 {
+        LOCK_IN_COOLDOWN
+    }
+    fn activate(&self, m: &mut Match, who: usize) {
+        let me = m.f[who].center();
+        let mut near: Vec<usize> = (0..m.items.len()).filter(|&k| can_come_alive(&m.items[k])).collect();
+        near.sort_by(|&a, &b| m.items[a].pos.distance(me).total_cmp(&m.items[b].pos.distance(me)));
+        near.truncate(LIVE_ITEMS);
+        // Highest index first, so each swap_remove leaves the rest where they were.
+        near.sort_unstable_by(|a, b| b.cmp(a));
+        for (slot, k) in near.into_iter().enumerate() {
+            let mut item = m.items.swap_remove(k);
+            item.vel = vec2(0.0, -LIVE_HOP);
+            m.events.push(Event::Awaken { who, pos: item.pos });
+            m.add_effect(Effect::Living(Living { item, owner: who, slot: slot as u8, chasing: None, frozen: 0, ticks: LOCK_IN_TICKS }));
+        }
+        m.f[who].locked_in = LOCK_IN_TICKS;
+    }
+    fn bot_wants(&self, m: &Match, who: usize) -> bool {
+        let me = m.f[who].center();
+        let items = m.items.iter().filter(|it| can_come_alive(it) && it.pos.distance(me) < LIVE_BOT_REACH).count();
+        items >= LIVE_BOT_ITEMS && foes(m, who).any(|f| f.center().distance(me) < LIVE_RANGE)
+    }
+}
+
+/// Lying loose, unlit and empty (not Jake's phone with him inside).
+fn can_come_alive(it: &crate::sim::Item) -> bool {
+    it.loose() && it.carries.is_none() && it.fuse.is_none()
+}
+
+/// Where Weston's living item in `slot` circles him while there's nobody to go after.
+fn living_orbit(f: &Fighter, slot: u8, tick: u32) -> Vec2 {
+    let a = tick as f32 * 0.06 + slot as f32 * std::f32::consts::TAU / LIVE_ITEMS as f32;
+    f.center() + vec2(libm::cosf(a) * LIVE_ORBIT, libm::sinf(a) * LIVE_ORBIT * 0.5 - 6.0)
+}
+
+/// An item Weston brought to life: out of `Match::items` until it goes off or drops back.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Living {
+    pub item: crate::sim::Item,
+    pub owner: usize,
+    #[serde(skip)]
+    pub slot: u8,
+    #[serde(skip)]
+    pub chasing: Option<u8>,
+    /// Frozen by Michelle's Eye of the Storm (ticks left).
+    pub frozen: u32,
+    pub ticks: u32,
+}
+
 /// Ryan's chain: flying out, reeling back after a miss, or hauling in whoever it hooked.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Chain {
@@ -1528,6 +1603,7 @@ impl Match {
     pub(crate) fn step_specials(&mut self, wants: [bool; N_BODIES]) {
         // Seats only: minis have no specials.
         for i in 0..N_FIGHTERS {
+            self.f[i].locked_in = self.f[i].locked_in.saturating_sub(1);
             let Some(special) = self.f[i].special() else { continue };
             let able = self.f[i].present() && self.f[i].hitstun == 0;
             let f = &mut self.f[i];
@@ -1668,6 +1744,7 @@ impl Match {
                 Effect::Tornado(t) => self.step_tornado(t),
                 Effect::Arrow(a) => self.step_arrow(a),
                 Effect::Book(b) => self.step_book(b),
+                Effect::Living(l) => self.step_living(l, &props),
             }
             self.effects[e] = effect;
         }
@@ -1962,6 +2039,93 @@ impl Match {
             b.chasing = None;
             b.rest = BOOK_REST;
         }
+    }
+
+    /// Chases its foe (or circles Weston), goes off on the first foe it touches, and drops back to an item when time's up.
+    fn step_living(&mut self, l: &mut Living, props: &[Aabb]) {
+        l.ticks = l.ticks.saturating_sub(1);
+        let who = l.owner;
+        if l.ticks == 0 || !self.f[who].present() {
+            l.ticks = 0;
+            self.items.push(l.item.clone());
+            return;
+        }
+        if l.frozen > 0 {
+            l.frozen -= 1;
+            return;
+        }
+        let (me, at) = (self.f[who].center(), l.item.pos);
+        let near = |j: usize| self.foes(who, j) && (self.f[j].center().distance(me) < LIVE_RANGE || self.f[j].center().distance(at) < LIVE_RANGE);
+        let target = l.chasing.map(|j| j as usize).filter(|&j| self.foes(who, j));
+        let target = target.or_else(|| (0..N_BODIES).filter(|&j| near(j)).min_by(|&a, &b| self.f[a].center().distance(at).total_cmp(&self.f[b].center().distance(at))));
+        l.chasing = target.map(|j| j as u8);
+        let it = &mut l.item;
+        let (want, accel) = match target {
+            Some(j) => ((self.f[j].center() - it.pos).normalize_or_zero() * LIVE_SPEED, LIVE_ACCEL),
+            None => (((living_orbit(&self.f[who], l.slot, self.tick) - it.pos) * 6.0).clamp_length_max(LIVE_FOLLOW), LIVE_ACCEL * 2.0),
+        };
+        it.vel += (want - it.vel).clamp_length_max(accel * DT);
+        let arena = self.arena();
+        let blocked = |p: Vec2| arena.solids().any(|s| Aabb::around(p, crate::sim::ITEM_R).overlaps(s));
+        let was = it.pos;
+        it.pos.x += it.vel.x * DT;
+        if blocked(it.pos) {
+            it.pos.x = was.x;
+            it.vel.x *= -0.5;
+        }
+        it.pos.y += it.vel.y * DT;
+        if blocked(it.pos) {
+            it.pos.y = was.y;
+            it.vel.y *= -0.5;
+        }
+        let reach = Aabb::around(it.pos, crate::sim::ITEM_R + 1.0);
+        let struck = target.into_iter().chain(0..N_BODIES).find(|&j| self.foes(who, j) && reach.overlaps(&self.f[j].body()));
+        if let Some(j) = struck.filter(|_| !self.protected()) {
+            l.ticks = 0;
+            self.living_strikes(l, j, props);
+        }
+    }
+
+    /// Does what the item would do thrown at `j`: a grenade blows, a Molotov burns, a launcher fires, a radio calls a strike.
+    fn living_strikes(&mut self, l: &Living, j: usize, props: &[Aabb]) {
+        let (who, pos) = (l.owner, l.item.pos);
+        let def = l.item.kind.def();
+        let toward = (self.f[j].center() - pos).normalize_or(vec2(self.f[who].facing, 0.0));
+        if let Some(blast) = def.blast {
+            self.explode(pos, Some(who), blast);
+            return;
+        }
+        if def.ignites {
+            let fire = Fire::at(self.arena(), props, pos, who);
+            self.events.push(Event::Ignite { pos });
+            self.add_effect(Effect::Fire(fire));
+            return;
+        }
+        match def.on_throw {
+            crate::item::OnThrow::Rocket => {
+                self.add_effect(Effect::Rocket(Rocket::new(pos, toward, who)));
+                self.events.push(Event::RocketLaunch { pos });
+                return;
+            }
+            crate::item::OnThrow::AirStrike => {
+                self.air_strike(who, pos);
+                return;
+            }
+            crate::item::OnThrow::Throw => {}
+        }
+        if let Some(hit) = def.thrown {
+            let headshot = self.f[j].is_head(pos.y);
+            let dmg = if headshot { hit.damage * hit.headshot_mult } else { hit.damage };
+            let dir = if toward.x < 0.0 { -1.0 } else { 1.0 };
+            self.damage(who, j, dmg, vec2(dir * 110.0, -100.0), 10, dir, hit.source, headshot);
+        }
+        if def.splats.is_some() {
+            self.events.push(Event::Splat { pos });
+            return;
+        }
+        let mut item = l.item.clone();
+        item.vel *= -0.2;
+        self.items.push(item);
     }
 
     /// Kyle's backlog stays open until he lets it go (`release_backlog`), counting how long it's
@@ -2402,6 +2566,8 @@ pub enum Effect {
     Arrow(Arrow),
     /// One of Vid's books.
     Book(Book),
+    /// An item Weston brought to life.
+    Living(Living),
 }
 
 impl Effect {
@@ -2421,6 +2587,7 @@ impl Effect {
             Effect::Tornado(t) => t.owner,
             Effect::Arrow(a) => a.owner,
             Effect::Book(b) => b.owner,
+            Effect::Living(l) => l.owner,
         }
     }
 
@@ -2440,6 +2607,7 @@ impl Effect {
             Effect::Tornado(t) => Some(t.core()),
             Effect::Arrow(a) => (a.state != ArrowState::Hover).then_some(a.pos),
             Effect::Book(b) => b.chasing.map(|_| b.pos),
+            Effect::Living(l) => Some(l.item.pos),
         }
     }
 
@@ -2459,6 +2627,7 @@ impl Effect {
             Effect::Tornado(t) => t.at,
             Effect::Arrow(a) => a.pos,
             Effect::Book(b) => b.pos,
+            Effect::Living(l) => l.item.pos,
         }
     }
 
@@ -2478,6 +2647,7 @@ impl Effect {
             Effect::Tornado(t) => &mut t.at,
             Effect::Arrow(a) => &mut a.pos,
             Effect::Book(b) => &mut b.pos,
+            Effect::Living(l) => &mut l.item.pos,
         }
     }
 
@@ -2496,6 +2666,7 @@ impl Effect {
             Effect::Tornado(t) => t.ticks == 0,
             Effect::Arrow(a) => a.ticks == 0,
             Effect::Book(b) => b.ticks == 0,
+            Effect::Living(l) => l.ticks == 0,
         }
     }
 
@@ -2505,7 +2676,7 @@ impl Effect {
     pub fn on_wire(&self) -> bool {
         match self {
             Effect::Glue(_) | Effect::Pet(_) | Effect::Table(_) | Effect::Chain(_) | Effect::Rocket(_) | Effect::Fire(_) => true,
-            Effect::Plane(_) | Effect::AirBomb(_) | Effect::Judo(_) | Effect::Tornado(_) | Effect::Arrow(_) | Effect::Book(_) => true,
+            Effect::Plane(_) | Effect::AirBomb(_) | Effect::Judo(_) | Effect::Tornado(_) | Effect::Arrow(_) | Effect::Book(_) | Effect::Living(_) => true,
             Effect::Lunge(_) => false,
         }
     }
@@ -3919,5 +4090,109 @@ mod tests {
             thrown |= m.events.iter().any(|e| matches!(e, Event::Throw { who } if *who == mini));
         }
         assert!(thrown, "the mini threw its rock");
+    }
+
+    fn living(m: &Match) -> Vec<Living> {
+        m.effects.iter().filter_map(|e| if let Effect::Living(l) = e { Some(l.clone()) } else { None }).collect()
+    }
+
+    fn weston_and(foe_x: f32, items: &[(crate::sim::ItemKind, f32)]) -> Match {
+        let mut m = staged([Character::Weston, Character::Classic, Character::Classic, Character::Classic], [100.0, foe_x, 300.0, 400.0]);
+        m.remove(2);
+        m.remove(3);
+        for &(kind, x) in items {
+            m.items.push(crate::sim::Item::new(kind, vec2(x, crate::sim::FLOOR_Y - crate::sim::ITEM_R)));
+        }
+        m
+    }
+
+    #[test]
+    fn westons_three_nearest_items_come_alive_follow_him_with_nobody_near_then_drop() {
+        use crate::sim::ItemKind;
+        let z = zero_brain();
+        let mut m = weston_and(440.0, &[(ItemKind::Sword, 300.0), (ItemKind::Spear, 110.0), (ItemKind::Rock, 80.0), (ItemKind::Molotov, 140.0)]);
+        step_idle(&mut m, &z, true);
+        assert_eq!(living(&m).len(), LIVE_ITEMS);
+        assert_eq!(m.items.iter().map(|it| it.kind).collect::<Vec<_>>(), [ItemKind::Sword], "the farthest stays put");
+        assert_eq!(m.f[0].locked_in, LOCK_IN_TICKS);
+        for _ in 0..2 * SECOND {
+            step_idle(&mut m, &z, false);
+        }
+        let me = m.f[0].center();
+        assert!(living(&m).iter().all(|l| l.item.pos.distance(me) < LIVE_ORBIT + 8.0), "circling him");
+        for _ in 0..LOCK_IN_TICKS {
+            step_idle(&mut m, &z, false);
+        }
+        assert!(living(&m).is_empty() && m.f[0].locked_in == 0);
+        let mut dropped: Vec<ItemKind> = m.items.iter().filter(|it| it.pos.distance(m.f[0].pos) < 30.0).map(|it| it.kind).collect();
+        dropped.sort_by_key(|&k| k as u8);
+        assert_eq!(dropped, [ItemKind::Spear, ItemKind::Rock, ItemKind::Molotov], "back to ordinary items, at his feet");
+        assert_eq!(m.f[1].hp, MAX_HP, "nobody was near enough to chase");
+        assert!(m.effects.is_empty(), "the Molotov dropped without catching fire");
+    }
+
+    #[test]
+    fn a_living_spear_chases_down_a_foe_and_hits_like_a_throw() {
+        use crate::sim::ItemKind;
+        let z = zero_brain();
+        let mut m = weston_and(200.0, &[(ItemKind::Spear, 110.0)]);
+        step_idle(&mut m, &z, true);
+        for _ in 0..3 * SECOND {
+            step_idle(&mut m, &z, false);
+        }
+        let lost = MAX_HP - m.f[1].hp;
+        assert!(lost >= 28.0, "speared: lost {lost}");
+        assert_eq!(m.f[0].dmg_dealt, lost, "credited to Weston");
+        assert!(living(&m).is_empty());
+        assert_eq!(m.items.iter().filter(|it| it.kind == ItemKind::Spear && it.loose()).count(), 1, "it drops where it hit");
+    }
+
+    #[test]
+    fn a_living_grenade_blows_up_on_whoever_it_reaches() {
+        use crate::sim::ItemKind;
+        let z = zero_brain();
+        let mut m = weston_and(200.0, &[(ItemKind::Grenade, 110.0)]);
+        step_idle(&mut m, &z, true);
+        let mut blew = false;
+        for _ in 0..3 * SECOND {
+            step_idle(&mut m, &z, false);
+            blew |= m.events.iter().any(|e| matches!(e, Event::Explosion { .. }));
+        }
+        assert!(blew && living(&m).is_empty(), "gone off");
+        assert!(!m.items.iter().any(|it| it.kind == ItemKind::Grenade), "used up");
+        assert!(MAX_HP - m.f[1].hp > 40.0, "close to the full blast: {}", m.f[1].hp);
+        assert_eq!(m.f[0].hp, MAX_HP, "Weston was well clear");
+    }
+
+    #[test]
+    fn westons_items_drop_when_he_goes_down() {
+        use crate::sim::ItemKind;
+        let z = zero_brain();
+        let mut m = weston_and(440.0, &[(ItemKind::Rock, 110.0), (ItemKind::Spear, 120.0)]);
+        step_idle(&mut m, &z, true);
+        m.damage(1, 0, MAX_HP, Vec2::ZERO, 0, 1.0, Source::Fist, false);
+        step_idle(&mut m, &z, false);
+        assert!(living(&m).is_empty());
+        assert!([ItemKind::Rock, ItemKind::Spear].iter().all(|&k| m.items.iter().any(|it| it.kind == k && it.pos.distance(m.f[0].pos) < 30.0)));
+    }
+
+    #[test]
+    fn michelles_freeze_holds_westons_items_where_they_are() {
+        use crate::sim::ItemKind;
+        let z = zero_brain();
+        let mut m = staged([Character::Weston, Character::Michelle, Character::Classic, Character::Classic], [100.0, 220.0, 300.0, 400.0]);
+        m.remove(2);
+        m.remove(3);
+        m.items.push(crate::sim::Item::new(ItemKind::Rock, vec2(110.0, crate::sim::FLOOR_Y - crate::sim::ITEM_R)));
+        step_idle(&mut m, &z, true);
+        let mut h = [None; N_FIGHTERS];
+        h[1] = Some(Action { special: true, ..Action::default() });
+        m.step_humans([&z; N_FIGHTERS], h);
+        let at = living(&m)[0].item.pos;
+        for _ in 0..PIN_TICKS - 2 {
+            m.step_humans([&z; N_FIGHTERS], [None; N_FIGHTERS]);
+        }
+        assert_eq!(living(&m)[0].item.pos, at, "frozen in place");
+        assert_eq!(m.f[1].hp, MAX_HP);
     }
 }

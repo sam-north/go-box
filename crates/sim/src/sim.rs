@@ -300,6 +300,8 @@ pub struct Fighter {
     /// you, but you can still grab, throw, swing and use your special. (Sent to clients, which
     /// predict your movement with it.)
     pub caught: u32,
+    /// Weston locked in (ticks left): sent to clients, which draw his glasses lit up.
+    pub locked_in: u32,
     /// A bot getting stuck: where it's been hanging about, and for how long; then, while it's being
     /// walked out, ticks left of that, which way, and whether it drops through ledges on the way.
     #[serde(skip)]
@@ -373,6 +375,7 @@ impl Fighter {
             skate_hit: 0,
             wind: 0.0,
             caught: 0,
+            locked_in: 0,
             stuck_at: vec2(x, FLOOR_Y),
             stuck_ticks: 0,
             unstick: 0,
@@ -456,7 +459,7 @@ impl Fighter {
         vec2(self.pos.x - self.facing * 1.5 * self.scale, self.pos.y - 13.0 * self.scale)
     }
 
-    fn is_head(&self, y: f32) -> bool {
+    pub(crate) fn is_head(&self, y: f32) -> bool {
         let top = self.pos.y - self.height();
         y >= top - 1.0 && y < top + HEAD_H * self.scale
     }
@@ -583,6 +586,8 @@ pub enum Event {
     Quake { pos: Vec2, big: bool },
     /// A thrown item hitting terrain hard.
     Clatter { pos: Vec2, kind: ItemKind },
+    /// An item coming alive for `who`'s Locked In (Weston).
+    Awaken { who: usize, pos: Vec2 },
 }
 
 /// Distance along a normalised ray to the nearest terrain, capped at `max`.
@@ -1377,9 +1382,7 @@ impl Match {
                 OnThrow::AirStrike => {
                     let from = f.hand();
                     self.items.swap_remove(k);
-                    let plane = crate::character::Plane::new(&mut self.rng, i);
-                    self.add_effect(Effect::Plane(plane));
-                    self.events.push(Event::RadioCall { pos: from });
+                    self.air_strike(i, from);
                     return;
                 }
             }
@@ -1399,6 +1402,12 @@ impl Match {
             }
             self.events.push(Event::Throw { who: i });
         }
+    }
+
+    pub(crate) fn air_strike(&mut self, owner: usize, from: Vec2) {
+        let plane = crate::character::Plane::new(&mut self.rng, owner);
+        self.add_effect(Effect::Plane(plane));
+        self.events.push(Event::RadioCall { pos: from });
     }
 
     fn step_items(&mut self) {

@@ -42,6 +42,7 @@ const RICE: Color = Color::new(0.96, 0.95, 0.90, 1.0);
 const HOLO: Color = Color::new(0.35, 0.95, 1.0, 1.0);
 /// Michelle's colour, and her freeze's glow (a little paler); Robert's lightning.
 const MICHELLE: Color = Color::new(0.45, 0.40, 1.0, 1.0);
+const WESTON: Color = Color::new(0.56, 0.92, 0.26, 1.0);
 const PIN: Color = Color::new(0.66, 0.62, 1.0, 1.0);
 const BOLT: Color = Color::new(0.75, 0.85, 1.0, 1.0);
 const HOLO_PINK: Color = Color::new(1.0, 0.45, 0.85, 1.0);
@@ -137,6 +138,7 @@ pub struct Look {
     pub mustache: bool,
     pub backwards_cap: Option<Color>,
     pub grey_flecks: bool,
+    pub highlights: Option<Color>,
 }
 
 /// How hair is cut (drawn over a bare head).
@@ -188,13 +190,15 @@ pub struct CharacterArt {
     pub backwards_cap: Option<Color>,
     /// Salt-and-pepper: flecks of grey through the hair and beard (Shawn).
     pub grey_flecks: bool,
+    /// A strand of this colour from the crown to the ends of long hair (Michelle's highlight).
+    pub highlights: Option<Color>,
     /// Played when it uses its special (None: the special's own effects make the sound).
     pub special_sound: Option<Sfx>,
 }
 
 pub fn art(c: Character) -> &'static CharacterArt {
     match c {
-        Character::Classic => &CharacterArt { color: None, body: CLOAK, legs: [HOOD, CLOAK], arms: HOOD, hair: None, headband: false, skin: SKIN, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false, stubble: None, belt: false, beaver_suit: false, mustache: false, backwards_cap: None, grey_flecks: false, special_sound: None },
+        Character::Classic => &CharacterArt { color: None, body: CLOAK, legs: [HOOD, CLOAK], arms: HOOD, hair: None, headband: false, skin: SKIN, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false, stubble: None, belt: false, beaver_suit: false, mustache: false, backwards_cap: None, grey_flecks: false, highlights: None, special_sound: None },
         // Brown hair and stubble, green-grey jacket; forest green.
         Character::Sam => {
             const ART: CharacterArt = CharacterArt {
@@ -215,6 +219,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: None,
                 grey_flecks: false,
+                highlights: None,
                 special_sound: Some(Sfx::GlueShot),
             };
             &ART
@@ -239,6 +244,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: None,
                 grey_flecks: false,
+                highlights: None,
                 special_sound: None,
             };
             &ART
@@ -263,6 +269,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: None,
                 grey_flecks: false,
+                highlights: None,
                 special_sound: Some(Sfx::Hounds),
             };
             &ART
@@ -287,6 +294,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: None,
                 grey_flecks: false,
+                highlights: None,
                 special_sound: Some(Sfx::Split),
             };
             &ART
@@ -311,6 +319,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: None,
                 grey_flecks: false,
+                highlights: None,
                 special_sound: Some(Sfx::Meow),
             };
             &ART
@@ -335,6 +344,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: None,
                 grey_flecks: false,
+                highlights: None,
                 special_sound: Some(Sfx::Serve),
             };
             &ART
@@ -359,6 +369,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: None,
                 grey_flecks: false,
+                highlights: None,
                 special_sound: Some(Sfx::ChainThrow),
             };
             &ART
@@ -383,6 +394,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: None,
                 grey_flecks: false,
+                highlights: None,
                 special_sound: Some(Sfx::Thunder),
             };
             &ART
@@ -407,6 +419,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: Some(rgb(36, 88, 70)),
                 grey_flecks: false,
+                highlights: None,
                 special_sound: Some(Sfx::Backlog),
             };
             &ART
@@ -433,6 +446,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: None,
                 grey_flecks: false,
+                highlights: None,
                 special_sound: Some(Sfx::BookOpen),
             };
             &ART
@@ -457,6 +471,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: None,
                 grey_flecks: false,
+                highlights: None,
                 special_sound: None,
             };
             &ART
@@ -481,6 +496,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: None,
                 grey_flecks: false,
+                highlights: None,
                 special_sound: Some(Sfx::JudoGrab),
             };
             &ART
@@ -506,6 +522,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: None,
                 grey_flecks: false,
+                highlights: None,
                 special_sound: Some(Sfx::Flex),
             };
             &ART
@@ -531,6 +548,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: None,
                 grey_flecks: false,
+                highlights: None,
                 special_sound: Some(Sfx::Bugs),
             };
             &ART
@@ -556,6 +574,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: true,
                 backwards_cap: None,
                 grey_flecks: false,
+                highlights: None,
                 special_sound: Some(Sfx::Skate),
             };
             &ART
@@ -581,6 +600,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: None,
                 grey_flecks: false,
+                highlights: None,
                 special_sound: Some(Sfx::Tornado),
             };
             &ART
@@ -606,12 +626,13 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: None,
                 grey_flecks: false,
+                highlights: None,
                 // (Each call of the arrow whistles; see `Event::ArrowCall`.)
                 special_sound: None,
             };
             &ART
         }
-        // Long straight brown hair, a soft lavender cardigan; storm indigo. (Her freeze glows in
+        // Long straight brown hair with a dirty-blonde highlight, a soft lavender cardigan; storm indigo. (Her freeze glows in
         // it, and an eye opens over her as she casts it.)
         Character::Michelle => {
             const ART: CharacterArt = CharacterArt {
@@ -632,6 +653,7 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: None,
                 grey_flecks: false,
+                highlights: Some(rgb(170, 134, 86)),
                 special_sound: Some(Sfx::Freeze),
             };
             &ART
@@ -657,7 +679,33 @@ pub fn art(c: Character) -> &'static CharacterArt {
                 mustache: false,
                 backwards_cap: None,
                 grey_flecks: true,
+                highlights: None,
                 special_sound: None,
+            };
+            &ART
+        }
+        // Dirty-blonde hair and a full beard to match, glasses, a navy quarter-zip and khakis; ecto green.
+        Character::Weston => {
+            const ART: CharacterArt = CharacterArt {
+                color: Some(WESTON),
+                body: rgb(44, 54, 84),
+                legs: [rgb(140, 124, 94), rgb(156, 140, 108)],
+                arms: rgb(38, 46, 72),
+                hair: Some(rgb(178, 146, 92)),
+                headband: false,
+                skin: SKIN,
+                hair_style: HairStyle::Short,
+                beard: true,
+                glasses: true,
+                goatee: false,
+                stubble: None,
+                belt: false,
+                beaver_suit: false,
+                mustache: false,
+                backwards_cap: None,
+                grey_flecks: false,
+                highlights: None,
+                special_sound: Some(Sfx::LockIn),
             };
             &ART
         }
@@ -682,7 +730,7 @@ pub fn character_color(c: Character) -> Color {
 
 pub fn look(c: Character, seat: usize) -> Look {
     let a = art(c);
-    Look { body: a.body, legs: a.legs, arms: a.arms, hair: a.hair, accent: a.color.unwrap_or(ACCENTS[seat]), headband: a.headband, skin: a.skin, hair_style: a.hair_style, beard: a.beard, glasses: a.glasses, goatee: a.goatee, stubble: a.stubble, belt: a.belt, beaver_suit: a.beaver_suit, mustache: a.mustache, backwards_cap: a.backwards_cap, grey_flecks: a.grey_flecks }
+    Look { body: a.body, legs: a.legs, arms: a.arms, hair: a.hair, accent: a.color.unwrap_or(ACCENTS[seat]), headband: a.headband, skin: a.skin, hair_style: a.hair_style, beard: a.beard, glasses: a.glasses, goatee: a.goatee, stubble: a.stubble, belt: a.belt, beaver_suit: a.beaver_suit, mustache: a.mustache, backwards_cap: a.backwards_cap, grey_flecks: a.grey_flecks, highlights: a.highlights }
 }
 
 const fn rgb(r: u8, g: u8, b: u8) -> Color {
@@ -2100,6 +2148,10 @@ impl Art {
                     self.burst(pos, vec2(0.0, -1.0), 3.0, 10, RICE, true, 70.0, 0.5, 380.0);
                     self.burst(pos, vec2(0.0, -1.0), 3.0, 5, SALMON, true, 60.0, 0.5, 380.0);
                 }
+                Event::Awaken { who, pos } => {
+                    let c = look(m.f[who].character, who).accent;
+                    self.burst(pos, vec2(0.0, -1.0), 1.4, 12, c, false, 50.0, 0.4, 0.0);
+                }
                 Event::Swing { .. } | Event::Clatter { .. } => {}
             }
         }
@@ -2173,6 +2225,15 @@ impl Art {
             if let Effect::Rocket(r) = e {
                 let back = r.pos - r.vel.normalize_or_zero() * 5.0;
                 self.particles.push(Particle { pos: back, vel: vec2(0.0, -6.0), color: Color::new(0.62, 0.62, 0.60, 0.5), life: 0.6, stick: false, gravity: -10.0 });
+            }
+        }
+        for e in &m.effects {
+            if let Effect::Living(l) = e
+                && l.frozen == 0
+                && hash((self.time * 1000.0) as i32, l.item.pos.x as i32, 91) < dt * 25.0
+            {
+                let c = look(m.f[l.owner].character, l.owner).accent;
+                self.particles.push(Particle { pos: l.item.pos, vel: -l.item.vel * 0.2, color: Color::new(c.r, c.g, c.b, 0.7), life: 0.3, stick: false, gravity: 0.0 });
             }
         }
         // Lit grenade fuses throw off sparks.
@@ -2341,6 +2402,7 @@ impl Art {
                 // (Drawn over the fighters, below.)
                 Effect::Arrow(_) => {}
                 Effect::Book(b) => draw_book(b, self.time),
+                Effect::Living(l) => draw_living(l, look(m.f[l.owner].character, l.owner).accent, self.time),
             }
         }
         // Travis's quake rings, on the ground under everyone.
@@ -2508,6 +2570,17 @@ fn item_glow(p: Vec2, c: Color, time: f32) {
 fn outlined(x: f32, y: f32, w: f32, h: f32, c: Color) {
     draw_rectangle(x - 1.0, y - 1.0, w + 2.0, h + 2.0, Color::new(c.r * 0.3, c.g * 0.3, c.b * 0.3, 0.6));
     draw_rectangle(x, y, w, h, c);
+}
+
+/// One of Weston's living items: glowing in his colour (ringed in Michelle's while she has it frozen).
+fn draw_living(l: &Living, glow: Color, time: f32) {
+    let p = l.item.pos;
+    item_glow(p + vec2(0.0, 2.0), glow, time);
+    if l.frozen > 0 {
+        let fade = (l.frozen as f32 / 20.0).min(1.0);
+        ellipse_outline(p.x, p.y, 5.0, 4.0, 1.0, Color::new(PIN.r, PIN.g, PIN.b, 0.9 * fade));
+    }
+    draw_item(&l.item, time);
 }
 
 fn draw_item(it: &Item, time: f32) {
@@ -2902,6 +2975,13 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
                 HairStyle::Long => {
                     px(-3.0, -2.0, 2.0, 6.0, hair);
                     px(-4.0, 0.0, 1.0, 4.0, hair);
+                    if let Some(streak) = look.highlights {
+                        // Over the crown from the front, then straight down to the ends.
+                        let c = tint(streak, flash);
+                        px(0.0, -3.0, 2.0, 1.0, c);
+                        px(-1.0, -2.0, 1.0, 1.0, c);
+                        px(-2.0, -1.0, 1.0, 5.0, c);
+                    }
                 }
                 HairStyle::OverEars => {
                     px(-3.0, -2.0, 2.0, 3.0, hair);
@@ -2994,7 +3074,13 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
         let (hx, hy) = (head.x.round(), head.y.round());
         let px = |dx: f32, w: f32, c: Color| draw_rectangle(if s > 0.0 { hx + dx } else { hx + 1.0 - dx - w }, hy - 1.0, w, 1.0, c);
         px(-1.0, 2.0, tint(Color::new(0.10, 0.10, 0.12, 1.0), flash));
-        px(2.0, 1.0, tint(Color::new(0.80, 0.90, 1.0, 1.0), flash));
+        let lit = f.locked_in > 0;
+        px(2.0, 1.0, tint(if lit { WHITE } else { Color::new(0.80, 0.90, 1.0, 1.0) }, flash));
+        if lit {
+            let pulse = 0.5 + 0.5 * (f.locked_in as f32 * 0.25).sin();
+            let lens = vec2(if s > 0.0 { hx + 2.5 } else { hx - 1.5 }, hy - 0.5);
+            draw_circle(lens.x, lens.y, 2.0 + pulse, Color::new(look.accent.r, look.accent.g, look.accent.b, 0.25 + 0.2 * pulse));
+        }
     }
 }
 
@@ -3253,7 +3339,7 @@ fn draw_eye(o: &Freeze, michelle: &Fighter, time: f32) {
 /// it, bright at the head of each stream.
 fn draw_ridden(v: &FighterVis, f: &Fighter, time: f32) {
     let black = Color::new(0.02, 0.03, 0.02, 1.0);
-    let dark = Look { body: black, legs: [black, black], arms: black, hair: Some(black), accent: Color::new(0.05, 0.25, 0.08, 1.0), headband: false, skin: black, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false, stubble: None, belt: false, beaver_suit: false, mustache: false, backwards_cap: None, grey_flecks: false };
+    let dark = Look { body: black, legs: [black, black], arms: black, hair: Some(black), accent: Color::new(0.05, 0.25, 0.08, 1.0), headband: false, skin: black, hair_style: HairStyle::Short, beard: false, glasses: false, goatee: false, stubble: None, belt: false, beaver_suit: false, mustache: false, backwards_cap: None, grey_flecks: false, highlights: None };
     draw_human(v, f, &dark, false);
     let (x0, top, h) = (f.pos.x.round() - 3.0, (f.pos.y - f.height()).round() - 1.0, f.height() + 1.0);
     for col in 0..4 {
