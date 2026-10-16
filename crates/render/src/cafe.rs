@@ -44,11 +44,12 @@ fn lift(c: Rgb, d: f32) -> Rgb {
 /// Hazed and dimmed like every map's backdrop, so the fight reads in front of it.
 fn grade(c: Rgb, zone: Zone) -> Rgb {
     let (fog, to, dim) = match zone {
-        Zone::Inside => (0.32, (38.0, 30.0, 30.0), 0.76),
-        Zone::Glass => (0.36, (46.0, 56.0, 84.0), 0.76),
-        Zone::Courtyard => (0.32, (36.0, 36.0, 54.0), 0.8),
+        Zone::Inside => (0.46, (40.0, 34.0, 36.0), 0.7),
+        Zone::Glass => (0.5, (46.0, 54.0, 78.0), 0.68),
+        Zone::Courtyard => (0.46, (38.0, 38.0, 54.0), 0.72),
     };
-    scale(blend(c, to, fog), dim)
+    let grey = c.0 * 0.3 + c.1 * 0.59 + c.2 * 0.11;
+    scale(blend(blend(c, (grey, grey, grey), 0.3), to, fog), dim)
 }
 
 fn zone(x: i32, y: i32) -> Zone {
@@ -927,13 +928,20 @@ pub(crate) fn terrain_px(a: &Arena, x: i32, y: i32) -> Option<Option<Rgb>> {
         return Some(Some(bar_px(x, y)));
     }
     if CAFE_DIVIDER.contains(p) && y >= WALL as i32 {
+        // Painted brick, pale against the hazy backdrop either side, so it reads as solid.
         let lintel = y >= (CAFE_DIVIDER.y + CAFE_DIVIDER.h) as i32 - 5;
-        let mut c = if lintel { if y % 5 == 2 && x % 3 == 1 { (110.0, 112.0, 118.0) } else { (64.0, 66.0, 72.0) } } else { brick(x, y, 451) };
-        if x == CAFE_DIVIDER.x as i32 {
-            c = lift(c, 18.0);
-        } else if x == (CAFE_DIVIDER.x + CAFE_DIVIDER.w) as i32 - 1 {
-            c = scale(c, 0.7);
-        }
+        let (left, right) = (x == CAFE_DIVIDER.x as i32, x == (CAFE_DIVIDER.x + CAFE_DIVIDER.w) as i32 - 1);
+        let c = if lintel {
+            if y == (CAFE_DIVIDER.y + CAFE_DIVIDER.h) as i32 - 5 { (130.0, 132.0, 138.0) } else if y % 5 == 2 && x % 3 == 1 { (120.0, 122.0, 128.0) } else { (70.0, 72.0, 78.0) }
+        } else if left {
+            (238.0, 232.0, 220.0)
+        } else if right {
+            (112.0, 106.0, 98.0)
+        } else {
+            let mortar = y.rem_euclid(4) == 3 || (x + if y.div_euclid(4) % 2 == 0 { 0 } else { 4 }).rem_euclid(8) == 7;
+            let n = (fbm(x as f32 * 0.2, y as f32 * 0.1, 451) - 0.5) * 14.0;
+            if mortar { (156.0 + n, 148.0 + n, 136.0 + n) } else { (204.0 + n, 196.0 + n, 182.0 + n) }
+        };
         return Some(Some(c));
     }
     if let Some(s) = a.platforms.iter().find(|s| s.contains(p)) {
