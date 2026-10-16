@@ -44,12 +44,12 @@ fn lift(c: Rgb, d: f32) -> Rgb {
 /// Hazed and dimmed like every map's backdrop, so the fight reads in front of it.
 fn grade(c: Rgb, zone: Zone) -> Rgb {
     let (fog, to, dim) = match zone {
-        Zone::Inside => (0.46, (40.0, 34.0, 36.0), 0.7),
-        Zone::Glass => (0.5, (46.0, 54.0, 78.0), 0.68),
-        Zone::Courtyard => (0.46, (38.0, 38.0, 54.0), 0.72),
+        Zone::Inside => (0.55, (40.0, 34.0, 36.0), 0.64),
+        Zone::Glass => (0.58, (46.0, 54.0, 78.0), 0.62),
+        Zone::Courtyard => (0.55, (38.0, 38.0, 54.0), 0.66),
     };
     let grey = c.0 * 0.3 + c.1 * 0.59 + c.2 * 0.11;
-    scale(blend(blend(c, (grey, grey, grey), 0.3), to, fog), dim)
+    scale(blend(blend(c, (grey, grey, grey), 0.38), to, fog), dim)
 }
 
 fn zone(x: i32, y: i32) -> Zone {
