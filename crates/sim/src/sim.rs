@@ -2310,6 +2310,30 @@ mod tests {
     }
 
     #[test]
+    fn the_cafe_and_its_courtyard_only_meet_through_the_gap_under_the_wall() {
+        let wall = crate::arena::CAFE_DIVIDER;
+        let (gap_top, mid) = (wall.y + wall.h, wall.x + wall.w / 2.0);
+        let starts = std::iter::once((250.0, FLOOR_Y)).chain([(340.0, FLOOR_Y)]).chain(ArenaId::Cafe.def().platforms.iter().map(|p| (p.x + p.w / 2.0, p.y)));
+        let mut crossed = 0;
+        for (x, y) in starts {
+            let toward = if x < mid { 1.0 } else { -1.0 };
+            let (mut m, z) = quiet_match();
+            m.config.arena = ArenaId::Cafe;
+            m.f[0].pos = vec2(x, y);
+            for t in 0..secs(4) {
+                let a = Action { mv: toward, run: true, jump: t % 24 < 14, dash: (t % 40 == 5).then_some(toward), ..Action::default() };
+                let before = m.f[0].pos.x;
+                m.step_with([&z; N_FIGHTERS], Some((0, a)));
+                if (before < mid) != (m.f[0].pos.x < mid) {
+                    crossed += 1;
+                    assert!(m.f[0].body().y >= gap_top, "from ({x}, {y}): crossed over the wall at {}", m.f[0].pos);
+                }
+            }
+        }
+        assert!(crossed > 0, "nobody made it through the gap");
+    }
+
+    #[test]
     fn a_jump_from_the_floor_lands_inside_the_desktops_chat_window() {
         let (mut m, z) = quiet_match();
         m.config.arena = ArenaId::Desktop;

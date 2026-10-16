@@ -47,6 +47,8 @@ crate::enum_all! {
         /// "Desktop": app windows floating on a wallpaper. Each window's title bar and bottom
         /// edge are ledges (drop through the title bar to land inside), its sides are walls.
         Desktop,
+        /// "Courtyard Cafe": a coffee shop on the left, a courtyard on the right, a wall between them with a gap at the floor.
+        Cafe,
     }
 }
 
@@ -79,6 +81,7 @@ impl ArenaId {
             ArenaId::Bridges => &BRIDGES,
             ArenaId::Forest => &FOREST,
             ArenaId::Desktop => &DESKTOP,
+            ArenaId::Cafe => &CAFE,
         }
     }
 
@@ -211,6 +214,46 @@ const DESKTOP: Arena = Arena {
     ],
     campfire: false,
     spawn_x: [20.0, 135.0, 250.0, 365.0],
+};
+
+// The Courtyard Cafe's pieces, named because the renderer dresses each kind differently.
+pub const CAFE_BAR: Aabb = Aabb::new(8.0, 218.0, 92.0, 36.0);
+/// The cafe's side wall, ceiling down to a gap just tall enough to walk through into the courtyard.
+pub const CAFE_DIVIDER: Aabb = Aabb::new(288.0, 0.0, 8.0, 230.0);
+pub const CAFE_TABLES: [Aabb; 2] = [Aabb::new(122.0, 218.0, 40.0, 5.0), Aabb::new(206.0, 218.0, 40.0, 5.0)];
+/// On the brick over the bar, low then high.
+pub const CAFE_SHELVES: [Aabb; 2] = [Aabb::new(14.0, 182.0, 52.0, 5.0), Aabb::new(40.0, 146.0, 56.0, 5.0)];
+/// Along the front window, with potted plants.
+pub const CAFE_PLANT_SHELF: Aabb = Aabb::new(150.0, 182.0, 72.0, 5.0);
+/// Hung from the ductwork on ropes, the lower one first.
+pub const CAFE_HANGING: [Aabb; 2] = [Aabb::new(176.0, 146.0, 64.0, 5.0), Aabb::new(96.0, 110.0, 72.0, 5.0)];
+pub const COURTYARD_TABLES: [Aabb; 2] = [Aabb::new(314.0, 218.0, 28.0, 5.0), Aabb::new(416.0, 218.0, 28.0, 5.0)];
+pub const COURTYARD_AWNING: Aabb = Aabb::new(300.0, 182.0, 44.0, 5.0);
+/// The stair landing, the apartments' balcony, then the two top balconies (left building, right).
+pub const COURTYARD_BALCONIES: [Aabb; 4] = [Aabb::new(428.0, 182.0, 36.0, 5.0), Aabb::new(352.0, 146.0, 40.0, 5.0), Aabb::new(300.0, 110.0, 44.0, 5.0), Aabb::new(428.0, 110.0, 36.0, 5.0)];
+
+const CAFE: Arena = Arena {
+    id: "cafe",
+    platforms: &[
+        CAFE_TABLES[0],
+        CAFE_TABLES[1],
+        CAFE_SHELVES[0],
+        CAFE_SHELVES[1],
+        CAFE_PLANT_SHELF,
+        CAFE_HANGING[0],
+        CAFE_HANGING[1],
+        COURTYARD_TABLES[0],
+        COURTYARD_TABLES[1],
+        COURTYARD_AWNING,
+        COURTYARD_BALCONIES[0],
+        COURTYARD_BALCONIES[1],
+        COURTYARD_BALCONIES[2],
+        COURTYARD_BALCONIES[3],
+    ],
+    walls: &[CAFE_BAR, CAFE_DIVIDER],
+    campfire: false,
+    // Two in the cafe (clear of the bar), two in the courtyard.
+    spawn_x: [106.0, 190.0, 300.0, 376.0],
 };
 
 #[cfg(test)]

@@ -2,6 +2,7 @@
 //! code at arena resolution (480x270) — grimy industrial backdrop, mossy brick, rain, procedurally
 //! animated bodies, items, explosions, and blood/scorch pixels that stick to the terrain.
 
+mod cafe;
 pub mod sound;
 
 use sound::Sfx;
@@ -850,7 +851,8 @@ impl Solidity {
 /// What's behind a map: dim industrial pipes, or (the City) a night skyline. Every map's
 /// backdrop is shaded around its ledges and walls, so what you can stand on reads at a glance.
 /// (The City also gets a front layer: its near towers and all that's in front of them, drawn
-/// again over its spotlight so the beam sweeps between the near towers and the far ones.)
+/// again over its spotlight so the beam sweeps between the near towers and the far ones. The
+/// Cafe's is everything but the far view through its glass, so its train passes behind.)
 fn make_background(arena: ArenaId) -> (Image, Option<Image>) {
     let mut front = None;
     let mut img = if arena == ArenaId::Bridges {
@@ -858,7 +860,11 @@ fn make_background(arena: ArenaId) -> (Image, Option<Image>) {
         let plain = img.clone();
         draw_scaffold(&mut img, arena.def());
         draw_trash(&mut img, arena.def());
-        front = Some((near, plain));
+        front = Some((near, Some(plain)));
+        img
+    } else if arena == ArenaId::Cafe {
+        let (img, near) = cafe::make_backdrop();
+        front = Some((near, None));
         img
     } else if arena == ArenaId::Forest {
         make_sunset()
@@ -875,7 +881,7 @@ fn make_background(arena: ArenaId) -> (Image, Option<Image>) {
         for y in 0..H as u32 {
             for x in 0..W as u32 {
                 let c = img.get_pixel(x, y);
-                if near[(y * W as u32 + x) as usize] || c != plain.get_pixel(x, y) {
+                if near[(y * W as u32 + x) as usize] || plain.as_ref().is_some_and(|p| c != p.get_pixel(x, y)) {
                     layer.set_pixel(x, y, c);
                 }
             }
@@ -1224,6 +1230,7 @@ fn make_terrain(arena: ArenaId, s: &Solidity) -> Image {
         ArenaId::Bridges => Some(city_px),
         ArenaId::Forest => Some(forest_px),
         ArenaId::Desktop => Some(desktop_px),
+        ArenaId::Cafe => Some(cafe::terrain_px),
         _ => None,
     };
     let mut img = Image::gen_image_color(W as u16, H as u16, Color::new(0.0, 0.0, 0.0, 0.0));
@@ -2353,11 +2360,15 @@ impl Art {
         draw_texture(&self.map.bg, 0.0, 0.0, WHITE);
         // The City's spotlight sweeps the sky behind its near towers.
         if let Some(front) = &self.map.front {
-            draw_spotlight(self.time);
+            if self.arena == ArenaId::Cafe {
+                cafe::draw_train(self.time);
+            } else {
+                draw_spotlight(self.time);
+            }
             draw_texture(front, 0.0, 0.0, WHITE);
         }
-        // (No rain indoors, on the Desktop.)
-        for d in self.rain.iter().filter(|_| self.arena != ArenaId::Desktop) {
+        // (No rain indoors, on the Desktop or in the Cafe.)
+        for d in self.rain.iter().filter(|_| !matches!(self.arena, ArenaId::Desktop | ArenaId::Cafe)) {
             draw_line(d.pos.x, d.pos.y, d.pos.x + 0.6, d.pos.y - 4.0, 1.0, Color::new(0.55, 0.62, 0.72, 0.22));
         }
         draw_texture(&self.map.terrain, 0.0, 0.0, WHITE);

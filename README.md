@@ -30,7 +30,7 @@ wall, press jump to kick off it (and hold toward a wall to slide down it slowly)
 The browser only reports a controller after you press a button on it. In menus (lobby, scoreboard,
 settings) the d-pad or left stick moves a highlight and Cross presses it.
 
-The leader also picks the **map** (Tiers or Bridges). In the lobby the leader sets each seat without a player to **Bot** or **None**, so a match can have
+The leader also picks the **map** (Classic, City, Forest, Desktop or Cafe: a coffee shop and a courtyard, joined only by a gap under the wall between them). In the lobby the leader sets each seat without a player to **Bot** or **None**, so a match can have
 anywhere from 1 to 4 fighters (alone, it runs until the clock or you run out).
 
 The server only listens on `127.0.0.1` unless told otherwise (`GO_BOX_BIND`); see
