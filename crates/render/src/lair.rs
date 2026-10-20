@@ -218,6 +218,8 @@ fn pose(b: &BossState, at: Vec2, time: f32) -> (Vec2, Vec2, f32) {
             }
             roar = 0.3 * ease(t / w);
         }
+        // (The Sandmaw's; not this boss's.)
+        BossMove::Tentacles | BossMove::Inhale | BossMove::Chomp | BossMove::Acid => {}
     }
     (fists[0], fists[1], roar)
 }
@@ -351,40 +353,63 @@ pub fn draw_boss(f: &Fighter, m: &Match, time: f32, flash: bool) {
 }
 
 /// A shockwave: a crest of broken floor and dust racing along it.
-pub fn draw_shockwave(w: &Shockwave, time: f32) {
-    let (x, y) = (w.pos.x, w.pos.y);
-    // The crack it tears in the floor behind it, glowing with magma and cooling further back.
+/// `ground` is the height of the floor (or the sand) at an x: the crack trails along it.
+pub fn draw_shockwave(w: &Shockwave, time: f32, sand: bool, ground: &dyn Fn(f32) -> f32) {
+    let x = w.pos.x;
+    // The crack it tears in the floor behind it, glowing with magma and cooling further back (in
+    // sand, a furrow of churned sand).
+    let (crack, ember, glow, hot) = if sand {
+        ((0.50, 0.36, 0.20), (0.92, 0.80, 0.56), (0.95, 0.82, 0.58), (0.70, 0.52, 0.30))
+    } else {
+        ((1.0, 0.35, 0.08), (1.0, 0.55, 0.2), (1.0, 0.40, 0.10), (1.0, 0.45, 0.12))
+    };
     let trail = (x - w.start).abs().min(150.0);
     for k in 0..trail as i32 {
         let px = x - w.dir * k as f32;
+        let y = ground(px);
         let fade = 1.0 - k as f32 / 150.0;
         let wob = (hash(px as i32, 0, 53) * 2.0).floor();
-        draw_rectangle(px.round(), y - 1.0 - wob, 1.0, 1.0 + wob, Color::new(1.0, 0.35 + 0.3 * fade, 0.08, 0.85 * fade));
+        draw_rectangle(px.round(), y - 1.0 - wob, 1.0, 1.0 + wob, Color::new(crack.0, crack.1 + if sand { 0.0 } else { 0.3 * fade }, crack.2, 0.85 * fade));
         if k % 3 == 0 {
-            draw_rectangle(px.round(), y - 3.0 - wob, 1.0, 1.0, Color::new(1.0, 0.55, 0.2, 0.35 * fade));
+            draw_rectangle(px.round(), y - 3.0 - wob, 1.0, 1.0, Color::new(ember.0, ember.1, ember.2, 0.35 * fade));
         }
     }
-    // A wide glow along the floor under the crest, so it reads from across the hall.
-    fill_ellipse(x - w.dir * 8.0, y - 1.0, 24.0, 5.0, Color::new(1.0, 0.40, 0.10, 0.30));
-    fill_ellipse(x - w.dir * 4.0, y - 1.0, 12.0, 3.0, Color::new(1.0, 0.70, 0.30, 0.45));
-    // The crest: a wall of heaved-up floor, tallest at the front, trailing off behind; jagged and
+    // Everything from here leans with the ground under it (up a slope, the crest stands out from
+    // the sand at right angles to it, not straight up): each piece is laid out along the ground,
+    // and stands along its normal there.
+    let at = |px: f32| vec2(px, ground(px));
+    let normal = |px: f32| vec2((ground(px + 1.0) - ground(px - 1.0)) / 2.0, -1.0).normalize();
+    // A wide glow along the ground under the crest, so it reads from across the hall.
+    for k in 0..12 {
+        let (a, b) = (at(x - w.dir * k as f32 * 2.0), at(x - w.dir * (k + 1) as f32 * 2.0));
+        let up = normal(a.x) * 1.0;
+        line(a + up, b + up, 6.0, Color::new(glow.0, glow.1, glow.2, 0.30 * (1.0 - k as f32 / 12.0)));
+        if k < 6 {
+            line(a + up, b + up, 3.0, Color::new(1.0, 0.70, 0.30, 0.45));
+        }
+    }
+    // The crest: a wall of heaved-up ground, tallest at the front, trailing off behind; jagged and
     // shuddering, outlined dark.
     let tall = WAVE_H + 14.0;
     for k in 0..14 {
-        let dx = -w.dir * k as f32 * 2.0;
+        let px = x - w.dir * k as f32 * 2.0;
+        let (base, n) = (at(px), normal(px));
         let jag = 0.7 + 0.3 * (time * 34.0 + k as f32 * 1.9).sin();
         let h = (tall - k as f32 * 1.7).max(1.0) * jag;
         let c = mix(Color::new(0.95, 0.84, 0.64, 1.0), Color::new(0.45, 0.36, 0.30, 0.6), k as f32 / 14.0);
-        draw_rectangle((x + dx - 1.5).round(), (y - h - 1.0).round(), 3.0, (h + 1.0).round(), Color::new(0.10, 0.08, 0.07, c.a));
-        draw_rectangle((x + dx - 1.0).round(), (y - h).round(), 2.0, h.round(), c);
+        line(base, base + n * (h + 1.0), 3.0, Color::new(0.10, 0.08, 0.07, c.a));
+        line(base, base + n * h, 2.0, c);
         // Hot underneath.
-        draw_rectangle((x + dx - 1.0).round(), (y - 3.0).round(), 2.0, 3.0, Color::new(1.0, 0.45, 0.12, c.a));
+        line(base, base + n * 3.0, 2.0, Color::new(hot.0, hot.1, hot.2, c.a));
     }
-    // Chunks of floor flung up off the front.
+    // Chunks of ground flung up off the front (up off the slope, where it slopes).
+    let (front, n) = (at(x), normal(x));
+    // (The way it's going, along the ground.)
+    let along = vec2(-n.y, n.x) * if -n.y * w.dir < 0.0 { -1.0 } else { 1.0 };
     for k in 0..6 {
         let t = (time * 5.0 + k as f32 * 0.17).fract();
         let side = if k % 2 == 0 { 1.0 } else { 0.3 };
-        let p = vec2(x + w.dir * (3.0 + k as f32 * 2.5) * side, y - tall * 0.6 - t * 18.0 + t * t * 22.0);
+        let p = front + along * (3.0 + k as f32 * 2.5) * side + n * (tall * 0.6 + t * 18.0 - t * t * 22.0);
         let s = if k < 2 { 3.0 } else { 2.0 };
         draw_rectangle(p.x.round(), p.y.round(), s, s, Color::new(0.10, 0.08, 0.07, 1.0 - t));
         draw_rectangle(p.x.round(), p.y.round(), s - 1.0, s - 1.0, Color::new(0.62, 0.54, 0.46, 1.0 - t));
@@ -394,7 +419,7 @@ pub fn draw_shockwave(w: &Shockwave, time: f32) {
 /// An ember (a hot glowing spark with a short tail) or a missile (smoking, its tip blinking).
 pub fn draw_boss_shot(s: &BossShot, time: f32) {
     let dir = s.vel.normalize_or(vec2(1.0, 0.0));
-    if s.missile {
+    if s.kind == go_box_sim::boss::ShotKind::Missile {
         let tail = s.pos - dir * 6.0;
         line(tail, s.pos, 3.0, Color::new(0.10, 0.10, 0.12, 1.0));
         line(tail, s.pos, 2.0, Color::new(0.42, 0.44, 0.48, 1.0));

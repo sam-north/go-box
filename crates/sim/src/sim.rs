@@ -441,11 +441,17 @@ impl Fighter {
     }
 
     pub fn half_w(&self) -> f32 {
-        HALF_W * self.scale
+        match &self.boss {
+            Some(b) => b.kind.size().0,
+            None => HALF_W * self.scale,
+        }
     }
 
     pub fn height(&self) -> f32 {
-        BODY_H * self.scale
+        match &self.boss {
+            Some(b) => b.kind.size().1,
+            None => BODY_H * self.scale,
+        }
     }
 
     /// Whose side it's on: its own seat, or for a mini the seat that summoned it.
@@ -472,7 +478,8 @@ impl Fighter {
 
     pub(crate) fn is_head(&self, y: f32) -> bool {
         let top = self.pos.y - self.height();
-        y >= top - 1.0 && y < top + HEAD_H * self.scale
+        let head = self.boss.map_or(HEAD_H * self.scale, |b| b.kind.size().2);
+        head > 0.0 && y >= top - 1.0 && y < top + head
     }
 
     pub fn attack_active(&self) -> bool {
@@ -605,6 +612,10 @@ pub enum Event {
     BossSlam { pos: Vec2 },
     /// The boss roaring (enraged, or calling in an air strike), at its head.
     BossRoar { pos: Vec2 },
+    /// Someone swallowed by a pit boss.
+    Swallowed { pos: Vec2 },
+    /// A splash of the Sandmaw's (acid, or sand as a tentacle bursts up).
+    BossSplat { pos: Vec2, sand: bool },
 }
 
 /// Which side body `j` of `bodies` fights on: its team (its own seat, or a mini's summoner's), but
@@ -740,12 +751,20 @@ fn standable(arena: ArenaId) -> &'static [(f32, f32, f32)] {
                 let mut spans = Vec::new();
                 for (x0, x1, y) in std::iter::once(floor).chain(arena.platforms.iter().map(|p| (p.x + 3.0, p.x + p.w - 3.0, p.y))) {
                     let mut parts = vec![(x0, x1)];
-                    for w in arena.walls.iter().filter(|w| w.y < y - 0.5 && w.y + w.h >= y - 0.5) {
+                    for w in arena.walls.iter().chain(arena.hills).filter(|w| w.y < y - 0.5 && w.y + w.h >= y - 0.5) {
                         let (cut0, cut1) = (w.x - 3.0, w.x + w.w + 3.0);
+                        parts = parts.into_iter().flat_map(|(a, b)| if cut1 <= a || cut0 >= b { vec![(a, b)] } else { vec![(a, cut0), (cut1, b)] }).filter(|(a, b)| b > a).collect();
+                    }
+                    // (Nor in a pit boss's mouth, or right at its lips.)
+                    if let Some((p0, p1)) = arena.pit().filter(|_| y == FLOOR_Y) {
+                        let (cut0, cut1) = (p0 - 14.0, p1 + 14.0);
                         parts = parts.into_iter().flat_map(|(a, b)| if cut1 <= a || cut0 >= b { vec![(a, b)] } else { vec![(a, cut0), (cut1, b)] }).filter(|(a, b)| b > a).collect();
                     }
                     spans.extend(parts.into_iter().map(|(a, b)| (a, b, y)));
                 }
+                // And the tops of its hills (each step its own little stretch).
+                // (Short of each end, so nothing there overlaps the next step up.)
+                spans.extend(arena.hills.iter().map(|h| (h.x + ITEM_R + 0.1, h.x + h.w - ITEM_R - 0.1, h.y)));
                 spans
             })
             .collect()
@@ -797,7 +816,7 @@ pub struct MatchConfig {
 impl MatchConfig {
     /// The usual rules on `arena`: a boss map is a boss fight (longer, with more health about).
     pub fn for_arena(arena: ArenaId) -> Self {
-        if arena.def().boss {
+        if arena.def().boss.is_some() {
             Self { arena, mode: Mode::Boss, max_ticks: crate::boss::BOSS_MATCH, heals: crate::boss::BOSS_HEALS, ..Self::default() }
         } else {
             Self { arena, ..Self::default() }
@@ -929,7 +948,10 @@ impl Match {
                 return Fighter::empty();
             }
             let x = arena.spawn_x[i] + rng.gen_range(0.0..SPAWN_SPREAD);
-            Fighter::new(x, if x < W / 2.0 { 1.0 } else { -1.0 })
+            let mut f = Fighter::new(x, if x < W / 2.0 { 1.0 } else { -1.0 });
+            // (Standing on a hill, where there is one.)
+            f.pos.y = arena.ground_at(x, HALF_W);
+            f
         });
         let mut items = Vec::new();
         for (kind, n) in [(ItemKind::Spear, START_SPEARS), (ItemKind::Rock, START_ROCKS), (ItemKind::Grenade, START_GRENADES)] {
@@ -955,7 +977,7 @@ impl Match {
             }
         }
         if config.mode == Mode::Boss {
-            f[BOSS] = crate::boss::new_boss();
+            f[BOSS] = crate::boss::new_boss(arena.boss.unwrap_or(crate::boss::BossKind::Gatecrasher));
         }
         Self {
             f,
@@ -1207,6 +1229,10 @@ impl Match {
             }
             if self.config.unstick {
                 self.unstick(i, &mut actions[i]);
+            }
+            // (On a pit boss's map, a bot keeps out of its mouth.)
+            if let Some(pit) = self.arena().pit() {
+                self.keep_off_pit(i, pit, &mut actions[i]);
             }
             self.f[i].action = actions[i];
         }
@@ -2071,11 +2097,17 @@ fn control(f: &mut Fighter, who: usize, a: Action, wall: f32, events: &mut Vec<E
 /// ever be pinned under one.
 fn collide(f: &mut Fighter, arena: &Arena, props: &[Aabb]) {
     let before = f.body();
+    let was_grounded = f.grounded;
     // (Plus any wind from Zack's tornadoes, which pushes you whatever you do.)
     let mx = f.vel.x + f.wind;
     f.pos.x += mx * DT;
     for s in arena.solids() {
         if f.body().overlaps(s) {
+            // Walking into a lip no higher than a step (the Dune's slopes): up onto it.
+            if was_grounded && s.y >= f.pos.y - STEP_UP && s.y < f.pos.y {
+                f.pos.y = s.y;
+                continue;
+            }
             if mx > 0.0 {
                 f.pos.x = s.x - f.half_w();
             } else if mx < 0.0 {
@@ -2099,7 +2131,8 @@ fn collide(f: &mut Fighter, arena: &Arena, props: &[Aabb]) {
     }
     for s in arena.solids() {
         if f.body().overlaps(s) {
-            if f.vel.y > 0.0 {
+            // (Feet within a step of its top, as on a slope: on top of it, even going up.)
+            if f.vel.y > 0.0 || f.pos.y - s.y <= STEP_UP {
                 f.pos.y = s.y;
                 f.grounded = true;
             } else {
@@ -2111,14 +2144,31 @@ fn collide(f: &mut Fighter, arena: &Arena, props: &[Aabb]) {
     if f.vel.y >= 0.0 {
         for p in arena.platforms.iter().chain(props).filter(|_| !f.dropping) {
             let over_x = f.pos.x + f.half_w() > p.x && f.pos.x - f.half_w() < p.x + p.w;
-            if over_x && prev_bottom <= p.y + 0.01 && f.pos.y >= p.y {
+            // (Or walking along a sloping one, up onto its next step.)
+            let step_up = was_grounded && p.y < f.pos.y && p.y >= f.pos.y - STEP_UP;
+            if over_x && (step_up || prev_bottom <= p.y + 0.01 && f.pos.y >= p.y) {
                 f.pos.y = p.y;
                 f.vel.y = 0.0;
                 f.grounded = true;
             }
         }
     }
+    // Walking down a slope (stepping off a step a little lower): kept on the ground, not falling.
+    if was_grounded && !f.grounded && f.vel.y >= 0.0 && f.alive() {
+        let (l, r) = (f.pos.x - f.half_w(), f.pos.x + f.half_w());
+        let ledges = arena.platforms.iter().filter(|_| !f.dropping);
+        let below = arena.solids().chain(ledges).filter(|s| s.x < r && s.x + s.w > l && s.y >= f.pos.y && s.y <= f.pos.y + STEP_UP).map(|s| s.y).fold(f32::MAX, f32::min);
+        if below < f32::MAX {
+            f.pos.y = below;
+            f.vel.y = 0.0;
+            f.grounded = true;
+        }
+    }
 }
+
+/// The highest lip a fighter walks straight up onto (or down off) without jumping: a step of the
+/// Dune's slopes.
+const STEP_UP: f32 = 3.0;
 
 #[cfg(test)]
 mod tests {
@@ -2363,7 +2413,9 @@ mod tests {
         for arena in ArenaId::ALL {
             for side in [-1.0, 1.0] {
                 // From the floor and from every ledge.
-                let floors = std::iter::once(FLOOR_Y).chain(arena.def().platforms.iter().map(|p| p.y));
+                // (A map with ledges of many little steps, the Dune's skiffs, starts on every few.)
+                let every = (arena.def().platforms.len() / 12).max(1);
+                let floors = std::iter::once(FLOOR_Y).chain(arena.def().platforms.iter().step_by(every).map(|p| p.y));
                 for (x0, y0) in floors.flat_map(|y| (12..468).step_by(3).map(move |x| (x, y))) {
                     let (mut m, z) = quiet_match();
                     m.config.arena = arena;

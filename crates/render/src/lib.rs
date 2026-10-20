@@ -3,6 +3,7 @@
 //! animated bodies, items, explosions, and blood/scorch pixels that stick to the terrain.
 
 mod cafe;
+mod dune;
 mod lair;
 pub mod sound;
 
@@ -788,7 +789,7 @@ fn is_metal(a: &Arena, x: i32, y: i32) -> bool {
 /// One of the map's own solid blocks (the City's pillars).
 fn is_girder(a: &Arena, x: i32, y: i32) -> bool {
     let p = vec2(x as f32 + 0.5, y as f32 + 0.5);
-    a.walls.iter().any(|r| r.contains(p))
+    a.walls.iter().chain(a.hills).any(|r| r.contains(p))
 }
 
 /// What's solid at each pixel of a map, worked out once, so building its terrain (several
@@ -810,7 +811,7 @@ impl Solidity {
         // Each block marks the pixels it covers (going round its own few, not every pixel per
         // block), asking `contains` just as `is_stone` and the rest do.
         let mut px = vec![0; W as usize * H as usize];
-        let blocks = SOLIDS.iter().map(|r| (r, Self::STONE)).chain(arena.platforms.iter().map(|r| (r, Self::METAL))).chain(arena.walls.iter().map(|r| (r, Self::GIRDER)));
+        let blocks = SOLIDS.iter().map(|r| (r, Self::STONE)).chain(arena.platforms.iter().map(|r| (r, Self::METAL))).chain(arena.walls.iter().chain(arena.hills).map(|r| (r, Self::GIRDER)));
         for (r, bit) in blocks {
             let xs = (r.x.floor().max(0.0) as i32)..((r.x + r.w).ceil().min(W) as i32);
             for y in (r.y.floor().max(0.0) as i32)..((r.y + r.h).ceil().min(H) as i32) {
@@ -857,7 +858,9 @@ impl Solidity {
 fn make_background(arena: ArenaId) -> (Image, Option<Image>, Option<Image>) {
     let mut front = None;
     let mut patch = None;
-    let mut img = if arena == ArenaId::Lair {
+    let mut img = if arena == ArenaId::Dune {
+        dune::make_backdrop()
+    } else if arena == ArenaId::Lair {
         let (img, wall) = lair::make_backdrop();
         patch = Some(wall);
         img
@@ -879,7 +882,10 @@ fn make_background(arena: ArenaId) -> (Image, Option<Image>, Option<Image>) {
     } else {
         make_pipes()
     };
-    shade_ledges(&mut img, arena.def());
+    // (Not the Dune: its ledges are fine steps, and its sand is drawn smooth over them.)
+    if arena != ArenaId::Dune {
+        shade_ledges(&mut img, arena.def());
+    }
     // The front layer: the near towers, and every pixel the scaffold, the trash or the ledges'
     // shading touched.
     let front = front.map(|(near, plain)| {
@@ -1237,6 +1243,7 @@ fn make_terrain(arena: ArenaId, s: &Solidity) -> Image {
         ArenaId::Forest => Some(forest_px),
         ArenaId::Desktop => Some(desktop_px),
         ArenaId::Cafe => Some(cafe::terrain_px),
+        ArenaId::Dune => Some(dune::terrain_px),
         _ => None,
     };
     let mut img = Image::gen_image_color(W as u16, H as u16, Color::new(0.0, 0.0, 0.0, 0.0));
@@ -2178,8 +2185,14 @@ impl Art {
                 Event::Swing { .. } | Event::Clatter { .. } => {}
                 Event::BossBurst { pos } => {
                     self.shake = (0.7, 4.0);
-                    // Wall everywhere: chunks of it flung out of the hole, and dust.
-                    for (n, speed, c) in [(90, 200.0, Color::new(0.30, 0.27, 0.29, 1.0)), (60, 150.0, Color::new(0.45, 0.41, 0.42, 1.0)), (50, 80.0, DUST)] {
+                    // Wall everywhere: chunks of it flung out of the hole, and dust (or, in the desert,
+                    // a fountain of sand as the Sandmaw comes up).
+                    let debris = if self.arena == ArenaId::Dune {
+                        [(90, 200.0, Color::new(0.86, 0.72, 0.48, 1.0)), (60, 150.0, Color::new(0.70, 0.55, 0.34, 1.0)), (50, 80.0, DUST)]
+                    } else {
+                        [(90, 200.0, Color::new(0.30, 0.27, 0.29, 1.0)), (60, 150.0, Color::new(0.45, 0.41, 0.42, 1.0)), (50, 80.0, DUST)]
+                    };
+                    for (n, speed, c) in debris {
                         self.burst(pos + vec2(0.0, 20.0), vec2(0.0, -1.0), 6.3, n, c, true, speed, 1.2, 380.0);
                     }
                     self.blasts.push((pos, 0.0, 60.0));
@@ -2191,6 +2204,15 @@ impl Art {
                     }
                     self.burst(pos + vec2(0.0, -1.0), vec2(0.0, -1.0), 1.0, 10, Color::new(0.40, 0.36, 0.30, 1.0), true, 130.0, 0.6, 420.0);
                     self.visuals.push((Visual::Quake(Quake { at: pos, radius: QUAKE_BIG_R, ticks: QUAKE_TICKS }), QUAKE_TICKS as f32));
+                }
+                Event::Swallowed { pos } => {
+                    self.burst(pos, vec2(0.0, -1.0), 2.0, 40, BLOOD, true, 120.0, 0.8, 380.0);
+                    self.burst(pos, vec2(0.0, -1.0), 1.4, 30, Color::new(0.86, 0.72, 0.48, 1.0), false, 110.0, 0.6, 300.0);
+                    self.shake = (0.3, 2.0);
+                }
+                Event::BossSplat { pos, sand } => {
+                    let c = if sand { Color::new(0.86, 0.72, 0.48, 1.0) } else { dune::SPLAT };
+                    self.burst(pos, vec2(0.0, -1.0), 2.4, if sand { 18 } else { 14 }, c, !sand, 80.0, 0.5, 300.0);
                 }
                 Event::BossRoar { pos } => {
                     self.burst(pos, vec2(0.0, -1.0), 6.3, 24, Color::new(1.0, 0.35, 0.15, 0.9), false, 70.0, 0.5, -20.0);
@@ -2437,11 +2459,15 @@ impl Art {
             lair::draw_torches(self.time);
         }
         // (No rain indoors, on the Desktop, in the Cafe or the boss's hall.)
-        for d in self.rain.iter().filter(|_| !matches!(self.arena, ArenaId::Desktop | ArenaId::Cafe | ArenaId::Lair)) {
+        for d in self.rain.iter().filter(|_| !matches!(self.arena, ArenaId::Desktop | ArenaId::Cafe | ArenaId::Lair | ArenaId::Dune)) {
             draw_line(d.pos.x, d.pos.y, d.pos.x + 0.6, d.pos.y - 4.0, 1.0, Color::new(0.55, 0.62, 0.72, 0.22));
         }
         draw_texture(&self.map.terrain, 0.0, 0.0, WHITE);
         draw_texture(&self.stain_tex, 0.0, 0.0, WHITE);
+        // The Sandmaw's mouth, in the floor (over the sand, under everyone).
+        if self.arena == ArenaId::Dune {
+            dune::draw_maw(&m.f[BOSS], m, self.time, self.boss_flash > 0.0);
+        }
         if let Some(c) = m.config.campfire_area() {
             draw_campfire(&c, self.time);
         }
@@ -2483,8 +2509,13 @@ impl Art {
                 Effect::Arrow(_) => {}
                 Effect::Book(b) => draw_book(b, self.time),
                 Effect::Living(l) => draw_living(l, look(m.f[l.owner].character, l.owner).accent, self.time),
-                Effect::Shockwave(w) => lair::draw_shockwave(w, self.time),
+                Effect::Shockwave(w) => {
+                    let ground = |x: f32| go_box_sim::arena::dune_sand_y(x).filter(|_| self.arena == ArenaId::Dune).unwrap_or(FLOOR_Y);
+                    lair::draw_shockwave(w, self.time, self.arena == ArenaId::Dune, &ground)
+                }
+                Effect::BossShot(s) if s.kind == go_box_sim::boss::ShotKind::Glob => dune::draw_glob(s, self.time),
                 Effect::BossShot(s) => lair::draw_boss_shot(s, self.time),
+                Effect::Tentacle(t) => dune::draw_tentacle(t, self.time),
             }
         }
         // Travis's quake rings, on the ground under everyone.
@@ -2623,6 +2654,10 @@ impl Art {
             let (x, y) = ((f.pos.x - w / 2.0).round(), (f.pos.y - 22.0 * f.scale).round());
             draw_rectangle(x, y, w, 1.0, Color::new(0.0, 0.0, 0.0, 0.6));
             draw_rectangle(x, y, (w * f.hp / full).ceil(), 1.0, look(f.character, f.team(i)).accent);
+        }
+        // Bigworm inhaling: a sandstorm sucked in over everyone.
+        if self.arena == ArenaId::Dune {
+            dune::draw_sandstorm(&m.f[BOSS], self.time);
         }
         draw_texture(&self.vignette, 0.0, 0.0, WHITE);
     }

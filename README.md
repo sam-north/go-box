@@ -30,7 +30,7 @@ wall, press jump to kick off it (and hold toward a wall to slide down it slowly)
 The browser only reports a controller after you press a button on it. In menus (lobby, scoreboard,
 settings) the d-pad or left stick moves a highlight and Cross presses it.
 
-The leader also picks the **map** (Classic, City, Forest, Desktop, Cafe: a coffee shop and a courtyard, joined only by a gap under the wall between them; or, in a row of their own, the co-op boss map Gatecrasher, below). In the lobby the leader sets each seat without a player to **Bot** or **None**, so a match can have
+The leader also picks the **map** (Classic, City, Forest, Desktop, Cafe: a coffee shop and a courtyard, joined only by a gap under the wall between them; or, in a row of their own, the co-op boss maps Gatecrasher and Bigworm, below). In the lobby the leader sets each seat without a player to **Bot** or **None**, so a match can have
 anywhere from 1 to 4 fighters (alone, it runs until the clock or you run out).
 
 The server only listens on `127.0.0.1` unless told otherwise (`GO_BOX_BIND`); see
@@ -47,6 +47,16 @@ ledge), **grenades** lobbed at people (grab one and throw it back), **boulders**
 health it's enraged: shorter rests, more of everything, and it calls in air strikes. Beat it within
 3 minutes or everyone loses; its head counts for headshots. Tuning lives at the top of
 `crates/sim/src/boss.rs`.
+
+**Bigworm** is the other co-op map: a desert where the whole middle of the floor is a giant
+sand-pit worm's mouth. Touch its throat and you're swallowed (its lips, at the edge, are safe to
+stand on and punch from). The sand slopes down to it from both walls at 30 degrees and is slick:
+standing on it slides you toward the mouth, so keep running or jumping. The skiffs over the slopes
+slope and slide too, and none hang over the mouth, so grenades and Molotovs dropped or lobbed from
+them fall straight in. Bigworm bursts tentacles out of the sand under people (the sand bubbles
+first) that fling you toward its mouth, inhales to suck everyone in, snaps shut on anyone over it
+(with shockwaves running up the slopes), and spits acid at people on the ledges. A teammate's
+tornado doesn't pull you in a boss fight. Tuning lives at the top of `crates/sim/src/sandmaw.rs`.
 
 
 ### Characters

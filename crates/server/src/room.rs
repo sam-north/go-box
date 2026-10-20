@@ -435,7 +435,8 @@ fn results(r: &Running) -> Results {
     let winner = r.m.winner.and_then(|w| present.iter().position(|&i| i == w));
     let boss = (r.m.config.mode == Mode::Boss).then(|| {
         let f = &r.m.f[go_box_sim::sim::BOSS];
-        BossResult { beaten: r.m.boss_beaten(), hp: f.hp.max(0.0), max_hp: f.boss.map_or(0.0, |b| b.max_hp) }
+        let b = f.boss.expect("a boss fight has its boss");
+        BossResult { kind: b.kind, beaten: r.m.boss_beaten(), hp: f.hp.max(0.0), max_hp: b.max_hp }
     });
     Results { seats, boss, winner, duration: r.m.tick as f32 * DT }
 }

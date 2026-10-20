@@ -1,7 +1,7 @@
 //! In the match: names and health, the clock, your special, and the marks drawn over the arena.
 
 use crate::app::*;
-use crate::screens::{character_name, mmss, seat_name, special_name};
+use crate::screens::{boss_name, character_name, mmss, seat_name, special_name};
 use crate::settings::{Act, CONTROL_GROUPS};
 use crate::text::{t, tf};
 use crate::ui::{ACCENT, DIM, INK, Ui};
@@ -172,7 +172,7 @@ fn boss_bar(ui: &Ui, m: &Match, x: f32, top: f32, w: f32) {
     let Some(b) = &f.boss else { return };
     let rage = Color::new(1.0, 0.30, 0.18, 1.0);
     let color = if b.enraged { rage } else { Color::new(0.95, 0.62, 0.20, 1.0) };
-    let name = if b.enraged { tf("hud.boss_enraged", &[("name", t("boss.name"))]) } else { t("boss.name").to_string() };
+    let name = if b.enraged { tf("hud.boss_enraged", &[("name", boss_name(b.kind))]) } else { boss_name(b.kind).to_string() };
     ui.text(&name, x, top + ui.px(22.0), 17.0, color);
     let hp = format!("{:.0} / {:.0}", f.hp.max(0.0), b.max_hp);
     ui.text(&hp, x + w - ui.text_width(&hp, 14.0), top + ui.px(22.0), 14.0, DIM);

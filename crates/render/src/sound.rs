@@ -8,6 +8,8 @@ use macroquad::math::Vec2;
 use std::sync::{Arc, Mutex};
 
 const RATE: u32 = 22050;
+/// How often a new gust of Bigworm's sandstorm starts (each lasts a little longer, so they overlap).
+const STORM_GUST: f32 = 1.0;
 
 go_box_sim::enum_all! {
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -76,6 +78,10 @@ go_box_sim::enum_all! {
         Backlog,
         BacklogBurst,
         LockIn,
+        /// A boss roaring (Bigworm coming up, either boss enraged).
+        Roar,
+        /// Bigworm's inhale: a sandstorm howling in (played back to back while it lasts).
+        Sandstorm,
         Start,
         Win,
         Lose,
@@ -414,6 +420,22 @@ impl Sfx {
                 }
             }
             // Weston locking in: a sharp click, then a low hum swelling as the things round him stir.
+            // A huge beast roaring: a held, rumbling growl (low voices, a rasp of breath, all fluttering
+            // in the throat), echoing back off the dunes.
+            Sfx::Roar => {
+                s.growl(0.0, 1.5, 78.0, 23.0, 0.42);
+                s.growl(0.0, 1.5, 117.0, 29.0, 0.18);
+                s.growl(0.05, 1.4, 58.0, 17.0, 0.3);
+                s.echo(0.26, 0.45, 3);
+            }
+            // The sandstorm: gusting wind (its cutoff rising and falling) over a low roar, with a
+            // thin whistle; faded in and out so back to back it runs on without a seam.
+            Sfx::Sandstorm => {
+                s.noise(0.0, 0.7, 500.0, 1900.0, 0.35, 0.0, 0.28);
+                s.noise(0.7, 0.7, 1900.0, 600.0, 0.0, 1.6, 0.28);
+                s.noise(0.0, 1.4, 260.0, 220.0, 0.35, 0.8, 0.3);
+                s.tone(0.1, 1.2, 900.0, 1250.0, Wave::Sine, 0.4, 1.4, 0.025);
+            }
             Sfx::LockIn => {
                 s.tone(0.0, 0.03, 2200.0, 1800.0, Wave::Square, 0.001, 80.0, 0.15);
                 s.noise(0.0, 0.02, 6000.0, 4000.0, 0.001, 100.0, 0.25);
@@ -548,6 +570,36 @@ impl Buf {
         }
     }
 
+    /// A held growl: a saw at `f` (drifting a little) and a rasp of low noise, both fluttering at
+    /// `rate` Hz, swelling in, held, and dying away over its last third.
+    fn growl(&mut self, start: f32, len: f32, f: f32, rate: f32, vol: f32) {
+        let n = (len * RATE as f32) as usize;
+        let i0 = (start * RATE as f32) as usize;
+        let (mut phase, mut y) = (0.0f32, 0.0f32);
+        let k = 1.0 - (-std::f32::consts::TAU * 700.0 / RATE as f32).exp();
+        for i in 0..n {
+            let t = i as f32 / RATE as f32;
+            let fi = f * (1.0 + 0.04 * (t * 2.3).sin() + 0.02 * (t * 7.1).sin());
+            phase = (phase + fi / RATE as f32).fract();
+            y += (self.rand() - y) * k;
+            let flutter = 0.6 + 0.4 * (t * rate * std::f32::consts::TAU).sin();
+            let env = (t / 0.15).min(1.0) * ((len - t) / (len * 0.35)).clamp(0.0, 1.0);
+            *self.at(i0 + i) += ((phase * 2.0 - 1.0) * 0.7 + y * 2.2) * flutter * env * vol;
+        }
+    }
+
+    /// Echoes of everything so far: `times` quieter copies, each `delay` seconds after the last.
+    fn echo(&mut self, delay: f32, gain: f32, times: usize) {
+        let d = (delay * RATE as f32) as usize;
+        let dry = self.s.clone();
+        for k in 1..=times {
+            let g = gain.powi(k as i32);
+            for (i, v) in dry.iter().enumerate() {
+                *self.at(i + d * k) += v * g;
+            }
+        }
+    }
+
     /// A low sine with a fast vibrato: a heavy, warbling "vwomm".
     fn wobble(&mut self, start: f32, len: f32, f: f32, rate: f32, vol: f32) {
         let n = (len * RATE as f32) as usize;
@@ -613,6 +665,8 @@ pub struct Sounds {
     fuse_acc: f32,
     fire_acc: f32,
     wind_acc: f32,
+    /// Bigworm's sandstorm: time since the last gust started.
+    storm_acc: f32,
     special_cd: Option<u32>,
     /// The countdown number last shown (3, 2, 1), to beep on each.
     count: Option<u32>,
@@ -633,7 +687,7 @@ impl Sounds {
                 }
             }
         });
-        Self { sounds, muted: false, master: 0.8, effects: 1.0, last: vec![-1.0; Sfx::ALL.len()], now: 0.0, step_dist: [0.0; N_BODIES], fuse_acc: 0.0, fire_acc: 0.0, wind_acc: 0.0, special_cd: None, count: None, ending: None }
+        Self { sounds, muted: false, master: 0.8, effects: 1.0, last: vec![-1.0; Sfx::ALL.len()], now: 0.0, step_dist: [0.0; N_BODIES], fuse_acc: 0.0, fire_acc: 0.0, wind_acc: 0.0, storm_acc: STORM_GUST, special_cd: None, count: None, ending: None }
     }
 
     /// Plays `s` at `vol` (0..1, before the master volume).
@@ -719,12 +773,22 @@ impl Sounds {
                 Event::BacklogBurst { pos } => self.at(Sfx::BacklogBurst, pos, ear, 1.0),
                 Event::ArrowCall { pos } => self.at(Sfx::ArrowWhistle, pos, ear, 0.9),
                 Event::Slam { pos } => self.at(Sfx::Slam, pos, ear, 1.0),
+                // The Gatecrasher smashing through the wall; Bigworm coming up out of the sand with a roar.
+                Event::BossBurst { .. } if m.f[BOSS].boss.is_some_and(|b| b.kind == go_box_sim::boss::BossKind::Sandmaw) => {
+                    self.play(Sfx::Roar, 1.0);
+                    self.play(Sfx::Stomp, 0.6);
+                }
                 Event::BossBurst { .. } => {
                     self.play(Sfx::Explosion, 1.0);
                     self.play(Sfx::BigStomp, 1.0);
                 }
                 Event::BossSlam { pos } => self.at(Sfx::BigStomp, pos, ear, 1.0),
-                Event::BossRoar { pos } => self.at(Sfx::Slam, pos, ear, 0.8),
+                Event::BossRoar { pos } => self.at(Sfx::Roar, pos, ear, 1.0),
+                Event::Swallowed { pos } => {
+                    self.at(Sfx::BigStomp, pos, ear, 1.0);
+                    self.at(Sfx::Bite, pos, ear, 1.0);
+                }
+                Event::BossSplat { pos, sand } => self.at(if sand { Sfx::Stomp } else { Sfx::Splat }, pos, ear, 0.8),
                 Event::Quake { pos, big } => self.at(if big { Sfx::BigStomp } else { Sfx::Stomp }, pos, ear, if big { 1.0 } else { 0.7 }),
                 Event::Hologram { pos, out } => self.at(if out { Sfx::Materialize } else { Sfx::Digitize }, pos, ear, 1.0),
                 Event::Matrix { pos, out } => self.at(if out { Sfx::Release } else { Sfx::Possess }, pos, ear, 1.0),
@@ -835,6 +899,17 @@ impl Sounds {
                 }
             }
             None => self.wind_acc = 0.0,
+        }
+        // Bigworm inhaling: the sandstorm howls on, a gust after a gust (the first right away).
+        let inhaling = m.f[BOSS].alive() && m.f[BOSS].boss.is_some_and(|b| b.mv == go_box_sim::boss::BossMove::Inhale && b.t >= b.mv.timing().0 / 2);
+        if inhaling {
+            self.storm_acc += dt;
+            if self.storm_acc >= STORM_GUST {
+                self.storm_acc = 0.0;
+                self.play(Sfx::Sandstorm, 0.75);
+            }
+        } else {
+            self.storm_acc = STORM_GUST;
         }
         let cd = own.map(|s| &m.f[s]).filter(|f| f.alive() && f.special().is_some()).map(|f| f.special_cd);
         if let (Some(prev), Some(0)) = (self.special_cd, cd)

@@ -1747,6 +1747,7 @@ impl Match {
                 Effect::Living(l) => self.step_living(l, &props),
                 Effect::Shockwave(w) => self.step_shockwave(w),
                 Effect::BossShot(s) => self.step_boss_shot(s),
+                Effect::Tentacle(t) => self.step_tentacle(t),
             }
             self.effects[e] = effect;
         }
@@ -1907,8 +1908,14 @@ impl Match {
             t.at.x = t.at.x.clamp(lo, hi);
             t.dir = -t.dir;
         }
+        // (In a boss fight it leaves his side alone, him included: pulled toward a pit boss's mouth
+        // it'd be a death trap.)
+        let coop = self.f[crate::sim::BOSS].boss.is_some();
         let top = crate::sim::WALL + TORNADO_TOP;
         for j in 0..N_BODIES {
+            if coop && self.side(j) == self.side(t.owner) {
+                continue;
+            }
             let f = &mut self.f[j];
             let dx = t.at.x - f.pos.x;
             // (Not Matt on his skateboard: he rides straight out of it.)
@@ -2574,6 +2581,8 @@ pub enum Effect {
     Shockwave(crate::boss::Shockwave),
     /// One of the boss's embers or missiles.
     BossShot(crate::boss::BossShot),
+    /// One of the Sandmaw's tentacles.
+    Tentacle(crate::sandmaw::Tentacle),
 }
 
 impl Effect {
@@ -2596,6 +2605,7 @@ impl Effect {
             Effect::Living(l) => l.owner,
             Effect::Shockwave(_) => crate::sim::BOSS,
             Effect::BossShot(_) => crate::sim::BOSS,
+            Effect::Tentacle(_) => crate::sim::BOSS,
         }
     }
 
@@ -2618,6 +2628,7 @@ impl Effect {
             Effect::Living(l) => Some(l.item.pos),
             Effect::Shockwave(w) => Some(w.pos - vec2(0.0, 4.0)),
             Effect::BossShot(s) => Some(s.pos),
+            Effect::Tentacle(t) => Some(t.pos - vec2(0.0, 6.0)),
         }
     }
 
@@ -2640,6 +2651,7 @@ impl Effect {
             Effect::Living(l) => l.item.pos,
             Effect::Shockwave(w) => w.pos,
             Effect::BossShot(s) => s.pos,
+            Effect::Tentacle(t) => t.pos,
         }
     }
 
@@ -2662,6 +2674,7 @@ impl Effect {
             Effect::Living(l) => &mut l.item.pos,
             Effect::Shockwave(w) => &mut w.pos,
             Effect::BossShot(s) => &mut s.pos,
+            Effect::Tentacle(t) => &mut t.pos,
         }
     }
 
@@ -2683,6 +2696,7 @@ impl Effect {
             Effect::Living(l) => l.ticks == 0,
             Effect::Shockwave(w) => w.ticks == 0,
             Effect::BossShot(s) => s.ticks == 0,
+            Effect::Tentacle(t) => t.ticks == 0,
         }
     }
 
@@ -2692,7 +2706,7 @@ impl Effect {
     pub fn on_wire(&self) -> bool {
         match self {
             Effect::Glue(_) | Effect::Pet(_) | Effect::Table(_) | Effect::Chain(_) | Effect::Rocket(_) | Effect::Fire(_) => true,
-            Effect::Plane(_) | Effect::AirBomb(_) | Effect::Judo(_) | Effect::Tornado(_) | Effect::Arrow(_) | Effect::Book(_) | Effect::Living(_) | Effect::Shockwave(_) | Effect::BossShot(_) => true,
+            Effect::Plane(_) | Effect::AirBomb(_) | Effect::Judo(_) | Effect::Tornado(_) | Effect::Arrow(_) | Effect::Book(_) | Effect::Living(_) | Effect::Shockwave(_) | Effect::BossShot(_) | Effect::Tentacle(_) => true,
             Effect::Lunge(_) => false,
         }
     }

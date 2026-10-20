@@ -90,6 +90,9 @@ mod tests {
         for a in go_box_sim::sim::ArenaId::ALL {
             keys.insert(format!("arena.{}", a.id()));
         }
+        for k in go_box_sim::boss::BossKind::ALL {
+            keys.insert(format!("boss.{}", k.id()));
+        }
         // Every special there is (Ryan can pick up any of them, whoever else has it).
         for s in go_box_sim::character::ALL_SPECIALS {
             keys.insert(format!("special.{}", s.id()));

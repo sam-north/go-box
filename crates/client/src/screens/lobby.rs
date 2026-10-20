@@ -1,7 +1,7 @@
 //! The room: who's in it, seats, the map, characters, and the last match's scoreboard.
 
 use crate::app::*;
-use crate::screens::{character_name, mmss, seat_name, special_name};
+use crate::screens::{boss_name, character_name, mmss, seat_name, special_name};
 use crate::text::{t, tf};
 use crate::platform;
 use crate::ui::{self, ACCENT, BAD, DIM, INK, Ui};
@@ -132,11 +132,11 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     // Last match's scoreboard.
     if let Some(res) = &room.last_results {
         y += ui.px(8.0);
-        let banner = match res.winner {
-            _ if res.boss.is_some_and(|b| b.beaten) => tf("lobby.boss_beaten", &[("name", t("boss.name"))]),
-            _ if res.boss.is_some() => tf("lobby.boss_won", &[("name", t("boss.name"))]),
-            Some(w) => tf("lobby.wins", &[("name", &seat_name(&res.seats[w].name, res.seats[w].character, res.seats[w].bot))]),
-            None => t("lobby.draw").to_string(),
+        let banner = match (res.boss, res.winner) {
+            (Some(b), _) if b.beaten => tf("lobby.boss_beaten", &[("name", boss_name(b.kind))]),
+            (Some(b), _) => tf("lobby.boss_won", &[("name", boss_name(b.kind))]),
+            (None, Some(w)) => tf("lobby.wins", &[("name", &seat_name(&res.seats[w].name, res.seats[w].character, res.seats[w].bot))]),
+            (None, None) => t("lobby.draw").to_string(),
         };
         ui.text(&banner, r.x + pad, y + ui.px(10.0), 30.0, INK);
         let length = tf("lobby.match_length", &[("time", &mmss(res.duration))]);
@@ -145,7 +145,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
         // The boss won: how much health it had left, so you can see how close you came.
         if let Some(b) = res.boss.filter(|b| !b.beaten && b.max_hp > 0.0) {
             let frac = (b.hp / b.max_hp).clamp(0.0, 1.0);
-            let line = tf("lobby.boss_left", &[("name", t("boss.name")), ("hp", &format!("{:.0}", b.hp)), ("max", &format!("{:.0}", b.max_hp)), ("pct", &format!("{:.0}", frac * 100.0))]);
+            let line = tf("lobby.boss_left", &[("name", boss_name(b.kind)), ("hp", &format!("{:.0}", b.hp)), ("max", &format!("{:.0}", b.max_hp)), ("pct", &format!("{:.0}", frac * 100.0))]);
             ui.text(&line, r.x + pad, y + ui.px(8.0), 18.0, INK);
             let (bx, bw, bh) = (r.x + pad + ui.text_width(&line, 18.0) + ui.px(14.0), ui.px(220.0), ui.px(9.0));
             let by = y + ui.px(8.0) - bh;
@@ -292,7 +292,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     let my = y;
     // (As wide as fit, side by side: the usual maps on one row, boss fights on a row of their own
     // under them.)
-    let (fights, bosses): (Vec<ArenaId>, Vec<ArenaId>) = ArenaId::ALL.into_iter().partition(|a| !a.def().boss);
+    let (fights, bosses): (Vec<ArenaId>, Vec<ArenaId>) = ArenaId::ALL.into_iter().partition(|a| a.def().boss.is_none());
     let n = fights.len() as f32;
     // (The leader's rows are labelled, PvP and PvE, in front.)
     let label_w = if leader { ui.px(44.0) } else { 0.0 };
@@ -308,7 +308,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
             ui.text(label, map_x, ry + ui.px(35.0), 18.0, DIM);
         }
         for a in maps {
-            let boss = a.def().boss;
+            let boss = a.def().boss.is_some();
             let rr = Rect::new(dx, ry + ui.px(12.0), if boss { bw * 2.0 + ui.px(8.0) } else { bw }, ui.px(34.0));
             let selected = room.arena == a;
             let name = t(&format!("arena.{}", a.id()));

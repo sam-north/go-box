@@ -10,6 +10,7 @@
 //! The client shades every map's backdrop around its ledges and walls (`make_background` in the
 //! render crate) so they stand out; a new backdrop gets that for free.
 
+use crate::boss::BossKind;
 use crate::sim::{Aabb, N_FIGHTERS};
 use serde::{Deserialize, Serialize};
 
@@ -21,12 +22,16 @@ pub struct Arena {
     /// Solid blocks besides the box's walls, floor and ceiling: nothing passes through them, you
     /// can stand on top, and wall-jump off their sides.
     pub walls: &'static [Aabb],
+    /// Ground rising from the floor (the Dune's slopes, as fine steps): solid like walls, but
+    /// fighters walk up and down it (`sim::collide` steps them up, and keeps them on it going down)
+    /// and things turn up on top of it.
+    pub hills: &'static [Aabb],
     /// A campfire on the floor, burning all match long (like a Molotov's fire, but nobody's):
     /// each match puts it somewhere new, always with open sky above (`MatchConfig::campfire`).
     pub campfire: bool,
     /// A boss fight: everyone together against the boss in the middle (`boss.rs`;
     /// `MatchConfig::for_arena` makes it one).
-    pub boss: bool,
+    pub boss: Option<BossKind>,
     /// Seat i starts somewhere in `spawn_x[i] .. spawn_x[i] + SPAWN_SPREAD` on the floor (seats
     /// left to right).
     pub spawn_x: [f32; N_FIGHTERS],
@@ -55,13 +60,27 @@ crate::enum_all! {
         /// "Gatecrasher": a boss fight. A dungeon hall the boss smashes into through the back wall,
         /// standing in the middle; ledges climb either side up to its head, and nothing hangs over it (air strikes reach it).
         Lair,
+        /// "Sandmaw": a boss fight in the desert. The middle of the floor is the monster's mouth (touch
+        /// its throat and you're swallowed); skiffs hover either side, none over it.
+        Dune,
     }
 }
 
 impl Arena {
+    /// How high the ground is under something `half_w` either side of `x`: the floor, or the top of
+    /// the hill there (the highest it overlaps).
+    pub fn ground_at(&self, x: f32, half_w: f32) -> f32 {
+        self.hills.iter().filter(|h| h.x < x + half_w && h.x + h.w > x - half_w).map(|h| h.y).fold(crate::sim::FLOOR_Y, f32::min)
+    }
+
+    /// The stretch of floor that swallows whoever touches it (a pit boss's mouth), if any.
+    pub fn pit(&self) -> Option<(f32, f32)> {
+        self.boss.and_then(|k| k.pit())
+    }
+
     /// Everything solid: the box (ceiling, floor, side walls) and this map's own walls.
     pub fn solids(&self) -> impl Iterator<Item = &Aabb> + Clone {
-        crate::sim::SOLIDS.iter().chain(self.walls)
+        crate::sim::SOLIDS.iter().chain(self.walls).chain(self.hills)
     }
 }
 
@@ -72,8 +91,8 @@ pub fn layout_fingerprint() -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for a in ArenaId::ALL {
         let d = a.def();
-        let boxes = d.platforms.iter().chain(d.walls).flat_map(|s| [s.x, s.y, s.w, s.h]);
-        for v in boxes.chain(d.spawn_x).chain([d.campfire as u8 as f32, d.boss as u8 as f32]) {
+        let boxes = d.platforms.iter().chain(d.walls).chain(d.hills).flat_map(|s| [s.x, s.y, s.w, s.h]);
+        for v in boxes.chain(d.spawn_x).chain([d.campfire as u8 as f32, d.boss.map_or(0.0, |k| 1.0 + k as u8 as f32)]) {
             h = (h ^ v.to_bits() as u64).wrapping_mul(0x100_0000_01b3);
         }
     }
@@ -89,6 +108,7 @@ impl ArenaId {
             ArenaId::Desktop => &DESKTOP,
             ArenaId::Cafe => &CAFE,
             ArenaId::Lair => &LAIR,
+            ArenaId::Dune => &DUNE,
         }
     }
 
@@ -114,8 +134,9 @@ const TIERS: Arena = Arena {
         Aabb::new(168.0, 106.0, 144.0, 5.0),
     ],
     walls: &[],
+    hills: &[],
     campfire: false,
-    boss: false,
+    boss: None,
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
 
@@ -138,8 +159,9 @@ const BRIDGES: Arena = Arena {
     // Two pillars hanging from the high bridge, high enough off the floor to walk under: wall-jump
     // up the shaft between them (or off their outsides) and through the bridge.
     walls: &[Aabb::new(204.0, 149.0, 8.0, 73.0), Aabb::new(268.0, 149.0, 8.0, 73.0)],
+    hills: &[],
     campfire: false,
-    boss: false,
+    boss: None,
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
 
@@ -167,8 +189,9 @@ const FOREST: Arena = Arena {
         Aabb::new(246.0, 214.0, 26.0, 5.0),
     ],
     walls: &FOREST_TRUNKS,
+    hills: &[],
     campfire: true,
-    boss: false,
+    boss: None,
     // (Clear of the trunks: nobody starts in one.)
     spawn_x: [28.0, 130.0, 254.0, 356.0],
 };
@@ -222,8 +245,9 @@ const DESKTOP: Arena = Arena {
         Aabb::new(349.0, 35.0, 4.0, 20.0),
         Aabb::new(465.0, 35.0, 4.0, 20.0),
     ],
+    hills: &[],
     campfire: false,
-    boss: false,
+    boss: None,
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
 
@@ -262,8 +286,9 @@ const CAFE: Arena = Arena {
         COURTYARD_BALCONIES[3],
     ],
     walls: &[CAFE_BAR, CAFE_DIVIDER],
+    hills: &[],
     campfire: false,
-    boss: false,
+    boss: None,
     // Two in the cafe (clear of the bar), two in the courtyard.
     spawn_x: [106.0, 190.0, 300.0, 376.0],
 };
@@ -287,10 +312,92 @@ const LAIR: Arena = Arena {
         Aabb::new(312.0, 120.0, 72.0, 5.0),
     ],
     walls: &[],
+    hills: &[],
     campfire: false,
-    boss: true,
+    boss: Some(BossKind::Gatecrasher),
     // Two each side of it, clear of its feet.
     spawn_x: [14.0, 110.0, 280.0, 376.0],
+};
+
+/// How steeply the Dune's sand slopes down to the Sandmaw's mouth (30 degrees: tan 30), and where
+/// each slope meets the flat at the bottom.
+pub const DUNE_SLOPE: f32 = 0.577_35;
+pub const DUNE_FOOT: (f32, f32) = (176.0, 304.0);
+const DUNE_STEP: f32 = 4.0;
+const DUNE_STEPS: usize = 42;
+
+/// Where the Dune's sand is at `x`, as drawn (a smooth line; underfoot it's `DUNE_HILLS`, fine steps
+/// that follow it within a couple of pixels). None on the flat round the mouth.
+pub fn dune_sand_y(x: f32) -> Option<f32> {
+    let (l, r) = DUNE_FOOT;
+    let run = if x < l { l - x } else if x > r { x - r } else { return None };
+    Some(crate::sim::FLOOR_Y - run * DUNE_SLOPE)
+}
+
+/// The Dune's slopes as steps `DUNE_STEP` wide, each as tall as the slope at its middle, from each
+/// foot out to the wall.
+const fn dune_hills() -> [Aabb; DUNE_STEPS * 2] {
+    let mut out = [Aabb::new(0.0, 0.0, 0.0, 0.0); DUNE_STEPS * 2];
+    let mut i = 0;
+    while i < DUNE_STEPS {
+        let rise = (i as f32 * DUNE_STEP + DUNE_STEP / 2.0) * DUNE_SLOPE;
+        let top = crate::sim::FLOOR_Y - rise;
+        out[i] = Aabb::new(DUNE_FOOT.0 - DUNE_STEP * (i + 1) as f32, top, DUNE_STEP, rise);
+        out[DUNE_STEPS + i] = Aabb::new(DUNE_FOOT.1 + DUNE_STEP * i as f32, top, DUNE_STEP, rise);
+        i += 1;
+    }
+    out
+}
+
+pub const DUNE_HILLS: [Aabb; DUNE_STEPS * 2] = dune_hills();
+
+/// The Dune's skiffs: (left, right, height at the end nearer its wall). Each slopes down toward the
+/// middle at `SKIFF_SLOPE` (20 degrees), its deck slick like the sand. The ledges themselves are
+/// `DUNE_SKIFF_STEPS` (fine steps following the deck; the renderer draws the deck).
+pub const DUNE_SKIFFS: [(f32, f32, f32); 6] = [(96.0, 168.0, 156.0), (24.0, 80.0, 100.0), (104.0, 160.0, 112.0), (312.0, 384.0, 156.0), (400.0, 456.0, 100.0), (320.0, 376.0, 112.0)];
+pub const SKIFF_SLOPE: f32 = 0.364;
+const SKIFF_STEPS: usize = (18 + 14 + 14) * 2;
+
+/// Where a Dune skiff's deck is at `x` (sloping down toward the middle).
+pub const fn skiff_deck(skiff: (f32, f32, f32), x: f32) -> f32 {
+    let (l, r, high) = skiff;
+    let run = if l < crate::sim::W / 2.0 { x - l } else { r - x };
+    high + run * SKIFF_SLOPE
+}
+
+const fn dune_skiff_steps() -> [Aabb; SKIFF_STEPS] {
+    let mut out = [Aabb::new(0.0, 0.0, 0.0, 0.0); SKIFF_STEPS];
+    let (mut n, mut s) = (0, 0);
+    while s < DUNE_SKIFFS.len() {
+        let (l, r, _) = DUNE_SKIFFS[s];
+        let mut x = l;
+        while x < r {
+            out[n] = Aabb::new(x, skiff_deck(DUNE_SKIFFS[s], x + DUNE_STEP / 2.0), DUNE_STEP, 5.0);
+            n += 1;
+            x += DUNE_STEP;
+        }
+        s += 1;
+    }
+    out
+}
+
+pub const DUNE_SKIFF_STEPS: [Aabb; SKIFF_STEPS] = dune_skiff_steps();
+
+/// The Sandmaw's desert. Its mouth is the middle of the floor (its throat, x 192..288, swallows
+/// whoever touches it; see `sandmaw.rs`), and the sand slopes down to it from both walls at 30
+/// degrees, so anything that rolls or slides goes its way. Skiffs hover over the slopes and stop
+/// short of its mouth: grenades and Molotovs dropped or lobbed from them fall into it.
+const DUNE: Arena = Arena {
+    id: "dune",
+    // Each side: a long skiff low over the slope toward the mouth, a perch by the wall above it,
+    // and a high skiff over toward the mouth again.
+    platforms: &DUNE_SKIFF_STEPS,
+    walls: &[],
+    hills: &DUNE_HILLS,
+    campfire: false,
+    boss: Some(BossKind::Sandmaw),
+    // Two each side of its mouth.
+    spawn_x: [14.0, 90.0, 300.0, 376.0],
 };
 
 #[cfg(test)]
@@ -306,7 +413,7 @@ mod tests {
                 assert!(p.x >= WALL + 3.0 && p.x + p.w <= W - WALL - 3.0, "{} platform {p:?} touches a wall", d.id);
                 assert!(p.y < FLOOR_Y && p.y > WALL + 20.0, "{} platform {p:?} is outside the box", d.id);
                 // Something to jump up from within reach: the floor or a lower platform.
-                let below = FLOOR_Y - p.y <= 48.0 || d.platforms.iter().chain(d.walls).any(|q| q.y > p.y && q.y - p.y <= 48.0 && q.x < p.x + p.w + 40.0 && q.x + q.w > p.x - 40.0);
+                let below = FLOOR_Y - p.y <= 48.0 || d.platforms.iter().chain(d.walls).chain(d.hills).any(|q| q.y > p.y && q.y - p.y <= 48.0 && q.x < p.x + p.w + 40.0 && q.x + q.w > p.x - 40.0);
                 assert!(below, "{} platform {p:?} can't be reached", d.id);
             }
             for x in d.spawn_x {
@@ -322,12 +429,12 @@ mod tests {
             for seed in 0..40 {
                 let mut m = Match::new(seed, &MatchConfig { arena: a, ..MatchConfig::default() });
                 for f in &m.f[..N_FIGHTERS] {
-                    assert!(!a.def().walls.iter().any(|w| f.body().overlaps(w)), "{} seed {seed}: a fighter starts in a wall at {}", a.id(), f.pos);
+                    assert!(!a.def().walls.iter().chain(a.def().hills).any(|w| f.body().overlaps(w)), "{} seed {seed}: a fighter starts in a wall at {}", a.id(), f.pos);
                     assert!(!m.config.campfire_area().is_some_and(|c| f.body().overlaps(&c)), "{} seed {seed}: a fighter starts in the campfire at {}", a.id(), f.pos);
                 }
                 for _ in 0..50 {
                     let p = m.random_surface_spot_between(0.0, W).unwrap() - glam::vec2(0.0, ITEM_R);
-                    assert!(!a.def().walls.iter().any(|w| crate::sim::Aabb::around(p, ITEM_R).overlaps(w)), "{} seed {seed}: a spot in a wall at {p}", a.id());
+                    assert!(!a.def().walls.iter().chain(a.def().hills).any(|w| crate::sim::Aabb::around(p, ITEM_R).overlaps(w)), "{} seed {seed}: a spot in a wall at {p}", a.id());
                 }
             }
         }

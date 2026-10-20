@@ -79,7 +79,8 @@ hud.you = {name} (you)
 hud.joining = Joining...
 hud.go = GO!
 hud.boss_enraged = {name} (ENRAGED)
-boss.name = The Gatecrasher
+boss.gatecrasher = The Gatecrasher
+boss.sandmaw = Bigworm
 hud.invulnerable = Invulnerable
 hud.watching = Watching - you'll play in the next match
 hud.spectating = Spectating - you'll get a seat when one frees up
@@ -144,6 +145,7 @@ arena.forest = Forest
 arena.desktop = Desktop
 arena.cafe = Cafe
 arena.lair = Gatecrasher
+arena.dune = Bigworm
 
 # Messages
 notice.connection_lost = Lost connection to the server.

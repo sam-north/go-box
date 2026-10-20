@@ -28,8 +28,8 @@ pub const BOSS_HP_EACH: f32 = 160.0;
 pub const RAGE_AT: f32 = 0.5;
 
 // Between attacks.
-const REST: u32 = 40;
-const RAGE_REST: u32 = 20;
+pub(crate) const REST: u32 = 40;
+pub(crate) const RAGE_REST: u32 = 20;
 /// The first attack, after the protected start.
 const FIRST_REST: u32 = 20;
 /// Into each rest (if it lasts that long), the boulder it tosses between attacks.
@@ -107,6 +107,44 @@ const MISSILE_TURN: f32 = 1.9;
 const MISSILE_TICKS: u32 = secs(4);
 pub const MISSILE_BLAST: crate::item::Blast = crate::item::Blast { radius: 18.0, damage: 18.0, edge: 0.5 };
 
+crate::enum_all! {
+    /// Which boss a boss map has.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+    pub enum BossKind {
+        /// A giant that smashes through the back wall and stands in the middle (this file).
+        Gatecrasher,
+        /// A pit monster whose mouth is the middle of the floor (`sandmaw.rs`).
+        Sandmaw,
+    }
+}
+
+impl BossKind {
+    /// A stable id; players see the text `boss.<id>`.
+    pub fn id(self) -> &'static str {
+        match self {
+            BossKind::Gatecrasher => "gatecrasher",
+            BossKind::Sandmaw => "sandmaw",
+        }
+    }
+
+    /// Its body (what can be hit) either side of its middle, and how tall from the floor; and how
+    /// much of the top of it is its head (headshots).
+    pub fn size(self) -> (f32, f32, f32) {
+        match self {
+            BossKind::Gatecrasher => (4.0 * BOSS_SCALE, 14.0 * BOSS_SCALE, 4.0 * BOSS_SCALE),
+            BossKind::Sandmaw => (crate::sandmaw::BODY_HALF_W, crate::sandmaw::BODY_H, 0.0),
+        }
+    }
+
+    /// The stretch of floor that kills whoever touches it (the Sandmaw's throat), if any.
+    pub fn pit(self) -> Option<(f32, f32)> {
+        match self {
+            BossKind::Gatecrasher => None,
+            BossKind::Sandmaw => Some(crate::sandmaw::THROAT),
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum BossMove {
     Rest,
@@ -119,6 +157,15 @@ pub enum BossMove {
     Spray,
     /// Homing missiles out of its shoulders, one after another.
     Missiles,
+    // The Sandmaw (`sandmaw.rs`).
+    /// Tentacles bursting out of the sand under people.
+    Tentacles,
+    /// Sucking everyone toward its mouth.
+    Inhale,
+    /// Snapping shut: whoever's over its mouth is bitten, and shockwaves run out along the floor.
+    Chomp,
+    /// Globs of acid spat at people.
+    Acid,
 }
 
 impl BossMove {
@@ -133,6 +180,7 @@ impl BossMove {
             BossMove::Strike => (STRIKE_WINDUP, STRIKE_TOTAL),
             BossMove::Spray => (SPRAY_WINDUP, SPRAY_WINDUP + RAGE_SPRAY_TICKS),
             BossMove::Missiles => (MISSILE_WINDUP, MISSILE_WINDUP + MISSILE_EVERY * RAGE_MISSILES + 10),
+            mv => crate::sandmaw::timing(mv),
         }
     }
 }
@@ -140,6 +188,7 @@ impl BossMove {
 /// What the boss is up to (on its `Fighter`, so clients draw it).
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct BossState {
+    pub kind: BossKind,
     pub max_hp: f32,
     pub mv: BossMove,
     /// Ticks into the move (or the rest).
@@ -149,20 +198,21 @@ pub struct BossState {
     pub enraged: bool,
     /// How long this rest lasts.
     #[serde(skip)]
-    rest: u32,
+    pub(crate) rest: u32,
     /// Who this swat has already hit (a bit per body).
     #[serde(skip)]
-    hit: u16,
-    /// Ticks until it next spits embers at someone.
+    pub(crate) hit: u16,
+    /// Ticks until it next spits at someone.
     #[serde(skip)]
-    spit: u32,
+    pub(crate) spit: u32,
 }
 
 /// The boss as it stands in its slot (its health is set as the match starts: `size_up_boss`).
-pub fn new_boss() -> Fighter {
+pub fn new_boss(kind: BossKind) -> Fighter {
     let mut f = Fighter::new(BOSS_X, 1.0);
+    // (Its size is its kind's: `Fighter::half_w` and `height` ask it.)
     f.scale = BOSS_SCALE;
-    f.boss = Some(BossState { max_hp: BOSS_HP_EACH, mv: BossMove::Rest, t: 0, side: 1.0, enraged: false, rest: FIRST_REST, hit: 0, spit: SPIT_EVERY });
+    f.boss = Some(BossState { kind, max_hp: BOSS_HP_EACH, mv: BossMove::Rest, t: 0, side: 1.0, enraged: false, rest: FIRST_REST, hit: 0, spit: SPIT_EVERY });
     f.hp = BOSS_HP_EACH;
     f
 }
@@ -172,22 +222,39 @@ pub fn burst_tick(countdown: u32) -> u32 {
     countdown / 3
 }
 
-/// Its head's middle.
+/// Its head's middle (the Sandmaw's: its mouth).
 pub fn head(f: &Fighter) -> Vec2 {
-    vec2(f.pos.x, f.pos.y - f.height() + 14.0)
+    match f.boss.map(|b| b.kind) {
+        Some(BossKind::Sandmaw) => vec2(f.pos.x, f.pos.y - 6.0),
+        _ => vec2(f.pos.x, f.pos.y - f.height() + 14.0),
+    }
 }
 
-/// Its mouth (where the embers come from).
+/// Its mouth (where what it spits comes from).
 pub fn mouth(f: &Fighter) -> Vec2 {
-    vec2(f.pos.x, f.pos.y - f.height() + 22.0)
+    match f.boss.map(|b| b.kind) {
+        Some(BossKind::Sandmaw) => vec2(f.pos.x, f.pos.y - 8.0),
+        _ => vec2(f.pos.x, f.pos.y - f.height() + 22.0),
+    }
 }
 
-/// One of the boss's shots: an ember (flies in an arc, a small hit) or a homing missile (blows up).
+/// What kind of shot a `BossShot` is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum ShotKind {
+    /// The Gatecrasher's: flies in an arc, a small hit.
+    Ember,
+    /// The Gatecrasher's: homes in and blows up.
+    Missile,
+    /// The Sandmaw's acid: lobbed, a bigger hit, splatters on ledges too.
+    Glob,
+}
+
+/// One of the boss's shots.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BossShot {
     pub pos: Vec2,
     pub vel: Vec2,
-    pub missile: bool,
+    pub kind: ShotKind,
     pub ticks: u32,
     /// What a missile is chasing.
     #[serde(skip)]
@@ -216,7 +283,7 @@ impl Shockwave {
 }
 
 /// The velocity that takes something from `from` to `to` in `t` seconds, falling at `g`.
-fn lob(from: Vec2, to: Vec2, t: f32, g: f32) -> Vec2 {
+pub(crate) fn lob(from: Vec2, to: Vec2, t: f32, g: f32) -> Vec2 {
     let d = to - from;
     vec2(d.x / t, d.y / t - 0.5 * g * t)
 }
@@ -233,12 +300,12 @@ impl Match {
     }
 
     /// Everyone the boss would go for: whoever's in the arena and on the other side.
-    fn boss_targets(&self) -> Vec<usize> {
+    pub(crate) fn boss_targets(&self) -> Vec<usize> {
         (0..N_BODIES).filter(|&j| self.foes(BOSS, j)).collect()
     }
 
     /// One of them at random (the match's own dice).
-    fn boss_pick(&mut self) -> Option<usize> {
+    pub(crate) fn boss_pick(&mut self) -> Option<usize> {
         let t = self.boss_targets();
         (!t.is_empty()).then(|| t[self.roll(t.len() as u32) as usize])
     }
@@ -249,12 +316,21 @@ impl Match {
         if self.tick == burst_tick(self.config.countdown) {
             self.events.push(Event::BossBurst { pos: head(&self.f[BOSS]) });
         }
+        // (The Sandmaw's sand is slick: whoever's on a slope slides down it, toward its mouth.)
+        if b.kind == BossKind::Sandmaw && !self.counting_down() {
+            self.slide_downhill();
+        }
         if !self.f[BOSS].alive() || self.protected() {
             return;
         }
         if !b.enraged && self.f[BOSS].hp < b.max_hp * RAGE_AT {
             b.enraged = true;
             self.events.push(Event::BossRoar { pos: head(&self.f[BOSS]) });
+        }
+        if b.kind == BossKind::Sandmaw {
+            self.step_sandmaw(&mut b);
+            self.f[BOSS].boss = Some(b);
+            return;
         }
         // Whatever else it's doing (bar spraying them already), it spits embers at someone now and then.
         if b.mv != BossMove::Spray {
@@ -407,7 +483,7 @@ impl Match {
                 let from = vec2(me.pos.x + side * 34.0, me.pos.y - me.height() + 2.0);
                 let target = self.boss_pick().map(|j| j as u8);
                 let vel = vec2(side * 0.6, -1.0).normalize() * MISSILE_SPEED;
-                self.add_effect(Effect::BossShot(BossShot { pos: from, vel, missile: true, ticks: MISSILE_TICKS, target }));
+                self.add_effect(Effect::BossShot(BossShot { pos: from, vel, kind: ShotKind::Missile, ticks: MISSILE_TICKS, target }));
                 self.events.push(Event::RocketLaunch { pos: from });
             }
             BossMove::Strike if b.t == windup => {
@@ -443,7 +519,7 @@ impl Match {
 
     /// Hurts `j` a little without knocking them about: no push, no stun, and a swing they're in
     /// carries on (embers come so thick that anything more pins people in place).
-    fn graze(&mut self, src: usize, j: usize, dmg: f32, dir: f32, source: Source) {
+    pub(crate) fn graze(&mut self, src: usize, j: usize, dmg: f32, dir: f32, source: Source) {
         let f = &self.f[j];
         let (vel, grounded, hitstun, atk) = (f.vel, f.grounded, f.hitstun, f.atk_timer);
         self.damage(src, j, dmg, vel, 0, dir, source, false);
@@ -456,7 +532,7 @@ impl Match {
     /// An ember out of its mouth, flying `dir`.
     fn boss_ember(&mut self, dir: Vec2) {
         let from = mouth(&self.f[BOSS]);
-        self.add_effect(Effect::BossShot(BossShot { pos: from, vel: dir * EMBER_SPEED, missile: false, ticks: EMBER_TICKS, target: None }));
+        self.add_effect(Effect::BossShot(BossShot { pos: from, vel: dir * EMBER_SPEED, kind: ShotKind::Ember, ticks: EMBER_TICKS, target: None }));
     }
 
     /// A little spread of embers spat at someone (aimed high, to arc onto them).
@@ -478,7 +554,11 @@ impl Match {
     /// up on them, a wall, or when its fuel runs out.
     pub(crate) fn step_boss_shot(&mut self, s: &mut BossShot) {
         s.ticks = s.ticks.saturating_sub(1);
-        if s.missile {
+        if s.kind == ShotKind::Glob {
+            self.step_glob(s);
+            return;
+        }
+        if s.kind == ShotKind::Missile {
             let chasing = s.target.map(|j| j as usize).filter(|&j| self.foes(BOSS, j));
             let target = chasing.or_else(|| self.boss_targets().into_iter().min_by(|&a, &b| self.f[a].center().distance(s.pos).total_cmp(&self.f[b].center().distance(s.pos))));
             s.target = target.map(|j| j as u8);
@@ -534,10 +614,12 @@ impl Match {
             w.ticks = 0;
             return;
         }
+        // (Up and over the sand, where the floor slopes.)
+        w.pos.y = self.arena().ground_at(w.pos.x, 0.0);
         let area = w.area();
         for j in self.boss_targets() {
             let f = &self.f[j];
-            if w.hit & (1 << j) != 0 || !f.grounded || f.pos.y < FLOOR_Y - 1.0 || !area.overlaps(&f.body()) {
+            if w.hit & (1 << j) != 0 || !f.grounded || (f.pos.y - w.pos.y).abs() > 3.0 || !area.overlaps(&f.body()) {
                 continue;
             }
             w.hit |= 1 << j;

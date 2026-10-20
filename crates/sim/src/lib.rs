@@ -2,6 +2,7 @@
 
 pub mod brain;
 pub mod boss;
+pub mod sandmaw;
 pub mod arena;
 pub mod character;
 pub mod item;

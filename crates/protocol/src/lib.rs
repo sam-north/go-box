@@ -28,7 +28,7 @@ use go_box_sim::sim::{Action, ArenaId, Event, MatchConfig, MatchView, N_FIGHTERS
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 32;
+pub const PROTOCOL_VERSION: u16 = 33;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -219,6 +219,7 @@ pub struct SeatResult {
 /// How a boss fight went: beaten or not, and the health it had left (to see how close it was).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BossResult {
+    pub kind: go_box_sim::boss::BossKind,
     pub beaten: bool,
     pub hp: f32,
     pub max_hp: f32,
@@ -376,7 +377,16 @@ mod tests {
             assert!(!m.over, "no slam in the boss fight");
         }
         let boss = Snapshot { ack: 4, view: m.view(), events: m.events.clone() };
-        std::iter::once(first).chain([rocket, boss]).chain(found.into_iter().zip(wanted).map(|(s, (name, _))| s.unwrap_or_else(|| panic!("no {name} in the sample matches")))).collect()
+        // The Sandmaw, with a tentacle and a glob of acid out.
+        let mut m = Match::new(3, &MatchConfig::for_arena(ArenaId::Dune));
+        for _ in 0..240 {
+            m.step([&brain; N_FIGHTERS]);
+        }
+        m.add_effect(Effect::Tentacle(go_box_sim::sandmaw::Tentacle::new(150.0)));
+        let glob = go_box_sim::boss::BossShot { pos: glam_vec(240.0, 200.0), vel: glam_vec(60.0, -120.0), kind: go_box_sim::boss::ShotKind::Glob, ticks: 100, target: None };
+        m.add_effect(Effect::BossShot(glob));
+        let maw = Snapshot { ack: 5, view: m.view(), events: m.events.clone() };
+        std::iter::once(first).chain([rocket, boss, maw]).chain(found.into_iter().zip(wanted).map(|(s, (name, _))| s.unwrap_or_else(|| panic!("no {name} in the sample matches")))).collect()
     }
 
     /// One of every message, with fixed contents. The `match`es have no wildcard arm, so a new
@@ -424,7 +434,7 @@ mod tests {
             fills: [SeatFill::Bot, SeatFill::Bot, SeatFill::Empty, SeatFill::Bot],
             bots: [None, Some(Character::Doug), None, None],
             phase: Phase::Lobby,
-            last_results: Some(Results { seats: vec![result], boss: Some(BossResult { beaten: false, hp: 213.0, max_hp: 640.0 }), winner: Some(0), duration: 44.5 }),
+            last_results: Some(Results { seats: vec![result], boss: Some(BossResult { kind: go_box_sim::boss::BossKind::Sandmaw, beaten: false, hp: 213.0, max_hp: 640.0 }), winner: Some(0), duration: 44.5 }),
         };
         let start = MatchStart {
             seats: [seat("Sam", Character::Sam, Some(1)), seat("A", Character::Austin, None), seat("T", Character::Tyler, None), seat("C", Character::Classic, None)],
@@ -459,7 +469,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (32, 0x2204_dcc6_b4cf_b251);
+    const WIRE: (u16, u64) = (33, 0xcb5c_724e_1e45_e6cf);
 
     #[test]
     fn every_sample_round_trips() {

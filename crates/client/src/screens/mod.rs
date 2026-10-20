@@ -24,6 +24,11 @@ pub fn special_name(s: &dyn Special) -> &'static str {
     t(&format!("special.{}", s.id()))
 }
 
+/// A boss's name, in the player's language.
+pub fn boss_name(k: go_box_sim::boss::BossKind) -> &'static str {
+    t(&format!("boss.{}", k.id()))
+}
+
 /// What to call whoever is in a seat: the player's name, or "Sam (bot)" for a bot.
 pub fn seat_name(name: &str, character: Character, bot: bool) -> String {
     if bot { tf("seat.bot", &[("character", character_name(character))]) } else { name.to_string() }
