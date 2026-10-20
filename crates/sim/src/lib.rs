@@ -3,6 +3,8 @@
 pub mod brain;
 pub mod boss;
 pub mod sandmaw;
+pub mod zombies;
+pub mod architect;
 pub mod arena;
 pub mod character;
 pub mod item;

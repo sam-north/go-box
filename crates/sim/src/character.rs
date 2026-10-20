@@ -1313,7 +1313,7 @@ pub struct Judo {
     pub bowls: bool,
     /// Who this throw has already knocked down (a bit per body).
     #[serde(skip)]
-    pub bowled: u16,
+    pub bowled: u32,
 }
 
 impl Judo {

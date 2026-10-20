@@ -234,6 +234,8 @@ async fn main() {
         set_camera(&cam);
         clear_background(BLACK);
         art.draw(m);
+        // (The Architect reshaping his room: how far it's folded, for drawing it onto the screen.)
+        let fold = m.shift_fold();
         if let (true, Some(seat)) = (playing, seat) {
             // (On a trackpad, the aim shown is the nearest opponent, which is where throws go.)
             let hand = m.f[seat].hand();
@@ -281,7 +283,15 @@ async fn main() {
         let tint = if in_menu { Color::new(0.55, 0.55, 0.6, 1.0) } else { WHITE };
         // (Shaken by the boss's slams; the view the mouse is measured against stays put.)
         let shake = if in_menu { Vec2::ZERO } else { art.shake() * scale };
-        draw_texture_ex(&rt.texture, ox + shake.x, oy + shake.y, tint, DrawTextureParams { dest_size: Some(vec2(dw, dh)), ..Default::default() });
+        // (Folded edge-on as the Architect flips his room, then opening back up: squashed toward its
+        // middle, a line of green light across it.)
+        let fh = dh * fold;
+        draw_texture_ex(&rt.texture, ox + shake.x, oy + shake.y + (dh - fh) / 2.0, tint, DrawTextureParams { dest_size: Some(vec2(dw, fh)), ..Default::default() });
+        if fold < 1.0 {
+            let glow = 1.0 - fold;
+            draw_rectangle(ox, oy + dh / 2.0 - 2.0 * scale, dw, 4.0 * scale, Color::new(0.4, 1.0, 0.55, 0.8 * glow));
+            draw_rectangle(ox, oy + (dh - fh) / 2.0, dw, fh, Color::new(0.2, 0.9, 0.4, 0.25 * glow));
+        }
         app.view = (vec2(ox, oy), scale);
 
         // Screens (under the settings menu or "How to Play", if open, they ignore the mouse).

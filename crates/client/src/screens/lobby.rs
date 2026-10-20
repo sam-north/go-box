@@ -133,6 +133,10 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     if let Some(res) = &room.last_results {
         y += ui.px(8.0);
         let banner = match (res.boss, res.winner) {
+            _ if res.survival.is_some() => {
+                let s = res.survival.unwrap();
+                tf("lobby.survival_banner", &[("time", &mmss(s.secs)), ("zombies", &s.zombies.to_string())])
+            }
             (Some(b), _) if b.beaten => tf("lobby.boss_beaten", &[("name", boss_name(b.kind))]),
             (Some(b), _) => tf("lobby.boss_won", &[("name", boss_name(b.kind))]),
             (None, Some(w)) => tf("lobby.wins", &[("name", &seat_name(&res.seats[w].name, res.seats[w].character, res.seats[w].bot))]),
@@ -292,11 +296,12 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     let my = y;
     // (As wide as fit, side by side: the usual maps on one row, boss fights on a row of their own
     // under them.)
-    let (fights, bosses): (Vec<ArenaId>, Vec<ArenaId>) = ArenaId::ALL.into_iter().partition(|a| a.def().boss.is_none());
+    let (fights, bosses): (Vec<ArenaId>, Vec<ArenaId>) = ArenaId::ALL.into_iter().filter(|a| !a.def().hidden).partition(|a| !a.def().pve());
     let n = fights.len() as f32;
     // (The leader's rows are labelled, PvP and PvE, in front.)
     let label_w = if leader { ui.px(44.0) } else { 0.0 };
-    let bw = ui.px(120.0).min((r.x + w - pad - map_x - label_w - ui.px(8.0) * (n - 1.0)) / n);
+    let avail = r.x + w - pad - map_x - label_w;
+    let bw = ui.px(120.0).min((avail - ui.px(8.0) * (n - 1.0)) / n);
     let row_h = ui.px(42.0);
     let rows = if leader && !bosses.is_empty() { 2.0 } else { 1.0 };
     for (row, maps) in [fights, bosses].into_iter().enumerate() {
@@ -307,9 +312,12 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
             let label = if row == 0 { t("lobby.maps_pvp") } else { t("lobby.maps_pve") };
             ui.text(label, map_x, ry + ui.px(35.0), 18.0, DIM);
         }
+        // (Each row's buttons share its width: the PvE ones wider while there's room, never past the edge.)
+        let k = maps.len().max(1) as f32;
+        let fit = (avail - ui.px(8.0) * (k - 1.0)) / k;
         for a in maps {
-            let boss = a.def().boss.is_some();
-            let rr = Rect::new(dx, ry + ui.px(12.0), if boss { bw * 2.0 + ui.px(8.0) } else { bw }, ui.px(34.0));
+            let wide = if a.def().pve() { bw * 2.0 + ui.px(8.0) } else { bw };
+            let rr = Rect::new(dx, ry + ui.px(12.0), wide.min(fit), ui.px(34.0));
             let selected = room.arena == a;
             let name = t(&format!("arena.{}", a.id()));
             if leader {

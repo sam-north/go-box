@@ -2,8 +2,10 @@
 //! code at arena resolution (480x270) — grimy industrial backdrop, mossy brick, rain, procedurally
 //! animated bodies, items, explosions, and blood/scorch pixels that stick to the terrain.
 
+mod architect;
 mod cafe;
 mod dune;
+mod graveyard;
 mod lair;
 pub mod sound;
 
@@ -733,7 +735,7 @@ pub fn character_color(c: Character) -> Color {
 
 pub fn look(c: Character, seat: usize) -> Look {
     let a = art(c);
-    Look { body: a.body, legs: a.legs, arms: a.arms, hair: a.hair, accent: a.color.unwrap_or(ACCENTS[seat]), headband: a.headband, skin: a.skin, hair_style: a.hair_style, beard: a.beard, glasses: a.glasses, goatee: a.goatee, stubble: a.stubble, belt: a.belt, beaver_suit: a.beaver_suit, mustache: a.mustache, backwards_cap: a.backwards_cap, grey_flecks: a.grey_flecks, highlights: a.highlights }
+    Look { body: a.body, legs: a.legs, arms: a.arms, hair: a.hair, accent: a.color.unwrap_or(ACCENTS[seat % N_FIGHTERS]), headband: a.headband, skin: a.skin, hair_style: a.hair_style, beard: a.beard, glasses: a.glasses, goatee: a.goatee, stubble: a.stubble, belt: a.belt, beaver_suit: a.beaver_suit, mustache: a.mustache, backwards_cap: a.backwards_cap, grey_flecks: a.grey_flecks, highlights: a.highlights }
 }
 
 const fn rgb(r: u8, g: u8, b: u8) -> Color {
@@ -858,7 +860,11 @@ impl Solidity {
 fn make_background(arena: ArenaId) -> (Image, Option<Image>, Option<Image>) {
     let mut front = None;
     let mut patch = None;
-    let mut img = if arena == ArenaId::Dune {
+    let mut img = if matches!(arena, ArenaId::Architect | ArenaId::ArchitectFlipped) {
+        architect::make_backdrop()
+    } else if arena == ArenaId::Outbreak {
+        graveyard::make_backdrop()
+    } else if arena == ArenaId::Dune {
         dune::make_backdrop()
     } else if arena == ArenaId::Lair {
         let (img, wall) = lair::make_backdrop();
@@ -1244,6 +1250,7 @@ fn make_terrain(arena: ArenaId, s: &Solidity) -> Image {
         ArenaId::Desktop => Some(desktop_px),
         ArenaId::Cafe => Some(cafe::terrain_px),
         ArenaId::Dune => Some(dune::terrain_px),
+        ArenaId::Architect | ArenaId::ArchitectFlipped => Some(architect::terrain_px),
         _ => None,
     };
     let mut img = Image::gen_image_color(W as u16, H as u16, Color::new(0.0, 0.0, 0.0, 0.0));
@@ -2210,6 +2217,25 @@ impl Art {
                     self.burst(pos, vec2(0.0, -1.0), 1.4, 30, Color::new(0.86, 0.72, 0.48, 1.0), false, 110.0, 0.6, 300.0);
                     self.shake = (0.3, 2.0);
                 }
+                Event::ShiftWarn => self.shake = (0.25, 1.0),
+                Event::Shift => self.shake = (0.5, 3.0),
+                Event::ZombieIn { pos } => {
+                    self.burst(pos + vec2(0.0, -2.0), vec2(0.0, -1.0), 2.5, 10, DUST, false, 40.0, 0.5, 120.0);
+                }
+                Event::KnockedDown { pos } => {
+                    self.burst(pos + vec2(0.0, -1.0), vec2(0.0, -1.0), 3.0, 14, DUST, false, 60.0, 0.4, 200.0);
+                }
+                Event::Bitten { pos, .. } => {
+                    self.burst(pos, vec2(0.0, -1.0), 6.3, 50, BLOOD, true, 120.0, 1.0, 380.0);
+                    self.burst(pos, vec2(0.0, -1.0), 6.3, 30, Color::new(0.45, 0.70, 0.30, 1.0), false, 70.0, 0.8, -10.0);
+                }
+                Event::Revived { pos, .. } => {
+                    for i in 0..24 {
+                        let seed = (self.time * 1000.0) as i32 + i * 17;
+                        let vel = vec2((hash(seed, 2, 57) - 0.5) * 30.0, -20.0 - hash(seed, 3, 57) * 30.0);
+                        self.particles.push(Particle { pos: pos + vec2((hash(seed, 0, 57) - 0.5) * 10.0, 4.0), vel, color: Color::new(0.45, 1.0, 0.55, 1.0), life: 0.6 + hash(seed, 4, 57) * 0.6, stick: false, gravity: -20.0 });
+                    }
+                }
                 Event::BossSplat { pos, sand } => {
                     let c = if sand { Color::new(0.86, 0.72, 0.48, 1.0) } else { dune::SPLAT };
                     self.burst(pos, vec2(0.0, -1.0), 2.4, if sand { 18 } else { 14 }, c, !sand, 80.0, 0.5, 300.0);
@@ -2449,6 +2475,10 @@ impl Art {
             }
             draw_texture(front, 0.0, 0.0, WHITE);
         }
+        // The Architect's room: code raining down it (up, upside down).
+        if matches!(self.arena, ArenaId::Architect | ArenaId::ArchitectFlipped) {
+            architect::draw_code_rain(self.time, self.arena == ArenaId::ArchitectFlipped);
+        }
         // The boss map: the boss in its hole (or the wall it's about to smash through), and the
         // torches.
         if self.arena == ArenaId::Lair {
@@ -2459,7 +2489,7 @@ impl Art {
             lair::draw_torches(self.time);
         }
         // (No rain indoors, on the Desktop, in the Cafe or the boss's hall.)
-        for d in self.rain.iter().filter(|_| !matches!(self.arena, ArenaId::Desktop | ArenaId::Cafe | ArenaId::Lair | ArenaId::Dune)) {
+        for d in self.rain.iter().filter(|_| !matches!(self.arena, ArenaId::Desktop | ArenaId::Cafe | ArenaId::Lair | ArenaId::Dune | ArenaId::Outbreak | ArenaId::Architect | ArenaId::ArchitectFlipped)) {
             draw_line(d.pos.x, d.pos.y, d.pos.x + 0.6, d.pos.y - 4.0, 1.0, Color::new(0.55, 0.62, 0.72, 0.22));
         }
         draw_texture(&self.map.terrain, 0.0, 0.0, WHITE);
@@ -2588,8 +2618,13 @@ impl Art {
             if f.ridden > 0 {
                 draw_ridden(&self.vis[i], f, self.time);
             } else {
-                draw_human(&self.vis[i], f, &look(f.character, i), flash);
+                let lk = look(f.character, i);
+                draw_human(&self.vis[i], f, &if f.zombie { zombie_look(lk) } else { lk }, flash);
             }
+        }
+        // Down in a survival match: revivable, and how far a revive has got.
+        for f in m.f[..N_FIGHTERS].iter().filter(|f| f.coop && !f.absent && !f.alive() && !f.zombie) {
+            draw_revive(f, self.time);
         }
         // Kyle's backlog: his inbox over his head, piling up.
         for f in m.f.iter().filter(|f| f.present() && f.backlog > 0) {
@@ -2661,6 +2696,35 @@ impl Art {
         }
         draw_texture(&self.vignette, 0.0, 0.0, WHITE);
     }
+}
+
+/// A zombie's look: their own, rotted: grey-green skin, clothes gone dull and dark.
+fn zombie_look(l: Look) -> Look {
+    let rot = |c: Color, k: f32| mix(Color::new((c.r + c.g + c.b) / 3.0, (c.r + c.g + c.b) / 3.0, (c.r + c.g + c.b) / 3.0, c.a), Color::new(0.20, 0.24, 0.16, c.a), k);
+    let skin = Color::new(0.52, 0.64, 0.42, 1.0);
+    Look { body: rot(l.body, 0.45), legs: [rot(l.legs[0], 0.45), rot(l.legs[1], 0.45)], arms: skin, hair: l.hair.map(|h| rot(h, 0.5)), accent: Color::new(0.45, 0.12, 0.10, 1.0), skin, ..l }
+}
+
+/// Down in a survival match (not turned): a cross over them that a teammate can revive, and while
+/// one's holding grab over them, a ring filling up.
+fn draw_revive(f: &Fighter, time: f32) {
+    let c = vec2(f.pos.x, f.pos.y - 12.0);
+    let green = Color::new(0.45, 1.0, 0.55, 1.0);
+    if f.revive == 0 {
+        let a = 0.45 + 0.35 * (time * 4.0).sin();
+        draw_rectangle(c.x - 0.5, c.y - 3.0, 2.0, 7.0, Color::new(green.r, green.g, green.b, a));
+        draw_rectangle(c.x - 3.0, c.y - 0.5, 7.0, 2.0, Color::new(green.r, green.g, green.b, a));
+        return;
+    }
+    let k = f.revive as f32 / go_box_sim::zombies::REVIVE_TICKS as f32;
+    draw_circle(c.x, c.y, 7.5, Color::new(0.0, 0.0, 0.0, 0.55));
+    let n = 32;
+    for s in 0..((n as f32 * k).ceil() as i32) {
+        let (a0, a1) = (-std::f32::consts::FRAC_PI_2 + s as f32 / n as f32 * std::f32::consts::TAU, -std::f32::consts::FRAC_PI_2 + (s + 1) as f32 / n as f32 * std::f32::consts::TAU);
+        line(c + vec2(a0.cos(), a0.sin()) * 6.0, c + vec2(a1.cos(), a1.sin()) * 6.0, 2.0, green);
+    }
+    draw_rectangle(c.x - 0.5, c.y - 2.0, 2.0, 5.0, green);
+    draw_rectangle(c.x - 2.0, c.y - 0.5, 5.0, 2.0, green);
 }
 
 /// A glowing bulb of fruit, gently bobbing and pulsing so it reads from across the arena.
@@ -2968,7 +3032,8 @@ fn draw_human(v: &FighterVis, f: &Fighter, look: &Look, flash: bool) {
     let s = f.facing;
     let (x, fy) = (f.pos.x, f.pos.y);
     let scarf = look.accent;
-    if !f.alive() {
+    // (Knocked down by zombies: lying there like the dead, for now.)
+    if !f.alive() || f.downed > 0 {
         line(vec2(x - 6.0 * s, fy - 1.5), vec2(x + 5.0 * s, fy - 1.5), 3.0, look.body);
         draw_circle(x + 7.0 * s, fy - 2.0, 2.5, look.hair.unwrap_or(HOOD));
         for k in 1..6 {

@@ -82,7 +82,7 @@ impl Game {
             for &(_, a) in &self.pending {
                 // (Your own body, unless the Chosen One's driving someone else's.)
                 let step = if body == seat { predict } else { predict_ridden };
-                step(self.start.config.arena.def(), &props, &mut f, body, a, &mut Vec::new());
+                step(s.view.arena.def(), &props, &mut f, body, a, &mut Vec::new());
             }
             // (Switching bodies, into someone or back out, isn't a correction to smooth.)
             if body != self.body {
@@ -116,7 +116,9 @@ impl Game {
         // (Justin's tables, as of the newest snapshot.)
         let props = self.snaps.back().map(|s| props(&s.view.effects)).unwrap_or_default();
         let step = if body == seat { predict } else { predict_ridden };
-        step(self.start.config.arena.def(), &props, me, body, a, events);
+        // (On the map as the newest snapshot has it: the Architect reshapes his mid-match.)
+        let arena = self.snaps.back().map_or(self.start.config.arena, |s| s.view.arena);
+        step(arena.def(), &props, me, body, a, events);
         self.pending.push_back((seq, a));
         while self.pending.len() > 120 {
             self.pending.pop_front();

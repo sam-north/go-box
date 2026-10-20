@@ -55,6 +55,7 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
     let (origin, scale) = app.view;
     let arena_w = go_box_sim::sim::W * scale;
     let left = origin.x.max(0.0) + ui.px(12.0);
+    let left_x = left;
     let top = origin.y.max(0.0);
     let colw = arena_w * 0.46 / N_FIGHTERS as f32;
     for i in 0..N_FIGHTERS {
@@ -122,7 +123,13 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
     }
     // Whole seconds left, counted in ticks (float maths made 45s show as 0:46).
     let left = m.config.max_ticks.saturating_sub(m.play_ticks()).div_ceil(TICK_RATE);
-    if !m.counting_down() && (1..=render::sound::ENDING_SECS).contains(&left) {
+    let survival = m.config.mode == go_box_sim::sim::Mode::Survival;
+    if survival {
+        // (Surviving: how long you've lasted, counting up, and the zombies put down.)
+        ui.text_centered(&mmss(m.play_ticks() as f32 / TICK_RATE as f32), sw / 2.0, ui.px(70.0), 28.0, INK);
+        let line = tf("hud.zombies_down", &[("n", &m.zombies_killed.to_string())]);
+        ui.text(&line, left_x + arena_w * 0.52, top + ui.px(30.0), 17.0, Color::new(0.55, 0.85, 0.45, 1.0));
+    } else if !m.counting_down() && (1..=render::sound::ENDING_SECS).contains(&left) {
         // The last seconds: the clock swells and flashes red on each tick, then settles.
         // How much of this second is still to run (1 just after the tick, 0 just before the next).
         let ticks_left = m.config.max_ticks - m.play_ticks();
@@ -134,6 +141,14 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
         ui.text_centered(&mmss(left as f32), sw / 2.0, ui.px(70.0), 28.0, INK);
     }
 
+    // The Architect about to reshape his room: a warning, counting down, flickering like bad code.
+    if let Some(to) = m.ticks_to_shift().filter(|&t| t <= go_box_sim::architect::WARN) {
+        let secs = to.div_ceil(TICK_RATE).max(1);
+        let flicker = (get_time() * 20.0).sin() > -0.6;
+        if flicker {
+            ui.text_centered(&tf("hud.shift", &[("secs", &secs.to_string())]), sw / 2.0, ui.px(104.0), 24.0, Color::new(0.4, 1.0, 0.55, 1.0));
+        }
+    }
     // 3, 2, 1 in the middle of the screen, then GO! for a moment.
     let sh = screen_height();
     if m.counting_down() {
@@ -154,7 +169,14 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
         }
         Some(s) => {
             let f = &m.f[s];
-            if !f.alive() {
+            if f.zombie {
+                ui.text_centered(t("hud.turned"), sw / 2.0, sh - ui.px(24.0), 24.0, Color::new(0.55, 0.85, 0.45, 1.0));
+            } else if !f.alive() && f.coop {
+                let msg = if f.revive > 0 { t("hud.reviving") } else { t("hud.down_revivable") };
+                ui.text_centered(msg, sw / 2.0, sh - ui.px(24.0), 24.0, Color::new(0.55, 0.85, 0.45, 1.0));
+            } else if f.downed > 0 {
+                ui.text_centered(t("hud.knocked_down"), sw / 2.0, sh - ui.px(24.0), 24.0, Color::new(1.0, 0.45, 0.35, 1.0));
+            } else if !f.alive() {
                 ui.text_centered(t("hud.down"), sw / 2.0, sh - ui.px(24.0), 24.0, DIM);
             } else if f.special().is_some() {
                 // (Your special's bar is up by your health, top left.)

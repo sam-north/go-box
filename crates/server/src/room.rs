@@ -4,7 +4,7 @@
 use crate::Hub;
 use crate::conn::Outbox;
 use go_box_protocol::{
-    BossResult, ClientMsg, MAX_IN_ROOM, MAX_PLAYERS, MatchStart, Phase, PlayerId, PlayerInfo, Refusal, Results, RoomInfo, SNAPSHOT_EVERY, Seat, SeatFill, SeatResult, ServerMsg,
+    BossResult, ClientMsg, SurvivalResult, MAX_IN_ROOM, MAX_PLAYERS, MatchStart, Phase, PlayerId, PlayerInfo, Refusal, Results, RoomInfo, SNAPSHOT_EVERY, Seat, SeatFill, SeatResult, ServerMsg,
     SnapshotBody,
     encode,
 };
@@ -280,7 +280,8 @@ impl Room {
                 }
                 self.broadcast_room();
             }
-            ClientMsg::SetArena(a) if is_leader && lobby => {
+            // (Not a map only reached mid-match, like the Architect's room upside down.)
+            ClientMsg::SetArena(a) if is_leader && lobby && !a.def().hidden => {
                 self.arena = a;
                 self.broadcast_room();
             }
@@ -438,7 +439,8 @@ fn results(r: &Running) -> Results {
         let b = f.boss.expect("a boss fight has its boss");
         BossResult { kind: b.kind, beaten: r.m.boss_beaten(), hp: f.hp.max(0.0), max_hp: b.max_hp }
     });
-    Results { seats, boss, winner, duration: r.m.tick as f32 * DT }
+    let survival = (r.m.config.mode == Mode::Survival).then(|| SurvivalResult { secs: r.m.play_ticks() as f32 * DT, zombies: r.m.zombies_killed });
+    Results { seats, boss, survival, winner, duration: r.m.tick as f32 * DT }
 }
 
 /// `later`, plus any one-off presses from `earlier` (so merging two inputs never loses an attack,

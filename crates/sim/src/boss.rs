@@ -201,7 +201,7 @@ pub struct BossState {
     pub(crate) rest: u32,
     /// Who this swat has already hit (a bit per body).
     #[serde(skip)]
-    pub(crate) hit: u16,
+    pub(crate) hit: u32,
     /// Ticks until it next spits at someone.
     #[serde(skip)]
     pub(crate) spit: u32,
@@ -273,7 +273,7 @@ pub struct Shockwave {
     pub ticks: u32,
     /// Who it's already hit (a bit per body).
     #[serde(skip)]
-    pub hit: u16,
+    pub hit: u32,
 }
 
 impl Shockwave {

@@ -95,7 +95,7 @@ pub struct Tentacle {
     pub ticks: u32,
     /// Who it's already hit (a bit per body).
     #[serde(skip)]
-    pub hit: u16,
+    pub hit: u32,
 }
 
 impl Tentacle {

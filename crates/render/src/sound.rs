@@ -82,6 +82,8 @@ go_box_sim::enum_all! {
         Roar,
         /// Bigworm's inhale: a sandstorm howling in (played back to back while it lasts).
         Sandstorm,
+        /// A zombie's moan.
+        Groan,
         Start,
         Win,
         Lose,
@@ -427,6 +429,12 @@ impl Sfx {
                 s.growl(0.0, 1.5, 117.0, 29.0, 0.18);
                 s.growl(0.05, 1.4, 58.0, 17.0, 0.3);
                 s.echo(0.26, 0.45, 3);
+            }
+            // A zombie's moan: a low, wavering voice, breathy, sagging at the end.
+            Sfx::Groan => {
+                s.growl(0.0, 0.9, 92.0, 6.0, 0.28);
+                s.tone(0.0, 0.9, 150.0, 115.0, Wave::Tri, 0.15, 2.0, 0.12);
+                s.noise(0.0, 0.9, 700.0, 400.0, 0.15, 2.0, 0.12);
             }
             // The sandstorm: gusting wind (its cutoff rising and falling) over a low roar, with a
             // thin whistle; faded in and out so back to back it runs on without a seam.
@@ -787,6 +795,21 @@ impl Sounds {
                 Event::Swallowed { pos } => {
                     self.at(Sfx::BigStomp, pos, ear, 1.0);
                     self.at(Sfx::Bite, pos, ear, 1.0);
+                }
+                Event::ShiftWarn => self.play(Sfx::Possess, 0.9),
+                Event::Shift => {
+                    self.play(Sfx::BigStomp, 1.0);
+                    self.play(Sfx::Release, 0.8);
+                }
+                Event::ZombieIn { pos } => self.at(Sfx::Groan, pos, ear, 0.55),
+                Event::KnockedDown { pos } => self.at(Sfx::Slam, pos, ear, 0.7),
+                Event::Bitten { pos, .. } => {
+                    self.at(Sfx::Bite, pos, ear, 1.0);
+                    self.at(Sfx::Groan, pos, ear, 1.0);
+                }
+                Event::Revived { pos, .. } => {
+                    self.at(Sfx::Heal, pos, ear, 1.0);
+                    self.play(Sfx::Ready, 0.7);
                 }
                 Event::BossSplat { pos, sand } => self.at(if sand { Sfx::Stomp } else { Sfx::Splat }, pos, ear, 0.8),
                 Event::Quake { pos, big } => self.at(if big { Sfx::BigStomp } else { Sfx::Stomp }, pos, ear, if big { 1.0 } else { 0.7 }),

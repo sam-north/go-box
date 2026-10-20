@@ -30,7 +30,7 @@ wall, press jump to kick off it (and hold toward a wall to slide down it slowly)
 The browser only reports a controller after you press a button on it. In menus (lobby, scoreboard,
 settings) the d-pad or left stick moves a highlight and Cross presses it.
 
-The leader also picks the **map** (Classic, City, Forest, Desktop, Cafe: a coffee shop and a courtyard, joined only by a gap under the wall between them; or, in a row of their own, the co-op boss maps Gatecrasher and Bigworm, below). In the lobby the leader sets each seat without a player to **Bot** or **None**, so a match can have
+The leader also picks the **map** (Classic, City, Forest, Desktop, Cafe: a coffee shop and a courtyard, joined only by a gap under the wall between them; or, in a row of their own, the co-op maps Gatecrasher, Bigworm, Outbreak and The Architect, below). In the lobby the leader sets each seat without a player to **Bot** or **None**, so a match can have
 anywhere from 1 to 4 fighters (alone, it runs until the clock or you run out).
 
 The server only listens on `127.0.0.1` unless told otherwise (`GO_BOX_BIND`); see
@@ -57,6 +57,23 @@ them fall straight in. Bigworm bursts tentacles out of the sand under people (th
 first) that fling you toward its mouth, inhales to suck everyone in, snaps shut on anyone over it
 (with shockwaves running up the slopes), and spits acid at people on the ledges. A teammate's
 tornado doesn't pull you in a boss fight. Tuning lives at the top of `crates/sim/src/sandmaw.rs`.
+
+**Outbreak** is survival: zombies shamble into a moonlit graveyard from both sides, faster and
+tougher the longer you last (up to 16 at once), and the match runs until nobody's left standing;
+the scoreboard says how long you lasted and how many went down. Zombies only punch: three punches
+in quick succession knock you down for a moment, and if two or more of them stay on you while
+you're down, they bite and you turn: your body joins them, and can't be revived. Go down any other
+way (punches, a teammate's grenade) and a teammate can revive you by standing over your body
+holding grab (empty-handed) for a second and a half; a ring over you fills up, and a hit on them starts it
+over. Bots revive teammates too, when it's safe. Tuning lives at the top of
+`crates/sim/src/zombies.rs`.
+
+**The Architect** is a room made of code that the Architect flips upside down every 10 seconds
+(with a warning first): the screen folds flat and opens back up with the high ledges low and the
+low ones high, and everyone and everything in it flipped too, so whoever was on the floor falls
+from the top. No boss yet: for now it's a free-for-all while the mechanic finds its feet. A
+shift turns the room into another map (`Arena::shift`; the upside-down room is its own, hidden
+map), so more reshufflings are new maps. See `crates/sim/src/architect.rs`.
 
 
 ### Characters

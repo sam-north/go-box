@@ -28,7 +28,7 @@ use go_box_sim::sim::{Action, ArenaId, Event, MatchConfig, MatchView, N_FIGHTERS
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 33;
+pub const PROTOCOL_VERSION: u16 = 34;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -216,6 +216,13 @@ pub struct SeatResult {
     pub health_gained: f32,
 }
 
+/// How a survival match went: how long they lasted, and how many zombies they put down.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SurvivalResult {
+    pub secs: f32,
+    pub zombies: u32,
+}
+
 /// How a boss fight went: beaten or not, and the health it had left (to see how close it was).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BossResult {
@@ -231,6 +238,8 @@ pub struct Results {
     pub seats: Vec<SeatResult>,
     /// How a boss fight went (None: not a boss fight).
     pub boss: Option<BossResult>,
+    /// How a survival match went (None: not one).
+    pub survival: Option<SurvivalResult>,
     /// Index into `seats`; None = a draw.
     pub winner: Option<usize>,
     /// Match length in seconds.
@@ -434,7 +443,7 @@ mod tests {
             fills: [SeatFill::Bot, SeatFill::Bot, SeatFill::Empty, SeatFill::Bot],
             bots: [None, Some(Character::Doug), None, None],
             phase: Phase::Lobby,
-            last_results: Some(Results { seats: vec![result], boss: Some(BossResult { kind: go_box_sim::boss::BossKind::Sandmaw, beaten: false, hp: 213.0, max_hp: 640.0 }), winner: Some(0), duration: 44.5 }),
+            last_results: Some(Results { seats: vec![result], boss: Some(BossResult { kind: go_box_sim::boss::BossKind::Sandmaw, beaten: false, hp: 213.0, max_hp: 640.0 }), survival: Some(SurvivalResult { secs: 151.5, zombies: 47 }), winner: Some(0), duration: 44.5 }),
         };
         let start = MatchStart {
             seats: [seat("Sam", Character::Sam, Some(1)), seat("A", Character::Austin, None), seat("T", Character::Tyler, None), seat("C", Character::Classic, None)],
@@ -469,7 +478,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (33, 0xcb5c_724e_1e45_e6cf);
+    const WIRE: (u16, u64) = (34, 0x4988_02b7_6557_11ee);
 
     #[test]
     fn every_sample_round_trips() {

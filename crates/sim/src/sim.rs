@@ -36,8 +36,11 @@ pub const MAX_MINIS: usize = 4;
 pub const MINIS: Range<usize> = N_FIGHTERS..N_FIGHTERS + MAX_MINIS;
 /// The boss's slot (empty but in a boss fight; see `boss.rs`).
 pub const BOSS: usize = N_FIGHTERS + MAX_MINIS;
-/// Every body in a match: the seats, the mini slots, then the boss.
-pub const N_BODIES: usize = BOSS + 1;
+/// How many zombies can be about at once (in a survival match), and their slots, after the boss's.
+pub const MAX_ZOMBIES: usize = 16;
+pub const ZOMBIES: Range<usize> = BOSS + 1..BOSS + 1 + MAX_ZOMBIES;
+/// Every body in a match: the seats, the mini slots, the boss, then the zombie slots.
+pub const N_BODIES: usize = BOSS + 1 + MAX_ZOMBIES;
 
 // Body.
 pub const HALF_W: f32 = 4.0;
@@ -223,7 +226,7 @@ pub struct Fighter {
     pub cooldown: u32,
     /// Bitmask of fighters already struck by the current swing.
     #[serde(skip)]
-    hit_mask: u16,
+    hit_mask: u32,
     pub hitstun: u32,
     /// What's in hand (mirrors the item's `held_by`).
     pub holding: Option<ItemKind>,
@@ -299,7 +302,7 @@ pub struct Fighter {
     pub skate: u32,
     /// Who this skate run has already hit (a bit per body).
     #[serde(skip)]
-    pub skate_hit: u16,
+    pub skate_hit: u32,
     /// Zack's tornadoes pulling at you: a sideways push (px/s) on top of however you're moving,
     /// for the next tick.
     #[serde(skip)]
@@ -336,6 +339,27 @@ pub struct Fighter {
     pub phone_mv: i8,
     /// The boss (only ever in the `BOSS` slot): what it's up to. It never moves.
     pub boss: Option<crate::boss::BossState>,
+    /// On the players' side in a co-op match without a boss (survival): set on each seat.
+    pub coop: bool,
+    /// A zombie (`zombies.rs`): one that came in, or a player bitten and turned. It thinks for
+    /// itself (a turned player's input is ignored) and can't be revived.
+    pub zombie: bool,
+    /// Knocked down by zombies: ticks left lying on the ground, helpless.
+    pub downed: u32,
+    /// Zombie hits landed on them lately (two close together knock them down), and ticks before
+    /// that count runs out.
+    #[serde(skip)]
+    pub knocks: u32,
+    #[serde(skip)]
+    pub knock_window: u32,
+    /// Down with zombies swarming them: ticks they've been at it (long enough and they bite).
+    #[serde(skip)]
+    pub bite: u32,
+    /// Down (dead, not turned): how far a teammate holding grab over them has got reviving them.
+    pub revive: u32,
+    /// A zombie's pace (times a run).
+    #[serde(skip)]
+    pub pace: f32,
 }
 
 impl Fighter {
@@ -398,6 +422,14 @@ impl Fighter {
             dropping: false,
             phone_mv: 0,
             boss: None,
+            coop: false,
+            zombie: false,
+            downed: 0,
+            knocks: 0,
+            knock_window: 0,
+            bite: 0,
+            revive: 0,
+            pace: 1.0,
         }
     }
 
@@ -432,7 +464,7 @@ impl Fighter {
     /// Can't be pushed around (Michelle's Resting Zen Face): no knockback, stuns, pins, grabs,
     /// pulls or riding; hits still hurt.
     pub fn unshakeable(&self) -> bool {
-        self.boss.is_some() || self.character.passive() == Some(crate::character::Passive::RestingZenFace)
+        self.boss.is_some() || !self.zombie && self.character.passive() == Some(crate::character::Passive::RestingZenFace)
     }
 
     /// Alive and in the arena: not tucked away inside a phone (Jake).
@@ -616,17 +648,38 @@ pub enum Event {
     Swallowed { pos: Vec2 },
     /// A splash of the Sandmaw's (acid, or sand as a tentacle bursts up).
     BossSplat { pos: Vec2, sand: bool },
+    /// A zombie shambling in, at the side.
+    ZombieIn { pos: Vec2 },
+    /// Someone knocked down by zombies.
+    KnockedDown { pos: Vec2 },
+    /// `who` bitten by zombies, and turned.
+    Bitten { who: usize, pos: Vec2 },
+    /// `who` revived by a teammate.
+    Revived { who: usize, pos: Vec2 },
+    /// The Architect about to reshape his room (the code glitching).
+    ShiftWarn,
+    /// The Architect reshaping his room: flipped, everyone in it with it.
+    Shift,
 }
 
 /// Which side body `j` of `bodies` fights on: its team (its own seat, or a mini's summoner's), but
 /// in a boss fight every seat and mini is on one side (0) and the boss on its own. Explosions and
 /// fire still hurt your own side; swings, throws and specials don't.
 pub fn side(bodies: &[Fighter], j: usize) -> usize {
+    let f = &bodies[j];
+    if f.zombie {
+        return ZOMBIE_SIDE;
+    }
     match bodies.get(BOSS) {
         Some(b) if b.boss.is_some() => if j == BOSS { BOSS } else { 0 },
-        _ => bodies[j].team(j),
+        // (Survival: every seat, and its minis, on one side against the zombies.)
+        _ if bodies.get(f.team(j)).is_some_and(|t| t.coop) => 0,
+        _ => f.team(j),
     }
 }
+
+/// The zombies' side (`side`).
+pub const ZOMBIE_SIDE: usize = usize::MAX;
 
 /// Distance along a normalised ray to the nearest terrain, capped at `max`.
 pub fn terrain_ray(arena: &Arena, o: Vec2, d: Vec2, max: f32) -> f32 {
@@ -816,6 +869,12 @@ pub struct MatchConfig {
 impl MatchConfig {
     /// The usual rules on `arena`: a boss map is a boss fight (longer, with more health about).
     pub fn for_arena(arena: ArenaId) -> Self {
+        if arena.def().shift.is_some() {
+            return Self { arena, max_ticks: crate::architect::ARCHITECT_MATCH, ..Self::default() };
+        }
+        if arena.def().survival {
+            return Self { arena, mode: Mode::Survival, max_ticks: crate::zombies::SURVIVAL_MAX, heals: crate::zombies::SURVIVAL_HEALS, ..Self::default() };
+        }
         if arena.def().boss.is_some() {
             Self { arena, mode: Mode::Boss, max_ticks: crate::boss::BOSS_MATCH, heals: crate::boss::BOSS_HEALS, ..Self::default() }
         } else {
@@ -860,6 +919,9 @@ crate::enum_all! {
         /// Everyone together against the boss (`boss.rs`): beat it before it beats all of you or
         /// time runs out. Nobody wins alone (`winner` is None): `Match::boss_beaten` says how it went.
         Boss,
+        /// Everyone together, holding out against zombies coming in from the sides, faster and
+        /// faster (`zombies.rs`), for as long as they can. Over when nobody's left standing.
+        Survival,
     }
 }
 
@@ -868,6 +930,7 @@ impl Mode {
         match self {
             Mode::LastStanding => "last_standing",
             Mode::Boss => "boss",
+            Mode::Survival => "survival",
         }
     }
 
@@ -875,6 +938,10 @@ impl Mode {
     /// is a draw).
     pub fn outcome(self, m: &Match) -> Option<Option<usize>> {
         match self {
+            Mode::Survival => {
+                let standing = m.f[..N_FIGHTERS].iter().any(|f| f.alive() && !f.zombie);
+                (!standing || m.play_ticks() >= m.config.max_ticks).then_some(None)
+            }
             Mode::Boss => {
                 let wiped = m.f[..N_FIGHTERS].iter().all(|f| !f.alive());
                 (m.boss_beaten() || wiped || m.play_ticks() >= m.config.max_ticks).then_some(None)
@@ -932,6 +999,9 @@ pub struct Match {
     pub effects: Vec<Effect>,
     pub effect_ids: Vec<u16>,
     next_effect_id: u16,
+    /// Survival: zombies put down so far, and when the next one comes in.
+    pub zombies_killed: u32,
+    pub(crate) next_zombie: u32,
     pub config: MatchConfig,
 }
 
@@ -954,13 +1024,16 @@ impl Match {
             f
         });
         let mut items = Vec::new();
-        for (kind, n) in [(ItemKind::Spear, START_SPEARS), (ItemKind::Rock, START_ROCKS), (ItemKind::Grenade, START_GRENADES)] {
+        // (Surviving zombies, everyone starts bunched together: spears rather than a pile of grenades
+        // to blow each other up with.)
+        let start = if config.mode == Mode::Survival { [(ItemKind::Spear, 4), (ItemKind::Rock, START_ROCKS), (ItemKind::Grenade, 1)] } else { [(ItemKind::Spear, START_SPEARS), (ItemKind::Rock, START_ROCKS), (ItemKind::Grenade, START_GRENADES)] };
+        for (kind, n) in start {
             for _ in 0..n {
                 items.push(Item::new(kind, random_surface_spot(rng, config.arena) - vec2(0.0, ITEM_R)));
             }
         }
         // (A boss fight is longer: its pickups come all through it.)
-        let window = if config.mode == Mode::Boss { secs(10)..config.max_ticks.max(secs(30)) - secs(10) } else { HEAL_WINDOW };
+        let window = if matches!(config.mode, Mode::Boss | Mode::Survival) { secs(10)..config.max_ticks.max(secs(30)) - secs(10) } else { HEAL_WINDOW };
         let mut heal_schedule: Vec<u32> = (0..rng.gen_range(config.heals.clone())).map(|_| rng.gen_range(window.clone())).collect();
         heal_schedule.sort_unstable_by(|a, b| b.cmp(a));
         let next_item = rng.gen_range(ITEM_SPAWN_EVERY);
@@ -979,6 +1052,11 @@ impl Match {
         if config.mode == Mode::Boss {
             f[BOSS] = crate::boss::new_boss(arena.boss.unwrap_or(crate::boss::BossKind::Gatecrasher));
         }
+        if config.mode == Mode::Survival {
+            for b in f[..N_FIGHTERS].iter_mut() {
+                b.coop = true;
+            }
+        }
         Self {
             f,
             items,
@@ -994,6 +1072,8 @@ impl Match {
             effects: Vec::new(),
             effect_ids: Vec::new(),
             next_effect_id: 0,
+            zombies_killed: 0,
+            next_zombie: config.countdown + config.spawn_grace + crate::zombies::FIRST_ZOMBIE,
             config,
         }
     }
@@ -1193,6 +1273,15 @@ impl Match {
             if !self.f[i].alive() || frozen || self.f[i].boss.is_some() {
                 continue;
             }
+            // A zombie (one that came in, or a bitten player: their input no longer counts) has a
+            // simple mind of its own.
+            if self.f[i].zombie {
+                if self.f[i].present() {
+                    actions[i] = self.zombie_action(i);
+                    self.f[i].action = actions[i];
+                }
+                continue;
+            }
             // (A player inside Jake's phone still steers: left/right picks the phone to come out of.)
             if let Some(a) = humans.get(i).copied().flatten() {
                 actions[i] = a;
@@ -1233,6 +1322,10 @@ impl Match {
             // (On a pit boss's map, a bot keeps out of its mouth.)
             if let Some(pit) = self.arena().pit() {
                 self.keep_off_pit(i, pit, &mut actions[i]);
+            }
+            // (Surviving zombies, a bot revives a teammate it's by, if it's safe.)
+            if self.config.mode == Mode::Survival {
+                self.bot_revive(i, &mut actions[i]);
             }
             self.f[i].action = actions[i];
         }
@@ -1307,6 +1400,11 @@ impl Match {
         }
         for (i, j) in hits {
             self.f[i].hit_mask |= 1 << j;
+            // (A zombie's swing: its own small hit, and knockdowns: see `zombie_hit`.)
+            if self.f[i].zombie {
+                self.zombie_hit(i, j);
+                continue;
+            }
             let a = &self.f[i];
             let dir = a.facing;
             let (_, hit) = a.melee();
@@ -1331,6 +1429,8 @@ impl Match {
         self.step_items();
         self.step_effects();
         self.step_boss();
+        self.step_zombies();
+        self.step_shift();
         self.step_minis();
         self.step_digital();
         self.step_heals();
@@ -1411,7 +1511,7 @@ impl Match {
             f.hand_cd -= 1;
         }
         // (Not while reading: Vid's hands are full.)
-        if !f.present() || f.hitstun > 0 || f.hand_cd > 0 || f.reading > 0 {
+        if !f.present() || f.hitstun > 0 || f.hand_cd > 0 || f.reading > 0 || f.downed > 0 {
             return;
         }
         if f.holding.is_none() {
@@ -1729,6 +1829,9 @@ impl Match {
             self.f[victim].holding = None;
             self.f[victim].died_at = Some(self.tick);
             self.events.push(Event::Death { who: victim, pos });
+            if ZOMBIES.contains(&victim) {
+                self.zombies_killed += 1;
+            }
             // Taking yourself out (your own grenade, air strike or fire, the campfire) counts as a
             // kill too, so every fighter who goes down is someone's kill; downing your own mini isn't.
             if scores || credit == victim {
@@ -1777,6 +1880,10 @@ pub struct MatchView {
     /// others come and go.
     pub effects: Vec<Effect>,
     pub effect_ids: Vec<u16>,
+    /// The map as it is now (it can change mid-match: the Architect reshapes his).
+    pub arena: ArenaId,
+    /// Survival: zombies put down so far.
+    pub zombies_killed: u32,
     pub over: bool,
     pub winner: Option<usize>,
 }
@@ -1816,12 +1923,15 @@ impl Match {
             effect_ids: self.effects.iter().zip(&self.effect_ids).filter(|(e, _)| e.on_wire()).map(|(_, &id)| id).collect(),
             over: self.over,
             winner: self.winner,
+            arena: self.config.arena,
+            zombies_killed: self.zombies_killed,
         }
     }
 
     /// A drawable match rebuilt from a view and the match's rules (it can't be stepped
     /// faithfully: no spawns).
     pub fn from_view(v: MatchView, config: &MatchConfig, events: Vec<Event>) -> Self {
+        let config = MatchConfig { arena: v.arena, ..config.clone() };
         Self {
             f: v.f,
             items: v.items,
@@ -1837,7 +1947,9 @@ impl Match {
             effects: v.effects,
             effect_ids: v.effect_ids,
             next_effect_id: 0,
-            config: config.clone(),
+            zombies_killed: v.zombies_killed,
+            next_zombie: u32::MAX,
+            config,
         }
     }
 }
@@ -1847,8 +1959,9 @@ impl Match {
 /// immediately, and the server's snapshots correct it. Its jumps and swings go in `events`.
 /// `props` are the tables in the arena (`props(&view.effects)`).
 pub fn predict(arena: &Arena, props: &[Aabb], f: &mut Fighter, who: usize, a: Action, events: &mut Vec<Event>) {
-    // (Ridden by the Chosen One, your body isn't yours to predict: the server's word goes.)
-    if f.ridden == 0 {
+    // (Ridden by the Chosen One, or turned into a zombie, your body isn't yours to predict: the
+    // server's word goes.)
+    if f.ridden == 0 && !f.zombie {
         predict_body(arena, props, f, who, a, events);
     }
 }
@@ -1993,11 +2106,20 @@ fn control(f: &mut Fighter, who: usize, a: Action, wall: f32, events: &mut Vec<E
     f.slowed = f.slowed.saturating_sub(1);
     if !f.alive() {
         f.vel.x *= 0.9;
+    } else if f.downed > 0 {
+        // Knocked down by zombies: lying there, helpless, until it passes.
+        f.downed -= 1;
+        f.hitstun = f.hitstun.saturating_sub(1);
+        f.vel.x *= 0.85;
     } else if f.hitstun > 0 {
         f.hitstun -= 1;
         f.vel.x *= 0.97;
     } else {
         let mut target = if a.mv.abs() < 0.2 { 0.0 } else { a.mv.signum() * if a.run { run } else { WALK } };
+        // (A zombie shambles along at its own pace.)
+        if f.zombie {
+            target *= f.pace;
+        }
         if f.atk_timer > 0 && f.grounded {
             target *= 0.4;
         }
