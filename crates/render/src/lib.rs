@@ -3,6 +3,7 @@
 //! animated bodies, items, explosions, and blood/scorch pixels that stick to the terrain.
 
 mod cafe;
+mod lair;
 pub mod sound;
 
 use sound::Sfx;
@@ -853,9 +854,14 @@ impl Solidity {
 /// (The City also gets a front layer: its near towers and all that's in front of them, drawn
 /// again over its spotlight so the beam sweeps between the near towers and the far ones. The
 /// Cafe's is everything but the far view through its glass, so its train passes behind.)
-fn make_background(arena: ArenaId) -> (Image, Option<Image>) {
+fn make_background(arena: ArenaId) -> (Image, Option<Image>, Option<Image>) {
     let mut front = None;
-    let mut img = if arena == ArenaId::Bridges {
+    let mut patch = None;
+    let mut img = if arena == ArenaId::Lair {
+        let (img, wall) = lair::make_backdrop();
+        patch = Some(wall);
+        img
+    } else if arena == ArenaId::Bridges {
         let (mut img, near) = make_skyline();
         let plain = img.clone();
         draw_scaffold(&mut img, arena.def());
@@ -888,7 +894,7 @@ fn make_background(arena: ArenaId) -> (Image, Option<Image>) {
         }
         layer
     });
-    (img, front)
+    (img, front, patch)
 }
 
 /// A soft shadow on the backdrop just around each ledge and wall (darkest right at its edge).
@@ -1866,15 +1872,17 @@ struct MapArt {
     /// What of the backdrop goes in front of its spotlight (the City's near towers), if any.
     front: Option<Texture2D>,
     terrain: Texture2D,
+    /// The boss map's back wall over the hole, drawn until the boss smashes through it.
+    patch: Option<Texture2D>,
     /// What's solid where (particles stop on it).
     solid: Rc<Solidity>,
 }
 
 impl MapArt {
     fn build(a: ArenaId) -> Self {
-        let (bg, front) = make_background(a);
+        let (bg, front, patch) = make_background(a);
         let solid = Rc::new(Solidity::new(a.def()));
-        Self { bg: tex(&bg), front: front.map(|f| tex(&f)), terrain: tex(&make_terrain(a, &solid)), solid }
+        Self { bg: tex(&bg), front: front.map(|f| tex(&f)), terrain: tex(&make_terrain(a, &solid)), patch: patch.map(|p| tex(&p)), solid }
     }
 }
 
@@ -1935,6 +1943,11 @@ pub struct Art {
     /// What's drawn only for looks, from events (the server doesn't keep it), and how long each
     /// has left (in sim ticks).
     visuals: Vec<(Visual, f32)>,
+    /// The boss's health last frame, and how much longer it flashes from a hit (seconds).
+    boss_hp: f32,
+    boss_flash: f32,
+    /// Screen shake: seconds left, and how hard (arena pixels).
+    shake: (f32, f32),
     time: f32,
 }
 
@@ -1980,6 +1993,9 @@ impl Art {
             holos: Vec::new(),
             flags: Vec::new(),
             visuals: Vec::new(),
+            boss_hp: 0.0,
+            boss_flash: 0.0,
+            shake: (0.0, 0.0),
             time: 0.0,
         }
     }
@@ -2160,8 +2176,36 @@ impl Art {
                     self.burst(pos, vec2(0.0, -1.0), 1.4, 12, c, false, 50.0, 0.4, 0.0);
                 }
                 Event::Swing { .. } | Event::Clatter { .. } => {}
+                Event::BossBurst { pos } => {
+                    self.shake = (0.7, 4.0);
+                    // Wall everywhere: chunks of it flung out of the hole, and dust.
+                    for (n, speed, c) in [(90, 200.0, Color::new(0.30, 0.27, 0.29, 1.0)), (60, 150.0, Color::new(0.45, 0.41, 0.42, 1.0)), (50, 80.0, DUST)] {
+                        self.burst(pos + vec2(0.0, 20.0), vec2(0.0, -1.0), 6.3, n, c, true, speed, 1.2, 380.0);
+                    }
+                    self.blasts.push((pos, 0.0, 60.0));
+                }
+                Event::BossSlam { pos } => {
+                    self.shake = (0.45, 3.0);
+                    for side in [-1.0, 1.0] {
+                        self.burst(pos + vec2(side * 6.0, -1.0), vec2(side, -0.4).normalize(), 0.6, 16, DUST, false, 120.0, 0.5, 220.0);
+                    }
+                    self.burst(pos + vec2(0.0, -1.0), vec2(0.0, -1.0), 1.0, 10, Color::new(0.40, 0.36, 0.30, 1.0), true, 130.0, 0.6, 420.0);
+                    self.visuals.push((Visual::Quake(Quake { at: pos, radius: QUAKE_BIG_R, ticks: QUAKE_TICKS }), QUAKE_TICKS as f32));
+                }
+                Event::BossRoar { pos } => {
+                    self.burst(pos, vec2(0.0, -1.0), 6.3, 24, Color::new(1.0, 0.35, 0.15, 0.9), false, 70.0, 0.5, -20.0);
+                }
             }
         }
+    }
+
+    /// How far to nudge the whole arena this frame (the boss shaking the ground), in arena pixels.
+    pub fn shake(&self) -> Vec2 {
+        if self.shake.0 <= 0.0 {
+            return Vec2::ZERO;
+        }
+        let k = self.shake.1 * (self.shake.0 / 0.45).min(1.0);
+        vec2((self.time * 61.0).sin(), (self.time * 47.0).cos()) * k
     }
 
     pub fn update(&mut self, dt: f32, m: &Match) {
@@ -2196,6 +2240,19 @@ impl Art {
             h.1 += dt;
         }
         self.holos.retain(|h| h.1 < HOLO_SECS);
+        // The boss flashes when it's hurt (it's never stunned, so there's no hitstun to show it).
+        let boss_hp = m.f[BOSS].hp;
+        self.shake.0 = (self.shake.0 - dt).max(0.0);
+        self.boss_flash = if boss_hp < self.boss_hp - 0.01 { 0.1 } else { self.boss_flash - dt };
+        self.boss_hp = boss_hp;
+        // Shockwaves throw up dust as they go.
+        for e in &m.effects {
+            if let Effect::Shockwave(w) = e
+                && hash((self.time * 1000.0) as i32, w.pos.x as i32, 52) < dt * 40.0
+            {
+                self.burst(w.pos + vec2(0.0, -2.0), vec2(-w.dir, -1.0).normalize(), 0.8, 3, DUST, false, 50.0, 0.4, 200.0);
+            }
+        }
         // Fires throw up embers and a little smoke.
         for e in &m.effects {
             if let Effect::Fire(fire) = e {
@@ -2299,7 +2356,10 @@ impl Art {
     /// arena camera (it sets its own).
     pub fn draw_sprites(&self, m: &Match) {
         for (i, f) in m.f.iter().enumerate() {
-            let target = if i >= N_FIGHTERS {
+            if i == BOSS {
+                continue;
+            }
+            let target = if MINIS.contains(&i) {
                 &self.minis[i - N_FIGHTERS]
             } else if tumble(m, i).is_some() {
                 &self.tumblers[i]
@@ -2332,7 +2392,7 @@ impl Art {
     /// its size and turned as it tumbles.
     fn draw_sprite(&self, m: &Match, i: usize) {
         let f = &m.f[i];
-        let tex = if i >= N_FIGHTERS { &self.minis[i - N_FIGHTERS].texture } else { &self.tumblers[i].texture };
+        let tex = if MINIS.contains(&i) { &self.minis[i - N_FIGHTERS].texture } else { &self.tumblers[i].texture };
         let (w, h) = (MINI_SPRITE.0 as f32 * f.scale, MINI_SPRITE.1 as f32 * f.scale);
         let (angle, drop) = tumble(m, i).unwrap_or((0.0, 0.0));
         let at = vec2(f.pos.x - w / 2.0, f.pos.y - h * MINI_FEET + drop * f.scale);
@@ -2367,8 +2427,17 @@ impl Art {
             }
             draw_texture(front, 0.0, 0.0, WHITE);
         }
-        // (No rain indoors, on the Desktop or in the Cafe.)
-        for d in self.rain.iter().filter(|_| !matches!(self.arena, ArenaId::Desktop | ArenaId::Cafe)) {
+        // The boss map: the boss in its hole (or the wall it's about to smash through), and the
+        // torches.
+        if self.arena == ArenaId::Lair {
+            lair::draw_boss(&m.f[BOSS], m, self.time, self.boss_flash > 0.0);
+            if let Some(p) = &self.map.patch {
+                lair::draw_patch(p, m);
+            }
+            lair::draw_torches(self.time);
+        }
+        // (No rain indoors, on the Desktop, in the Cafe or the boss's hall.)
+        for d in self.rain.iter().filter(|_| !matches!(self.arena, ArenaId::Desktop | ArenaId::Cafe | ArenaId::Lair)) {
             draw_line(d.pos.x, d.pos.y, d.pos.x + 0.6, d.pos.y - 4.0, 1.0, Color::new(0.55, 0.62, 0.72, 0.22));
         }
         draw_texture(&self.map.terrain, 0.0, 0.0, WHITE);
@@ -2414,6 +2483,8 @@ impl Art {
                 Effect::Arrow(_) => {}
                 Effect::Book(b) => draw_book(b, self.time),
                 Effect::Living(l) => draw_living(l, look(m.f[l.owner].character, l.owner).accent, self.time),
+                Effect::Shockwave(w) => lair::draw_shockwave(w, self.time),
+                Effect::BossShot(s) => lair::draw_boss_shot(s, self.time),
             }
         }
         // Travis's quake rings, on the ground under everyone.
@@ -2471,13 +2542,14 @@ impl Art {
         }
 
         // Dead underneath the living.
-        let mut order: Vec<usize> = (0..N_BODIES).filter(|&i| !m.f[i].absent && m.f[i].digital == 0).collect();
+        // (The boss is drawn behind everything, in its hole in the wall.)
+        let mut order: Vec<usize> = (0..N_BODIES).filter(|&i| !m.f[i].absent && m.f[i].digital == 0 && m.f[i].boss.is_none()).collect();
         order.sort_by_key(|&i| m.f[i].alive());
         for i in order {
             let f = &m.f[i];
             // A mini (shrunk to its size) or someone tumbling from Doug's throw: their own picture
             // (from `draw_sprites`).
-            if i >= N_FIGHTERS || tumble(m, i).is_some() {
+            if MINIS.contains(&i) || tumble(m, i).is_some() {
                 self.draw_sprite(m, i);
                 continue;
             }
@@ -2515,7 +2587,7 @@ impl Art {
             let left = (m.config.countdown + m.config.spawn_grace - m.tick) as f32 * DT;
             let fade = (left / 0.5).min(1.0);
             let pulse = 0.5 + 0.5 * (self.time * 7.0).sin();
-            for f in m.f.iter().filter(|f| f.present()) {
+            for f in m.f.iter().filter(|f| f.present() && f.boss.is_none()) {
                 let c = f.center();
                 let a = (0.25 + 0.35 * pulse) * fade;
                 draw_circle(c.x, c.y, 11.0 + pulse, Color::new(SHIELD.r, SHIELD.g, SHIELD.b, a * 0.25));
@@ -2545,8 +2617,8 @@ impl Art {
 
         // Health bars; a mini's is shorter, sits lower (it's smaller) and runs out of its own (smaller)
         // health.
-        for (i, f) in m.f.iter().enumerate().filter(|(_, f)| f.present()) {
-            let mini = i >= N_FIGHTERS;
+        for (i, f) in m.f.iter().enumerate().filter(|(_, f)| f.present() && f.boss.is_none()) {
+            let mini = MINIS.contains(&i);
             let (w, full) = if mini { (8.0, MINI_HP) } else { (12.0, MAX_HP) };
             let (x, y) = ((f.pos.x - w / 2.0).round(), (f.pos.y - 22.0 * f.scale).round());
             draw_rectangle(x, y, w, 1.0, Color::new(0.0, 0.0, 0.0, 0.6));

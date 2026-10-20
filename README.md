@@ -30,11 +30,23 @@ wall, press jump to kick off it (and hold toward a wall to slide down it slowly)
 The browser only reports a controller after you press a button on it. In menus (lobby, scoreboard,
 settings) the d-pad or left stick moves a highlight and Cross presses it.
 
-The leader also picks the **map** (Classic, City, Forest, Desktop or Cafe: a coffee shop and a courtyard, joined only by a gap under the wall between them). In the lobby the leader sets each seat without a player to **Bot** or **None**, so a match can have
+The leader also picks the **map** (Classic, City, Forest, Desktop, Cafe: a coffee shop and a courtyard, joined only by a gap under the wall between them; or, in a row of their own, the co-op boss map Gatecrasher, below). In the lobby the leader sets each seat without a player to **Bot** or **None**, so a match can have
 anywhere from 1 to 4 fighters (alone, it runs until the clock or you run out).
 
 The server only listens on `127.0.0.1` unless told otherwise (`GO_BOX_BIND`); see
 `crates/server/src/main.rs` for its settings. To put it online for friends, see **`docs/DEPLOY.md`** (Fly.io).
+
+**Gatecrasher** is a co-op (PvE) map: a giant smashes through the back wall during the countdown
+and stands in the middle of the hall all match, and everyone (players and bots) fights it together.
+Its health (160 for each fighter in the match) is the big bar top right. Swings, throws and
+specials can't hurt your own side, but grenades, rockets, air strikes and fire still hurt anyone
+they reach. It picks people to go for: a **slam** (the floor glows where its fists will land; anyone
+on the floor nearby is hit and a shockwave runs out each way along the floor: jump it or be on a
+ledge), **grenades** lobbed at people (grab one and throw it back), **boulders** hurled at people
+(they lie about afterwards, to throw back), and a **swat** at anyone up by its head. Below half
+health it's enraged: shorter rests, more of everything, and it calls in air strikes. Beat it within
+3 minutes or everyone loses; its head counts for headshots. Tuning lives at the top of
+`crates/sim/src/boss.rs`.
 
 
 ### Characters

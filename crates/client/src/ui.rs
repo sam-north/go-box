@@ -295,6 +295,22 @@ impl Ui {
         format!("{s}..")
     }
 
+    /// A label for a box `width` wide: at `size` if it fits, else in smaller text (whole sizes, so
+    /// each is rasterised once, down to `MIN_LABEL`), and only cut short with ".." past that.
+    pub fn fit_label(&self, t: &str, size: f32, width: f32) -> (String, f32) {
+        const MIN_LABEL: f32 = 11.0;
+        let tw = self.text_width(t, size);
+        if tw <= width {
+            return (t.to_string(), size);
+        }
+        let smaller = (size * width / tw).floor().max(MIN_LABEL).min(size);
+        let mut s = smaller;
+        while s > MIN_LABEL && self.text_width(t, s) > width {
+            s -= 1.0;
+        }
+        (self.fit(t, s, width), s)
+    }
+
     pub fn text_centered(&self, t: &str, cx: f32, y: f32, size: f32, c: Color) {
         self.text(t, cx - self.text_width(t, size) / 2.0, y, size, c);
     }
@@ -397,9 +413,9 @@ impl Ui {
         };
         draw_rectangle(r.x, r.y, r.w, r.h, fill);
         draw_rectangle_lines(r.x, r.y, r.w, r.h, 2.0, if enabled { color } else { EDGE });
-        let size = (r.h / self.s * 0.5).min(24.0);
-        let tw = self.text_width(label, size);
-        self.text(label, r.x + (r.w - tw) / 2.0, r.y + r.h / 2.0 + self.px(size) * 0.3, size, if enabled { INK } else { DIM });
+        let (label, size) = self.fit_label(label, (r.h / self.s * 0.5).min(24.0), r.w - self.px(10.0));
+        let tw = self.text_width(&label, size);
+        self.text(&label, r.x + (r.w - tw) / 2.0, r.y + r.h / 2.0 + self.px(size) * 0.3, size, if enabled { INK } else { DIM });
         let focused = enabled && self.nav_target(r, false);
         if focused {
             self.draw_focus(r);

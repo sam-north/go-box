@@ -6,7 +6,7 @@ use crate::settings::{Act, CONTROL_GROUPS};
 use crate::text::{t, tf};
 use crate::ui::{ACCENT, DIM, INK, Ui};
 use go_box_render::{self as render};
-use go_box_sim::sim::{DT, Match, N_FIGHTERS, TICK_RATE};
+use go_box_sim::sim::{BOSS, DT, Match, N_FIGHTERS, TICK_RATE};
 use macroquad::prelude::*;
 
 /// Dots showing where a throw would go.
@@ -102,6 +102,7 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
             ui.text(&ui.fit(&line, 13.0, colw * 1.6), x, hy, 13.0, color);
         }
     }
+    boss_bar(ui, m, left + arena_w * 0.52, top, arena_w * 0.46 - ui.px(24.0));
     // As the match starts, if you're Ryan: what you've picked up, big, so you know before you use it.
     if let Some(s) = g.seat()
         && let Some(sp) = m.f[s].special().filter(|_| m.f[s].hobby.is_some())
@@ -162,6 +163,26 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
             }
         }
     }
+}
+
+/// In a boss fight: the boss's name and its big health bar, across the top right of the arena
+/// (from `x`, `w` wide). It turns red, and says so, once the boss is enraged.
+fn boss_bar(ui: &Ui, m: &Match, x: f32, top: f32, w: f32) {
+    let f = &m.f[BOSS];
+    let Some(b) = &f.boss else { return };
+    let rage = Color::new(1.0, 0.30, 0.18, 1.0);
+    let color = if b.enraged { rage } else { Color::new(0.95, 0.62, 0.20, 1.0) };
+    let name = if b.enraged { tf("hud.boss_enraged", &[("name", t("boss.name"))]) } else { t("boss.name").to_string() };
+    ui.text(&name, x, top + ui.px(22.0), 17.0, color);
+    let hp = format!("{:.0} / {:.0}", f.hp.max(0.0), b.max_hp);
+    ui.text(&hp, x + w - ui.text_width(&hp, 14.0), top + ui.px(22.0), 14.0, DIM);
+    let (by, bh) = (top + ui.px(28.0), ui.px(9.0));
+    let frac = (f.hp.max(0.0) / b.max_hp).clamp(0.0, 1.0);
+    draw_rectangle(x - ui.px(1.0), by - ui.px(1.0), w + ui.px(2.0), bh + ui.px(2.0), Color::new(0.0, 0.0, 0.0, 0.75));
+    draw_rectangle(x, by, w * frac, bh, color);
+    draw_rectangle(x, by, w * frac, bh * 0.35, Color::new(1.0, 1.0, 1.0, 0.25));
+    // A notch where it becomes enraged.
+    draw_rectangle(x + w * go_box_sim::boss::RAGE_AT, by, ui.px(1.0), bh, Color::new(0.0, 0.0, 0.0, 0.6));
 }
 
 /// The protected start: "Invulnerable", centred on `at` (the text's baseline), with a pie running

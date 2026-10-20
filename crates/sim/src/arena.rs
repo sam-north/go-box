@@ -24,6 +24,9 @@ pub struct Arena {
     /// A campfire on the floor, burning all match long (like a Molotov's fire, but nobody's):
     /// each match puts it somewhere new, always with open sky above (`MatchConfig::campfire`).
     pub campfire: bool,
+    /// A boss fight: everyone together against the boss in the middle (`boss.rs`;
+    /// `MatchConfig::for_arena` makes it one).
+    pub boss: bool,
     /// Seat i starts somewhere in `spawn_x[i] .. spawn_x[i] + SPAWN_SPREAD` on the floor (seats
     /// left to right).
     pub spawn_x: [f32; N_FIGHTERS],
@@ -49,6 +52,9 @@ crate::enum_all! {
         Desktop,
         /// "Courtyard Cafe": a coffee shop on the left, a courtyard on the right, a wall between them with a gap at the floor.
         Cafe,
+        /// "Gatecrasher": a boss fight. A dungeon hall the boss smashes into through the back wall,
+        /// standing in the middle; ledges climb either side up to its head, and nothing hangs over it (air strikes reach it).
+        Lair,
     }
 }
 
@@ -67,7 +73,7 @@ pub fn layout_fingerprint() -> u64 {
     for a in ArenaId::ALL {
         let d = a.def();
         let boxes = d.platforms.iter().chain(d.walls).flat_map(|s| [s.x, s.y, s.w, s.h]);
-        for v in boxes.chain(d.spawn_x).chain([d.campfire as u8 as f32]) {
+        for v in boxes.chain(d.spawn_x).chain([d.campfire as u8 as f32, d.boss as u8 as f32]) {
             h = (h ^ v.to_bits() as u64).wrapping_mul(0x100_0000_01b3);
         }
     }
@@ -82,6 +88,7 @@ impl ArenaId {
             ArenaId::Forest => &FOREST,
             ArenaId::Desktop => &DESKTOP,
             ArenaId::Cafe => &CAFE,
+            ArenaId::Lair => &LAIR,
         }
     }
 
@@ -108,6 +115,7 @@ const TIERS: Arena = Arena {
     ],
     walls: &[],
     campfire: false,
+    boss: false,
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
 
@@ -131,6 +139,7 @@ const BRIDGES: Arena = Arena {
     // up the shaft between them (or off their outsides) and through the bridge.
     walls: &[Aabb::new(204.0, 149.0, 8.0, 73.0), Aabb::new(268.0, 149.0, 8.0, 73.0)],
     campfire: false,
+    boss: false,
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
 
@@ -159,6 +168,7 @@ const FOREST: Arena = Arena {
     ],
     walls: &FOREST_TRUNKS,
     campfire: true,
+    boss: false,
     // (Clear of the trunks: nobody starts in one.)
     spawn_x: [28.0, 130.0, 254.0, 356.0],
 };
@@ -213,6 +223,7 @@ const DESKTOP: Arena = Arena {
         Aabb::new(465.0, 35.0, 4.0, 20.0),
     ],
     campfire: false,
+    boss: false,
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
 
@@ -252,8 +263,34 @@ const CAFE: Arena = Arena {
     ],
     walls: &[CAFE_BAR, CAFE_DIVIDER],
     campfire: false,
+    boss: false,
     // Two in the cafe (clear of the bar), two in the courtyard.
     spawn_x: [106.0, 190.0, 300.0, 376.0],
+};
+
+/// The Gatecrasher's hall. The boss stands in the middle of the floor (x 212..268, up to y 156: see
+/// `boss.rs`), so the ledges climb either side: the long ones at y 184 run right up to it, at head
+/// height. Nothing is over it, so an air strike's bombs fall straight onto it.
+const LAIR: Arena = Arena {
+    id: "lair",
+    platforms: &[
+        // Low steps off the floor, by the walls.
+        Aabb::new(20.0, 218.0, 56.0, 5.0),
+        Aabb::new(404.0, 218.0, 56.0, 5.0),
+        // Up to its head.
+        Aabb::new(84.0, 184.0, 120.0, 5.0),
+        Aabb::new(276.0, 184.0, 120.0, 5.0),
+        // Perches by the walls, and high ledges either side.
+        Aabb::new(20.0, 148.0, 52.0, 5.0),
+        Aabb::new(408.0, 148.0, 52.0, 5.0),
+        Aabb::new(96.0, 120.0, 72.0, 5.0),
+        Aabb::new(312.0, 120.0, 72.0, 5.0),
+    ],
+    walls: &[],
+    campfire: false,
+    boss: true,
+    // Two each side of it, clear of its feet.
+    spawn_x: [14.0, 110.0, 280.0, 376.0],
 };
 
 #[cfg(test)]

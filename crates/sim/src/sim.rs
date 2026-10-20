@@ -32,8 +32,12 @@ pub const SPAWN_GRACE: u32 = TICK_RATE * 3 / 2;
 pub const N_FIGHTERS: usize = 4;
 /// How many of Seth's minis can be out at once (they take the slots after the seats).
 pub const MAX_MINIS: usize = 4;
-/// Every body in a match: the seats, then the mini slots (empty until summoned).
-pub const N_BODIES: usize = N_FIGHTERS + MAX_MINIS;
+/// The mini slots (empty until summoned).
+pub const MINIS: Range<usize> = N_FIGHTERS..N_FIGHTERS + MAX_MINIS;
+/// The boss's slot (empty but in a boss fight; see `boss.rs`).
+pub const BOSS: usize = N_FIGHTERS + MAX_MINIS;
+/// Every body in a match: the seats, the mini slots, then the boss.
+pub const N_BODIES: usize = BOSS + 1;
 
 // Body.
 pub const HALF_W: f32 = 4.0;
@@ -142,6 +146,10 @@ pub enum Source {
     Slash,
     /// Burning ground (a Molotov).
     Fire,
+    /// The boss's fists and shockwaves.
+    Boss,
+    /// The boss's embers.
+    Ember,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -215,7 +223,7 @@ pub struct Fighter {
     pub cooldown: u32,
     /// Bitmask of fighters already struck by the current swing.
     #[serde(skip)]
-    hit_mask: u8,
+    hit_mask: u16,
     pub hitstun: u32,
     /// What's in hand (mirrors the item's `held_by`).
     pub holding: Option<ItemKind>,
@@ -291,7 +299,7 @@ pub struct Fighter {
     pub skate: u32,
     /// Who this skate run has already hit (a bit per body).
     #[serde(skip)]
-    pub skate_hit: u8,
+    pub skate_hit: u16,
     /// Zack's tornadoes pulling at you: a sideways push (px/s) on top of however you're moving,
     /// for the next tick.
     #[serde(skip)]
@@ -326,6 +334,8 @@ pub struct Fighter {
     /// Inside a phone: which way left/right was held last tick (a fresh press switches phones).
     #[serde(skip)]
     pub phone_mv: i8,
+    /// The boss (only ever in the `BOSS` slot): what it's up to. It never moves.
+    pub boss: Option<crate::boss::BossState>,
 }
 
 impl Fighter {
@@ -387,6 +397,7 @@ impl Fighter {
             wall_cd: 0,
             dropping: false,
             phone_mv: 0,
+            boss: None,
         }
     }
 
@@ -421,7 +432,7 @@ impl Fighter {
     /// Can't be pushed around (Michelle's Resting Zen Face): no knockback, stuns, pins, grabs,
     /// pulls or riding; hits still hurt.
     pub fn unshakeable(&self) -> bool {
-        self.character.passive() == Some(crate::character::Passive::RestingZenFace)
+        self.boss.is_some() || self.character.passive() == Some(crate::character::Passive::RestingZenFace)
     }
 
     /// Alive and in the arena: not tucked away inside a phone (Jake).
@@ -588,6 +599,22 @@ pub enum Event {
     Clatter { pos: Vec2, kind: ItemKind },
     /// An item coming alive for `who`'s Locked In (Weston).
     Awaken { who: usize, pos: Vec2 },
+    /// The boss smashing through the back wall (at its head), in the countdown.
+    BossBurst { pos: Vec2 },
+    /// One of the boss's fists hitting the floor.
+    BossSlam { pos: Vec2 },
+    /// The boss roaring (enraged, or calling in an air strike), at its head.
+    BossRoar { pos: Vec2 },
+}
+
+/// Which side body `j` of `bodies` fights on: its team (its own seat, or a mini's summoner's), but
+/// in a boss fight every seat and mini is on one side (0) and the boss on its own. Explosions and
+/// fire still hurt your own side; swings, throws and specials don't.
+pub fn side(bodies: &[Fighter], j: usize) -> usize {
+    match bodies.get(BOSS) {
+        Some(b) if b.boss.is_some() => if j == BOSS { BOSS } else { 0 },
+        _ => bodies[j].team(j),
+    }
 }
 
 /// Distance along a normalised ray to the nearest terrain, capped at `max`.
@@ -768,6 +795,15 @@ pub struct MatchConfig {
 }
 
 impl MatchConfig {
+    /// The usual rules on `arena`: a boss map is a boss fight (longer, with more health about).
+    pub fn for_arena(arena: ArenaId) -> Self {
+        if arena.def().boss {
+            Self { arena, mode: Mode::Boss, max_ticks: crate::boss::BOSS_MATCH, heals: crate::boss::BOSS_HEALS, ..Self::default() }
+        } else {
+            Self { arena, ..Self::default() }
+        }
+    }
+
     /// The campfire's flames, if this match has one.
     pub fn campfire_area(&self) -> Option<Aabb> {
         self.campfire.map(|x| Aabb::new(x, FLOOR_Y - CAMPFIRE_H, CAMPFIRE_W, CAMPFIRE_H))
@@ -802,6 +838,9 @@ crate::enum_all! {
         /// one fighter in it (practice) runs until they die or time runs out.
         #[default]
         LastStanding,
+        /// Everyone together against the boss (`boss.rs`): beat it before it beats all of you or
+        /// time runs out. Nobody wins alone (`winner` is None): `Match::boss_beaten` says how it went.
+        Boss,
     }
 }
 
@@ -809,6 +848,7 @@ impl Mode {
     pub fn id(self) -> &'static str {
         match self {
             Mode::LastStanding => "last_standing",
+            Mode::Boss => "boss",
         }
     }
 
@@ -816,6 +856,10 @@ impl Mode {
     /// is a draw).
     pub fn outcome(self, m: &Match) -> Option<Option<usize>> {
         match self {
+            Mode::Boss => {
+                let wiped = m.f[..N_FIGHTERS].iter().all(|f| !f.alive());
+                (m.boss_beaten() || wiped || m.play_ticks() >= m.config.max_ticks).then_some(None)
+            }
             Mode::LastStanding => {
                 let alive: Vec<usize> = (0..N_FIGHTERS).filter(|&i| m.f[i].alive()).collect();
                 let present = m.f[..N_FIGHTERS].iter().filter(|f| !f.absent).count();
@@ -893,7 +937,9 @@ impl Match {
                 items.push(Item::new(kind, random_surface_spot(rng, config.arena) - vec2(0.0, ITEM_R)));
             }
         }
-        let mut heal_schedule: Vec<u32> = (0..rng.gen_range(config.heals.clone())).map(|_| rng.gen_range(HEAL_WINDOW)).collect();
+        // (A boss fight is longer: its pickups come all through it.)
+        let window = if config.mode == Mode::Boss { secs(10)..config.max_ticks.max(secs(30)) - secs(10) } else { HEAL_WINDOW };
+        let mut heal_schedule: Vec<u32> = (0..rng.gen_range(config.heals.clone())).map(|_| rng.gen_range(window.clone())).collect();
         heal_schedule.sort_unstable_by(|a, b| b.cmp(a));
         let next_item = rng.gen_range(ITEM_SPAWN_EVERY);
         // The campfire (on a map with one), somewhere new each match; anyone who'd start in it
@@ -907,6 +953,9 @@ impl Match {
             for b in f.iter_mut().filter(|b| b.body().overlaps(&fire)) {
                 b.pos.x = if b.pos.x < fire.x + fire.w / 2.0 { fire.x - b.half_w() - 1.0 } else { fire.x + fire.w + b.half_w() + 1.0 };
             }
+        }
+        if config.mode == Mode::Boss {
+            f[BOSS] = crate::boss::new_boss();
         }
         Self {
             f,
@@ -927,9 +976,20 @@ impl Match {
         }
     }
 
-    /// Are `j` and `i` enemies: `j` is alive and on another team (a mini is on its summoner's)?
+    /// Are `j` and `i` enemies: `j` is alive and on another side (a mini is on its summoner's; in a
+    /// boss fight everyone is on one side, against the boss)?
     pub fn foes(&self, i: usize, j: usize) -> bool {
-        j != i && self.f[j].present() && self.f[j].team(j) != self.f[i].team(i)
+        j != i && self.f[j].present() && self.side(j) != self.side(i)
+    }
+
+    /// Which side body `j` fights on (see `side`).
+    pub fn side(&self, j: usize) -> usize {
+        side(&self.f, j)
+    }
+
+    /// A boss fight whose boss is down: everyone won.
+    pub fn boss_beaten(&self) -> bool {
+        self.f[BOSS].boss.is_some() && !self.f[BOSS].alive()
     }
 
     /// Ends the match now, decided as if time had run out (most health wins).
@@ -1045,7 +1105,8 @@ impl Match {
         let e = IN_EXTRA;
         if let Some((_, j)) = nearest {
             let o = &self.f[j];
-            s[e] = o.hp / MAX_HP;
+            // (Capped: the boss has far more health than anyone the brains trained against.)
+            s[e] = (o.hp / MAX_HP).min(1.0);
             s[e + 1] = ((o.pos.x - me.pos.x) / 160.0).clamp(-1.0, 1.0);
             s[e + 2] = ((o.pos.y - me.pos.y) / 90.0).clamp(-1.0, 1.0);
             s[e + 3] = (o.vel.x - me.vel.x) / (2.0 * SENSE_SPEED);
@@ -1077,7 +1138,7 @@ impl Match {
             .fold(0.0, f32::max);
         s[e + 11] = 1.0 - self.play_ticks() as f32 / self.config.max_ticks as f32;
         let best_other = (0..N_BODIES).filter(|&j| self.foes(i, j)).map(|j| self.f[j].hp).fold(0.0, f32::max);
-        s[e + 12] = (me.hp - best_other) / MAX_HP;
+        s[e + 12] = ((me.hp - best_other) / MAX_HP).max(-1.0);
         s
     }
 
@@ -1099,13 +1160,15 @@ impl Match {
         // As the match starts, Ryan (Hobbyist) picks up his special for it.
         if self.tick == 0 {
             self.pick_hobbies();
+            self.size_up_boss();
         }
 
         // 1. Perceive + think (not during the countdown: nobody acts until it's over).
         let mut actions = [Action::default(); N_BODIES];
         let frozen = self.counting_down();
         for i in 0..N_BODIES {
-            if !self.f[i].alive() || frozen {
+            // (The boss has no brain: see `step_boss`.)
+            if !self.f[i].alive() || frozen || self.f[i].boss.is_some() {
                 continue;
             }
             // (A player inside Jake's phone still steers: left/right picks the phone to come out of.)
@@ -1171,7 +1234,8 @@ impl Match {
         let props = props(&self.effects);
         let mut landed = [false; N_BODIES];
         for i in 0..N_BODIES {
-            if self.f[i].absent || self.f[i].digital > 0 {
+            // (The boss never moves.)
+            if self.f[i].absent || self.f[i].digital > 0 || self.f[i].boss.is_some() {
                 continue;
             }
             let was_grounded = self.f[i].grounded;
@@ -1240,6 +1304,7 @@ impl Match {
         // 5. Items in flight, grenades, pickups, spawns.
         self.step_items();
         self.step_effects();
+        self.step_boss();
         self.step_minis();
         self.step_digital();
         self.step_heals();
@@ -1464,9 +1529,9 @@ impl Match {
             let victim = (0..N_BODIES).find(|&j| {
                 let own_grace = it.owner == Some(j) && it.age < OWN_GRACE;
                 // Thrown things don't hit the thrower's teammates (Seth and his minis).
-                let friendly = it.owner.is_some_and(|o| o != j && self.f[o].team(o) == self.f[j].team(j));
+                let friendly = it.owner.is_some_and(|o| o != j && self.side(o) == self.side(j));
                 // Nor does something Zack's tornado is whipping about hit his side, him included.
-                let zacks = it.whirled && it.owner.is_some_and(|o| self.f[o].team(o) == self.f[j].team(j));
+                let zacks = it.whirled && it.owner.is_some_and(|o| self.side(o) == self.side(j));
                 self.f[j].present() && !own_grace && !friendly && !zacks && ib.overlaps(&self.f[j].body())
             });
             if let Some(j) = victim {
@@ -1477,6 +1542,8 @@ impl Match {
                 let dmg = if headshot { hit.damage * hit.headshot_mult } else { hit.damage };
                 // Whipped round by a tornado rather than thrown: it hurts, but not as much.
                 let dmg = if it.whirled { dmg * crate::character::WHIRLED_HIT } else { dmg };
+                // (A boulder the boss hurled hits harder than a thrown rock.)
+                let dmg = if it.owner == Some(BOSS) { dmg * crate::boss::BOULDER_HIT } else { dmg };
                 let it = &mut self.items[k];
                 it.vel *= -0.2;
                 it.lethal = false;
@@ -1504,7 +1571,13 @@ impl Match {
     pub(crate) fn explode(&mut self, pos: Vec2, owner: Option<usize>, blast: Blast) {
         self.events.push(Event::Explosion { pos });
         for j in 0..N_BODIES {
-            let d = self.f[j].center().distance(pos);
+            // (The boss is so big a blast is measured to the nearest bit of it, not its middle.)
+            let d = if self.f[j].boss.is_some() {
+                let b = self.f[j].body();
+                vec2(pos.x.clamp(b.x, b.x + b.w), pos.y.clamp(b.y, b.y + b.h)).distance(pos)
+            } else {
+                self.f[j].center().distance(pos)
+            };
             if !self.f[j].alive() || d >= blast.radius {
                 continue;
             }
@@ -1584,6 +1657,10 @@ impl Match {
         if self.protected() || self.f[victim].digital > 0 || !self.f[victim].alive() {
             return;
         }
+        // (The boss's own bombs and grenades never hurt it.)
+        if victim == BOSS && src == BOSS {
+            return;
+        }
         // Vid reading: his shield stops it (no knockback either).
         if self.f[victim].reading > 0 {
             let pos = self.f[victim].center();
@@ -1592,7 +1669,7 @@ impl Match {
         }
         // What a mini does counts for whoever summoned it; hurting your own side counts for nobody.
         let credit = self.f[src].team(src);
-        let scores = credit != self.f[victim].team(victim);
+        let scores = self.side(src) != self.side(victim);
         if scores {
             let a = &mut self.f[credit];
             a.dmg_dealt += dmg;

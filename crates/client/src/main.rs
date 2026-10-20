@@ -43,8 +43,8 @@ use testclient::{Automation, Options, autopilot};
 /// trackpad player's throws and swings aim at.
 fn nearest_foe(g: &game::Game, seat: usize, from: Vec2) -> Option<Vec2> {
     let v = g.latest()?;
-    let team = v.f[seat].team(seat);
-    v.f.iter().enumerate().filter(|(j, f)| *j != seat && f.present() && f.team(*j) != team).map(|(_, f)| f.center()).min_by(|a, b| a.distance(from).total_cmp(&b.distance(from)))
+    let side = |j: usize| go_box_sim::sim::side(&v.f, j);
+    v.f.iter().enumerate().filter(|(j, f)| *j != seat && f.present() && side(*j) != side(seat)).map(|(_, f)| f.center()).min_by(|a, b| a.distance(from).total_cmp(&b.distance(from)))
 }
 
 fn conf() -> Conf {
@@ -211,7 +211,8 @@ async fn main() {
                 sfx.events(m, &m.events, seat);
                 sfx.frame(dt, m, seat);
                 if m.over && !app.was_over {
-                    let lost = seat.is_some_and(|s| m.winner != Some(s));
+                    // (In a boss fight everyone wins or loses together.)
+                    let lost = if m.config.mode == go_box_sim::sim::Mode::Boss { !m.boss_beaten() } else { seat.is_some_and(|s| m.winner != Some(s)) };
                     sfx.play(if lost { Sfx::Lose } else { Sfx::Win }, 1.0);
                 }
                 app.was_over = m.over;
@@ -278,7 +279,9 @@ async fn main() {
         let (ox, oy) = (((screen_width() - dw) / 2.0).floor(), ((screen_height() - dh) / 2.0).floor());
         let in_menu = app.game.is_none() || app.room.as_ref().is_none_or(|r| r.phase == Phase::Lobby);
         let tint = if in_menu { Color::new(0.55, 0.55, 0.6, 1.0) } else { WHITE };
-        draw_texture_ex(&rt.texture, ox, oy, tint, DrawTextureParams { dest_size: Some(vec2(dw, dh)), ..Default::default() });
+        // (Shaken by the boss's slams; the view the mouse is measured against stays put.)
+        let shake = if in_menu { Vec2::ZERO } else { art.shake() * scale };
+        draw_texture_ex(&rt.texture, ox + shake.x, oy + shake.y, tint, DrawTextureParams { dest_size: Some(vec2(dw, dh)), ..Default::default() });
         app.view = (vec2(ox, oy), scale);
 
         // Screens (under the settings menu or "How to Play", if open, they ignore the mouse).

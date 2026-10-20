@@ -673,6 +673,8 @@ impl Sounds {
                         Source::Sushi => Sfx::Splat,
                         // The blast or the bite is the sound; just add a thump.
                         Source::Grenade | Source::Special => Sfx::Punch,
+                        Source::Boss => Sfx::Slam,
+                        Source::Ember => Sfx::Scratch,
                     };
                     self.at(s, pos, ear, 0.9);
                     if headshot {
@@ -717,6 +719,12 @@ impl Sounds {
                 Event::BacklogBurst { pos } => self.at(Sfx::BacklogBurst, pos, ear, 1.0),
                 Event::ArrowCall { pos } => self.at(Sfx::ArrowWhistle, pos, ear, 0.9),
                 Event::Slam { pos } => self.at(Sfx::Slam, pos, ear, 1.0),
+                Event::BossBurst { .. } => {
+                    self.play(Sfx::Explosion, 1.0);
+                    self.play(Sfx::BigStomp, 1.0);
+                }
+                Event::BossSlam { pos } => self.at(Sfx::BigStomp, pos, ear, 1.0),
+                Event::BossRoar { pos } => self.at(Sfx::Slam, pos, ear, 0.8),
                 Event::Quake { pos, big } => self.at(if big { Sfx::BigStomp } else { Sfx::Stomp }, pos, ear, if big { 1.0 } else { 0.7 }),
                 Event::Hologram { pos, out } => self.at(if out { Sfx::Materialize } else { Sfx::Digitize }, pos, ear, 1.0),
                 Event::Matrix { pos, out } => self.at(if out { Sfx::Release } else { Sfx::Possess }, pos, ear, 1.0),

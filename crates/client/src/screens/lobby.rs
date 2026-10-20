@@ -133,6 +133,8 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     if let Some(res) = &room.last_results {
         y += ui.px(8.0);
         let banner = match res.winner {
+            _ if res.boss.is_some_and(|b| b.beaten) => tf("lobby.boss_beaten", &[("name", t("boss.name"))]),
+            _ if res.boss.is_some() => tf("lobby.boss_won", &[("name", t("boss.name"))]),
             Some(w) => tf("lobby.wins", &[("name", &seat_name(&res.seats[w].name, res.seats[w].character, res.seats[w].bot))]),
             None => t("lobby.draw").to_string(),
         };
@@ -140,6 +142,17 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
         let length = tf("lobby.match_length", &[("time", &mmss(res.duration))]);
         ui.text(&length, r.x + w - pad - ui.text_width(&length, 18.0), y + ui.px(10.0), 18.0, DIM);
         y += ui.px(30.0);
+        // The boss won: how much health it had left, so you can see how close you came.
+        if let Some(b) = res.boss.filter(|b| !b.beaten && b.max_hp > 0.0) {
+            let frac = (b.hp / b.max_hp).clamp(0.0, 1.0);
+            let line = tf("lobby.boss_left", &[("name", t("boss.name")), ("hp", &format!("{:.0}", b.hp)), ("max", &format!("{:.0}", b.max_hp)), ("pct", &format!("{:.0}", frac * 100.0))]);
+            ui.text(&line, r.x + pad, y + ui.px(8.0), 18.0, INK);
+            let (bx, bw, bh) = (r.x + pad + ui.text_width(&line, 18.0) + ui.px(14.0), ui.px(220.0), ui.px(9.0));
+            let by = y + ui.px(8.0) - bh;
+            draw_rectangle(bx - ui.px(1.0), by - ui.px(1.0), bw + ui.px(2.0), bh + ui.px(2.0), Color::new(0.0, 0.0, 0.0, 0.75));
+            draw_rectangle(bx, by, bw * frac, bh, Color::new(1.0, 0.30, 0.18, 1.0));
+            y += ui.px(26.0);
+        }
         // (The place, 1st..4th, sits in front of the first column.)
         // After the player and their character, the columns run in the order the win is decided:
         // how they ended (survived on how much health, or went down when), kills, damage dealt,
@@ -277,23 +290,39 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     ui.blocked = blocked || menu.is_some();
     // The map: buttons for the leader, a label for everyone else.
     let my = y;
-    let mut dx = map_x;
-    // (As wide as fit, side by side.)
-    let n = ArenaId::ALL.len() as f32;
-    let bw = ui.px(120.0).min((r.x + w - pad - map_x - ui.px(8.0) * (n - 1.0)) / n);
-    for a in ArenaId::ALL {
-        let rr = Rect::new(dx, my + ui.px(12.0), bw, ui.px(34.0));
-        let selected = room.arena == a;
-        let name = t(&format!("arena.{}", a.id()));
+    // (As wide as fit, side by side: the usual maps on one row, boss fights on a row of their own
+    // under them.)
+    let (fights, bosses): (Vec<ArenaId>, Vec<ArenaId>) = ArenaId::ALL.into_iter().partition(|a| !a.def().boss);
+    let n = fights.len() as f32;
+    // (The leader's rows are labelled, PvP and PvE, in front.)
+    let label_w = if leader { ui.px(44.0) } else { 0.0 };
+    let bw = ui.px(120.0).min((r.x + w - pad - map_x - label_w - ui.px(8.0) * (n - 1.0)) / n);
+    let row_h = ui.px(42.0);
+    let rows = if leader && !bosses.is_empty() { 2.0 } else { 1.0 };
+    for (row, maps) in [fights, bosses].into_iter().enumerate() {
+        let mut dx = map_x + label_w;
+        // (Only the leader sees the rows; everyone else sees the chosen map's name, in the first.)
+        let ry = my + if leader { row as f32 * row_h } else { 0.0 };
         if leader {
-            if ui.button(rr, name, true, if selected { ACCENT } else { ui::EDGE }) && !selected {
-                app.send(ClientMsg::SetArena(a));
-            }
-        } else if selected {
-            ui.text(name, dx, my + ui.px(36.0), 22.0, INK);
+            let label = if row == 0 { t("lobby.maps_pvp") } else { t("lobby.maps_pve") };
+            ui.text(label, map_x, ry + ui.px(35.0), 18.0, DIM);
         }
-        dx += bw + ui.px(8.0);
+        for a in maps {
+            let boss = a.def().boss;
+            let rr = Rect::new(dx, ry + ui.px(12.0), if boss { bw * 2.0 + ui.px(8.0) } else { bw }, ui.px(34.0));
+            let selected = room.arena == a;
+            let name = t(&format!("arena.{}", a.id()));
+            if leader {
+                if ui.button(rr, name, true, if selected { ACCENT } else { ui::EDGE }) && !selected {
+                    app.send(ClientMsg::SetArena(a));
+                }
+            } else if selected {
+                ui.text(name, map_x, my + ui.px(36.0), 22.0, INK);
+            }
+            dx += rr.w + ui.px(8.0);
+        }
     }
+    let my = my + (rows - 1.0) * row_h;
     // Spectators: under the map, next in line for a seat.
     if !watching.is_empty() {
         let sy = my + ui.px(76.0);

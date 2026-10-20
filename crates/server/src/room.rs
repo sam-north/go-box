@@ -4,14 +4,14 @@
 use crate::Hub;
 use crate::conn::Outbox;
 use go_box_protocol::{
-    ClientMsg, MAX_IN_ROOM, MAX_PLAYERS, MatchStart, Phase, PlayerId, PlayerInfo, Refusal, Results, RoomInfo, SNAPSHOT_EVERY, Seat, SeatFill, SeatResult, ServerMsg,
+    BossResult, ClientMsg, MAX_IN_ROOM, MAX_PLAYERS, MatchStart, Phase, PlayerId, PlayerInfo, Refusal, Results, RoomInfo, SNAPSHOT_EVERY, Seat, SeatFill, SeatResult, ServerMsg,
     SnapshotBody,
     encode,
 };
 use go_box_sim::brain::Brain;
 use go_box_sim::character::Character;
 use go_box_sim::glam::vec2;
-use go_box_sim::sim::{Action, ArenaId, DT, Event, H, Match, MatchConfig, N_FIGHTERS, W};
+use go_box_sim::sim::{Action, ArenaId, DT, Event, H, Match, MatchConfig, Mode, N_FIGHTERS, W};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use std::collections::VecDeque;
@@ -338,7 +338,7 @@ impl Room {
     fn start(&mut self) {
         // Logged with the match: the seed plus the players' inputs replay it exactly.
         let seed: u64 = self.rng.r#gen();
-        let mut m = Match::new(seed, &MatchConfig { arena: self.arena, ..MatchConfig::default() });
+        let mut m = Match::new(seed, &MatchConfig::for_arena(self.arena));
         let mut seats = [None; N_FIGHTERS];
         let mut names: [String; N_FIGHTERS] = Default::default();
         for i in 0..N_FIGHTERS {
@@ -433,7 +433,11 @@ fn results(r: &Running) -> Results {
         })
         .collect();
     let winner = r.m.winner.and_then(|w| present.iter().position(|&i| i == w));
-    Results { seats, winner, duration: r.m.tick as f32 * DT }
+    let boss = (r.m.config.mode == Mode::Boss).then(|| {
+        let f = &r.m.f[go_box_sim::sim::BOSS];
+        BossResult { beaten: r.m.boss_beaten(), hp: f.hp.max(0.0), max_hp: f.boss.map_or(0.0, |b| b.max_hp) }
+    });
+    Results { seats, boss, winner, duration: r.m.tick as f32 * DT }
 }
 
 /// `later`, plus any one-off presses from `earlier` (so merging two inputs never loses an attack,

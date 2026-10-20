@@ -623,7 +623,7 @@ impl Special for MiniMe {
         let seth = m.f[who].clone();
         for k in 0..MINIS_PER_USE {
             // The mini slots after the seats; if they're all taken, fewer come.
-            let Some(slot) = (N_FIGHTERS..N_BODIES).find(|&j| m.f[j].absent) else { break };
+            let Some(slot) = crate::sim::MINIS.into_iter().find(|&j| m.f[j].absent) else { break };
             let x = (seth.pos.x + seth.facing * (4.0 + 6.0 * k as f32)).clamp(14.0, W - 14.0);
             let mut mini = Fighter::new(x, seth.facing);
             mini.pos.y = seth.pos.y;
@@ -839,11 +839,11 @@ impl Special for EyeOfTheStorm {
         // (Its shockwave and the eye are drawn by the client, from this.)
         let at = m.f[who].center();
         // Her opponents' dogs, cats, bugs and living items already out are frozen too (not any let out later).
-        let team = m.f[who].team(who);
+        let team = crate::sim::side(&m.f, who);
         for e in m.effects.iter_mut() {
             match e {
-                Effect::Pet(p) if m.f[p.owner].team(p.owner) != team => p.frozen = PIN_TICKS,
-                Effect::Living(l) if m.f[l.owner].team(l.owner) != team => l.frozen = PIN_TICKS,
+                Effect::Pet(p) if crate::sim::side(&m.f, p.owner) != team => p.frozen = PIN_TICKS,
+                Effect::Living(l) if crate::sim::side(&m.f, l.owner) != team => l.frozen = PIN_TICKS,
                 _ => {}
             }
         }
@@ -1313,7 +1313,7 @@ pub struct Judo {
     pub bowls: bool,
     /// Who this throw has already knocked down (a bit per body).
     #[serde(skip)]
-    pub bowled: u8,
+    pub bowled: u16,
 }
 
 impl Judo {
@@ -1631,7 +1631,7 @@ impl Match {
     /// Minis count down and vanish (in a puff) when their time's up, when they're hit, or when
     /// whoever summoned them goes down; whatever they held drops.
     pub(crate) fn step_minis(&mut self) {
-        for j in N_FIGHTERS..N_BODIES {
+        for j in crate::sim::MINIS {
             if self.f[j].absent {
                 continue;
             }
@@ -1745,6 +1745,8 @@ impl Match {
                 Effect::Arrow(a) => self.step_arrow(a),
                 Effect::Book(b) => self.step_book(b),
                 Effect::Living(l) => self.step_living(l, &props),
+                Effect::Shockwave(w) => self.step_shockwave(w),
+                Effect::BossShot(s) => self.step_boss_shot(s),
             }
             self.effects[e] = effect;
         }
@@ -2568,6 +2570,10 @@ pub enum Effect {
     Book(Book),
     /// An item Weston brought to life.
     Living(Living),
+    /// A boss shockwave running along the floor.
+    Shockwave(crate::boss::Shockwave),
+    /// One of the boss's embers or missiles.
+    BossShot(crate::boss::BossShot),
 }
 
 impl Effect {
@@ -2588,6 +2594,8 @@ impl Effect {
             Effect::Arrow(a) => a.owner,
             Effect::Book(b) => b.owner,
             Effect::Living(l) => l.owner,
+            Effect::Shockwave(_) => crate::sim::BOSS,
+            Effect::BossShot(_) => crate::sim::BOSS,
         }
     }
 
@@ -2608,6 +2616,8 @@ impl Effect {
             Effect::Arrow(a) => (a.state != ArrowState::Hover).then_some(a.pos),
             Effect::Book(b) => b.chasing.map(|_| b.pos),
             Effect::Living(l) => Some(l.item.pos),
+            Effect::Shockwave(w) => Some(w.pos - vec2(0.0, 4.0)),
+            Effect::BossShot(s) => Some(s.pos),
         }
     }
 
@@ -2628,6 +2638,8 @@ impl Effect {
             Effect::Arrow(a) => a.pos,
             Effect::Book(b) => b.pos,
             Effect::Living(l) => l.item.pos,
+            Effect::Shockwave(w) => w.pos,
+            Effect::BossShot(s) => s.pos,
         }
     }
 
@@ -2648,6 +2660,8 @@ impl Effect {
             Effect::Arrow(a) => &mut a.pos,
             Effect::Book(b) => &mut b.pos,
             Effect::Living(l) => &mut l.item.pos,
+            Effect::Shockwave(w) => &mut w.pos,
+            Effect::BossShot(s) => &mut s.pos,
         }
     }
 
@@ -2667,6 +2681,8 @@ impl Effect {
             Effect::Arrow(a) => a.ticks == 0,
             Effect::Book(b) => b.ticks == 0,
             Effect::Living(l) => l.ticks == 0,
+            Effect::Shockwave(w) => w.ticks == 0,
+            Effect::BossShot(s) => s.ticks == 0,
         }
     }
 
@@ -2676,7 +2692,7 @@ impl Effect {
     pub fn on_wire(&self) -> bool {
         match self {
             Effect::Glue(_) | Effect::Pet(_) | Effect::Table(_) | Effect::Chain(_) | Effect::Rocket(_) | Effect::Fire(_) => true,
-            Effect::Plane(_) | Effect::AirBomb(_) | Effect::Judo(_) | Effect::Tornado(_) | Effect::Arrow(_) | Effect::Book(_) | Effect::Living(_) => true,
+            Effect::Plane(_) | Effect::AirBomb(_) | Effect::Judo(_) | Effect::Tornado(_) | Effect::Arrow(_) | Effect::Book(_) | Effect::Living(_) | Effect::Shockwave(_) | Effect::BossShot(_) => true,
             Effect::Lunge(_) => false,
         }
     }
@@ -2947,7 +2963,7 @@ mod tests {
         let mut m = staged([Character::Seth, Character::Classic, Character::Classic, Character::Classic], [100.0, 300.0, 380.0, 440.0]);
         m.f[0].facing = 1.0;
         step_idle(&mut m, &z, true);
-        let minis: Vec<usize> = (N_FIGHTERS..N_BODIES).filter(|&j| !m.f[j].absent).collect();
+        let minis: Vec<usize> = crate::sim::MINIS.filter(|&j| !m.f[j].absent).collect();
         assert_eq!(minis.len(), MINIS_PER_USE);
         let a = minis[0];
         assert_eq!((m.f[a].scale, m.f[a].owner, m.f[a].hp), (MINI_SCALE, Some(0), MINI_HP));
@@ -2980,10 +2996,10 @@ mod tests {
         for _ in 0..MINI_LIFE - 2 {
             step_idle(&mut m, &z, false);
         }
-        assert!((N_FIGHTERS..N_BODIES).any(|j| !m.f[j].absent), "still around just before the end");
+        assert!(crate::sim::MINIS.into_iter().any(|j| !m.f[j].absent), "still around just before the end");
         step_idle(&mut m, &z, false);
         step_idle(&mut m, &z, false);
-        assert!((N_FIGHTERS..N_BODIES).all(|j| m.f[j].absent));
+        assert!(crate::sim::MINIS.into_iter().all(|j| m.f[j].absent));
     }
 
     #[test]
@@ -3283,7 +3299,7 @@ mod tests {
         for _ in 0..20 {
             press(&mut m, &[]);
         }
-        let minis: Vec<usize> = (N_FIGHTERS..N_BODIES).filter(|&j| !m.f[j].absent).collect();
+        let minis: Vec<usize> = crate::sim::MINIS.filter(|&j| !m.f[j].absent).collect();
         assert!(!minis.is_empty());
         // Michelle freezes them.
         press(&mut m, &[0]);
@@ -4075,7 +4091,7 @@ mod tests {
         let mut m = staged([Character::Seth, Character::Classic, Character::Classic, Character::Classic], [100.0, 220.0, 400.0, 440.0]);
         m.f[0].facing = 1.0;
         step_idle(&mut m, &z, true);
-        let mini = (N_FIGHTERS..N_BODIES).find(|&j| !m.f[j].absent).unwrap();
+        let mini = crate::sim::MINIS.into_iter().find(|&j| !m.f[j].absent).unwrap();
         for _ in 0..30 {
             step_idle(&mut m, &z, false);
         }

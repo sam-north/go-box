@@ -29,7 +29,7 @@ impl Attract {
     pub fn fresh(rng: &mut SmallRng) -> Match {
         // A different map now and then.
         let arena = ArenaId::ALL[rng.gen_range(0..ArenaId::ALL.len())];
-        let mut m = Match::new(rng.r#gen(), &MatchConfig { arena, ..MatchConfig::default() });
+        let mut m = Match::new(rng.r#gen(), &MatchConfig::for_arena(arena));
         for f in m.f.iter_mut() {
             f.character = Character::ALL[rng.gen_range(0..Character::ALL.len())];
         }

@@ -13,7 +13,7 @@ use std::path::Path;
 fn main() {
     let matches: usize = std::env::args().nth(1).and_then(|a| a.parse().ok()).unwrap_or(400);
     let arena = std::env::args().nth(2).and_then(|id| ArenaId::ALL.into_iter().find(|a| a.id() == id)).unwrap_or_default();
-    let config = MatchConfig { arena, ..MatchConfig::default() };
+    let config = MatchConfig::for_arena(arena);
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../brains");
     let (names, brains): (Vec<String>, Vec<Brain>) = Brain::load_dir(&dir).unwrap().into_iter().unzip();
     let n = brains.len();

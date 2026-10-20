@@ -28,7 +28,7 @@ use go_box_sim::sim::{Action, ArenaId, Event, MatchConfig, MatchView, N_FIGHTERS
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any incompatible change; the server turns away clients on another version.
-pub const PROTOCOL_VERSION: u16 = 31;
+pub const PROTOCOL_VERSION: u16 = 32;
 
 /// The port the server listens on by default (and the native test client dials).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -216,10 +216,20 @@ pub struct SeatResult {
     pub health_gained: f32,
 }
 
+/// How a boss fight went: beaten or not, and the health it had left (to see how close it was).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BossResult {
+    pub beaten: bool,
+    pub hp: f32,
+    pub max_hp: f32,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Results {
     /// The seats that were in the match (empty ones left out).
     pub seats: Vec<SeatResult>,
+    /// How a boss fight went (None: not a boss fight).
+    pub boss: Option<BossResult>,
     /// Index into `seats`; None = a draw.
     pub winner: Option<usize>,
     /// Match length in seconds.
@@ -359,7 +369,14 @@ mod tests {
         m.f[1].character = go_box_sim::character::Character::Ryan;
         m.f[1].hobby = Some(6);
         let rocket = Snapshot { ack: 3, view: m.view(), events: vec![go_box_sim::sim::Event::RocketLaunch { pos: glam_vec(100.0, 200.0) }] };
-        std::iter::once(first).chain(std::iter::once(rocket)).chain(found.into_iter().zip(wanted).map(|(s, (name, _))| s.unwrap_or_else(|| panic!("no {name} in the sample matches")))).collect()
+        // A boss fight, mid-slam: the boss and a shockwave.
+        let mut m = Match::new(3, &MatchConfig::for_arena(ArenaId::Lair));
+        while !m.effects.iter().any(|e| matches!(e, Effect::Shockwave(_))) {
+            m.step([&brain; N_FIGHTERS]);
+            assert!(!m.over, "no slam in the boss fight");
+        }
+        let boss = Snapshot { ack: 4, view: m.view(), events: m.events.clone() };
+        std::iter::once(first).chain([rocket, boss]).chain(found.into_iter().zip(wanted).map(|(s, (name, _))| s.unwrap_or_else(|| panic!("no {name} in the sample matches")))).collect()
     }
 
     /// One of every message, with fixed contents. The `match`es have no wildcard arm, so a new
@@ -407,7 +424,7 @@ mod tests {
             fills: [SeatFill::Bot, SeatFill::Bot, SeatFill::Empty, SeatFill::Bot],
             bots: [None, Some(Character::Doug), None, None],
             phase: Phase::Lobby,
-            last_results: Some(Results { seats: vec![result], winner: Some(0), duration: 44.5 }),
+            last_results: Some(Results { seats: vec![result], boss: Some(BossResult { beaten: false, hp: 213.0, max_hp: 640.0 }), winner: Some(0), duration: 44.5 }),
         };
         let start = MatchStart {
             seats: [seat("Sam", Character::Sam, Some(1)), seat("A", Character::Austin, None), seat("T", Character::Tyler, None), seat("C", Character::Classic, None)],
@@ -442,7 +459,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (31, 0x7226_e1c0_53e2_a852);
+    const WIRE: (u16, u64) = (32, 0x2204_dcc6_b4cf_b251);
 
     #[test]
     fn every_sample_round_trips() {

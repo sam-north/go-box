@@ -183,5 +183,7 @@ fn effect_kind(e: &go_box_sim::character::Effect) -> &'static str {
         Effect::Arrow(_) => "arrow",
         Effect::Book(_) => "book",
         Effect::Living(_) => "living",
+        Effect::Shockwave(_) => "shockwave",
+        Effect::BossShot(_) => "bossshot",
     }
 }
