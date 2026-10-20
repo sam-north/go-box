@@ -79,10 +79,11 @@ impl Game {
             let body = you.host.filter(|_| you.digital > 0).map_or(seat, |j| j as usize);
             let mut f = s.view.f[body].clone();
             let props = props(&s.view.effects);
+            let arena = s.view.live_arena();
             for &(_, a) in &self.pending {
                 // (Your own body, unless the Chosen One's driving someone else's.)
                 let step = if body == seat { predict } else { predict_ridden };
-                step(s.view.arena.def(), &props, &mut f, body, a, &mut Vec::new());
+                step(&arena, &props, &mut f, body, a, &mut Vec::new());
             }
             // (Switching bodies, into someone or back out, isn't a correction to smooth.)
             if body != self.body {
@@ -117,8 +118,8 @@ impl Game {
         let props = self.snaps.back().map(|s| props(&s.view.effects)).unwrap_or_default();
         let step = if body == seat { predict } else { predict_ridden };
         // (On the map as the newest snapshot has it: the Architect reshapes his mid-match.)
-        let arena = self.snaps.back().map_or(self.start.config.arena, |s| s.view.arena);
-        step(arena.def(), &props, me, body, a, events);
+        let arena = self.snaps.back().map_or_else(|| self.start.config.arena.def().clone(), |s| s.view.live_arena());
+        step(&arena, &props, me, body, a, events);
         self.pending.push_back((seq, a));
         while self.pending.len() > 120 {
             self.pending.pop_front();
@@ -303,7 +304,7 @@ mod tests {
         // Where you'll be once the server applies the other 4 too.
         let mut ahead = m.f[0].clone();
         for _ in 0..4 {
-            predict(m.arena(), &[], &mut ahead, 0, RIGHT, &mut Vec::new());
+            predict(&m.arena(), &[], &mut ahead, 0, RIGHT, &mut Vec::new());
         }
         assert!((g.me().unwrap().pos - ahead.pos).length() < 1e-4, "predicted {} vs {}", g.me().unwrap().pos, ahead.pos);
         assert!(ahead.pos.x > m.f[0].pos.x, "and that's ahead of the snapshot");

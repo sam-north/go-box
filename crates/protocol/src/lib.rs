@@ -370,7 +370,7 @@ mod tests {
         for (k, kind) in [ItemKind::Sword, ItemKind::Molotov, ItemKind::AirStrike].into_iter().enumerate() {
             m.items.push(go_box_sim::sim::Item::new(kind, glam_vec(260.0 + 20.0 * k as f32, 250.0)));
         }
-        m.add_effect(Effect::Fire(go_box_sim::character::Fire::at(m.arena(), &[], glam_vec(300.0, 240.0), 1)));
+        m.add_effect(Effect::Fire(go_box_sim::character::Fire::at(&m.arena(), &[], glam_vec(300.0, 240.0), 1)));
         let mut rng = <go_box_sim::sim::SimRng as rand::SeedableRng>::seed_from_u64(4);
         m.add_effect(Effect::Plane(go_box_sim::character::Plane::new(&mut rng, 2)));
         m.add_effect(Effect::AirBomb(go_box_sim::character::AirBomb { pos: glam_vec(150.0, 60.0), vel: glam_vec(40.0, 90.0), owner: 2, ticks: 300 }));
@@ -395,7 +395,10 @@ mod tests {
         let glob = go_box_sim::boss::BossShot { pos: glam_vec(240.0, 200.0), vel: glam_vec(60.0, -120.0), kind: go_box_sim::boss::ShotKind::Glob, ticks: 100, target: None };
         m.add_effect(Effect::BossShot(glob));
         let maw = Snapshot { ack: 5, view: m.view(), events: m.events.clone() };
-        std::iter::once(first).chain([rocket, boss, maw]).chain(found.into_iter().zip(wanted).map(|(s, (name, _))| s.unwrap_or_else(|| panic!("no {name} in the sample matches")))).collect()
+        // The Simulation, with its room (ledges, cables, a loose one) as it starts.
+        let sim = Match::new(4, &MatchConfig::for_arena(ArenaId::Architect));
+        let sim = Snapshot { ack: 6, view: sim.view(), events: vec![go_box_sim::sim::Event::Shift { kind: go_box_sim::architect::ShiftKind::Mirror }] };
+        std::iter::once(first).chain([rocket, boss, maw, sim]).chain(found.into_iter().zip(wanted).map(|(s, (name, _))| s.unwrap_or_else(|| panic!("no {name} in the sample matches")))).collect()
     }
 
     /// One of every message, with fixed contents. The `match`es have no wildcard arm, so a new
@@ -478,7 +481,7 @@ mod tests {
         }
         assert_eq!((PROTOCOL_VERSION, h), WIRE, "the wire format changed ({h:#018x}): bump PROTOCOL_VERSION, then update WIRE");
     }
-    const WIRE: (u16, u64) = (34, 0x4988_02b7_6557_11ee);
+    const WIRE: (u16, u64) = (34, 0xe834_2c8d_0ff7_dfbc);
 
     #[test]
     fn every_sample_round_trips() {

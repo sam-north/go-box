@@ -11,14 +11,16 @@
 //! render crate) so they stand out; a new backdrop gets that for free.
 
 use crate::boss::BossKind;
+use std::borrow::Cow;
 use crate::sim::{Aabb, N_FIGHTERS};
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Debug)]
 pub struct Arena {
     /// A stable id; players see the text `arena.<id>`.
     pub id: &'static str,
     /// One-way platforms: you can jump up through them and land on top.
-    pub platforms: &'static [Aabb],
+    pub platforms: Cow<'static, [Aabb]>,
     /// Solid blocks besides the box's walls, floor and ceiling: nothing passes through them, you
     /// can stand on top, and wall-jump off their sides.
     pub walls: &'static [Aabb],
@@ -34,10 +36,9 @@ pub struct Arena {
     pub boss: Option<BossKind>,
     /// A survival match: everyone together against zombies (`zombies.rs`; `MatchConfig::for_arena`).
     pub survival: bool,
-    /// What the Architect turns this map into, every so often mid-match (`architect.rs`), if he's here.
-    pub shift: Option<ArenaId>,
-    /// Not offered in the lobby (a map only reached by a shift: the Architect's room upside down).
-    pub hidden: bool,
+    /// The Simulation: the Architect's room, whose ledges live in the match (`architect.rs`), not
+    /// here: he rebuilds, flips and mirrors them as it goes on.
+    pub architect: bool,
     /// Seat i starts somewhere in `spawn_x[i] .. spawn_x[i] + SPAWN_SPREAD` on the floor (seats
     /// left to right).
     pub spawn_x: [f32; N_FIGHTERS],
@@ -71,11 +72,9 @@ crate::enum_all! {
         Dune,
         /// "Outbreak": survival in a moonlit graveyard; zombies keep coming in from both sides.
         Outbreak,
-        /// "The Architect": his room, which he flips upside down every so often (top to bottom, and
-        /// everyone and everything in it). No boss yet: for now a free-for-all.
+        /// "Simulation": the Architect's room, which he flips, mirrors, turns gravity round in, and
+        /// rebuilds every so often (`architect.rs`). No boss yet: for now a free-for-all.
         Architect,
-        /// The Architect's room upside down (only ever reached by his flip).
-        ArchitectFlipped,
     }
 }
 
@@ -88,7 +87,7 @@ impl Arena {
 
     /// A co-op map (a boss fight or survival): the lobby lists them apart from the rest.
     pub fn pve(&self) -> bool {
-        self.boss.is_some() || self.survival || self.shift.is_some()
+        self.boss.is_some() || self.survival
     }
 
     /// The stretch of floor that swallows whoever touches it (a pit boss's mouth), if any.
@@ -129,7 +128,6 @@ impl ArenaId {
             ArenaId::Dune => &DUNE,
             ArenaId::Outbreak => &OUTBREAK,
             ArenaId::Architect => &ARCHITECT,
-            ArenaId::ArchitectFlipped => &ARCHITECT_FLIPPED,
         }
     }
 
@@ -140,7 +138,7 @@ impl ArenaId {
 
 const TIERS: Arena = Arena {
     id: "tiers",
-    platforms: &[
+    platforms: Cow::Borrowed(&[
         // Low ledges off the floor.
         Aabb::new(40.0, 214.0, 72.0, 5.0),
         Aabb::new(368.0, 214.0, 72.0, 5.0),
@@ -153,21 +151,20 @@ const TIERS: Arena = Arena {
         Aabb::new(204.0, 142.0, 72.0, 5.0),
         // The top bridge.
         Aabb::new(168.0, 106.0, 144.0, 5.0),
-    ],
+    ]),
     walls: &[],
     hills: &[],
     campfire: false,
     boss: None,
     survival: false,
-    shift: None,
-    hidden: false,
+    architect: false,
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
 
 /// (Shown as "City": its id is older than its name.)
 const BRIDGES: Arena = Arena {
     id: "bridges",
-    platforms: &[
+    platforms: Cow::Borrowed(&[
         // Steps up at each side.
         Aabb::new(16.0, 216.0, 56.0, 5.0),
         Aabb::new(408.0, 216.0, 56.0, 5.0),
@@ -179,7 +176,7 @@ const BRIDGES: Arena = Arena {
         // The high bridge, and a perch over the gap.
         Aabb::new(112.0, 144.0, 256.0, 5.0),
         Aabb::new(208.0, 108.0, 64.0, 5.0),
-    ],
+    ]),
     // Two pillars hanging from the high bridge, high enough off the floor to walk under: wall-jump
     // up the shaft between them (or off their outsides) and through the bridge.
     walls: &[Aabb::new(204.0, 149.0, 8.0, 73.0), Aabb::new(268.0, 149.0, 8.0, 73.0)],
@@ -187,8 +184,7 @@ const BRIDGES: Arena = Arena {
     campfire: false,
     boss: None,
     survival: false,
-    shift: None,
-    hidden: false,
+    architect: false,
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
 
@@ -199,7 +195,7 @@ pub const FOREST_TRUNKS: [Aabb; 3] = [Aabb::new(0.0, 0.0, 16.0, 254.0), Aabb::ne
 
 const FOREST: Arena = Arena {
     id: "forest",
-    platforms: &[
+    platforms: Cow::Borrowed(&[
         // Branches off the left tree, all the way up, then the same off the right one.
         Aabb::new(16.0, 214.0, 32.0, 5.0),
         Aabb::new(16.0, 178.0, 42.0, 5.0),
@@ -214,14 +210,13 @@ const FOREST: Arena = Arena {
         // The middle tree, short: just a branch each way off the top of its trunk.
         Aabb::new(208.0, 214.0, 26.0, 5.0),
         Aabb::new(246.0, 214.0, 26.0, 5.0),
-    ],
+    ]),
     walls: &FOREST_TRUNKS,
     hills: &[],
     campfire: true,
     boss: None,
     survival: false,
-    shift: None,
-    hidden: false,
+    architect: false,
     // (Clear of the trunks: nobody starts in one.)
     spawn_x: [28.0, 130.0, 254.0, 356.0],
 };
@@ -245,7 +240,7 @@ pub const WINDOW_SIDE: f32 = 4.0;
 
 const DESKTOP: Arena = Arena {
     id: "desktop",
-    platforms: &[
+    platforms: Cow::Borrowed(&[
         // Each window's title bar and bottom edge, in `DESKTOP_WINDOWS` order.
         Aabb::new(250.0, 178.0, 120.0, 5.0),
         Aabb::new(250.0, 223.0, 120.0, 5.0),
@@ -259,7 +254,7 @@ const DESKTOP: Arena = Arena {
         Aabb::new(256.0, 139.0, 90.0, 5.0),
         Aabb::new(349.0, 30.0, 120.0, 5.0),
         Aabb::new(349.0, 55.0, 120.0, 5.0),
-    ],
+    ]),
     // Each window's sides, between its title bar and bottom edge.
     walls: &[
         Aabb::new(250.0, 183.0, 4.0, 40.0),
@@ -279,8 +274,7 @@ const DESKTOP: Arena = Arena {
     campfire: false,
     boss: None,
     survival: false,
-    shift: None,
-    hidden: false,
+    architect: false,
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
 
@@ -302,7 +296,7 @@ pub const COURTYARD_BALCONIES: [Aabb; 4] = [Aabb::new(428.0, 182.0, 36.0, 5.0), 
 
 const CAFE: Arena = Arena {
     id: "cafe",
-    platforms: &[
+    platforms: Cow::Borrowed(&[
         CAFE_TABLES[0],
         CAFE_TABLES[1],
         CAFE_SHELVES[0],
@@ -317,14 +311,13 @@ const CAFE: Arena = Arena {
         COURTYARD_BALCONIES[1],
         COURTYARD_BALCONIES[2],
         COURTYARD_BALCONIES[3],
-    ],
+    ]),
     walls: &[CAFE_BAR, CAFE_DIVIDER],
     hills: &[],
     campfire: false,
     boss: None,
     survival: false,
-    shift: None,
-    hidden: false,
+    architect: false,
     // Two in the cafe (clear of the bar), two in the courtyard.
     spawn_x: [106.0, 190.0, 300.0, 376.0],
 };
@@ -334,7 +327,7 @@ const CAFE: Arena = Arena {
 /// height. Nothing is over it, so an air strike's bombs fall straight onto it.
 const LAIR: Arena = Arena {
     id: "lair",
-    platforms: &[
+    platforms: Cow::Borrowed(&[
         // Low steps off the floor, by the walls.
         Aabb::new(20.0, 218.0, 56.0, 5.0),
         Aabb::new(404.0, 218.0, 56.0, 5.0),
@@ -346,14 +339,13 @@ const LAIR: Arena = Arena {
         Aabb::new(408.0, 148.0, 52.0, 5.0),
         Aabb::new(96.0, 120.0, 72.0, 5.0),
         Aabb::new(312.0, 120.0, 72.0, 5.0),
-    ],
+    ]),
     walls: &[],
     hills: &[],
     campfire: false,
     boss: Some(BossKind::Gatecrasher),
     survival: false,
-    shift: None,
-    hidden: false,
+    architect: false,
     // Two each side of it, clear of its feet.
     spawn_x: [14.0, 110.0, 280.0, 376.0],
 };
@@ -430,14 +422,13 @@ const DUNE: Arena = Arena {
     id: "dune",
     // Each side: a long skiff low over the slope toward the mouth, a perch by the wall above it,
     // and a high skiff over toward the mouth again.
-    platforms: &DUNE_SKIFF_STEPS,
+    platforms: Cow::Borrowed(&DUNE_SKIFF_STEPS),
     walls: &[],
     hills: &DUNE_HILLS,
     campfire: false,
     boss: Some(BossKind::Sandmaw),
     survival: false,
-    shift: None,
-    hidden: false,
+    architect: false,
     // Two each side of its mouth.
     spawn_x: [14.0, 90.0, 300.0, 376.0],
 };
@@ -445,7 +436,7 @@ const DUNE: Arena = Arena {
 /// The graveyard zombies shamble into from both sides (along the floor, open at each wall).
 const OUTBREAK: Arena = Arena {
     id: "outbreak",
-    platforms: &[
+    platforms: Cow::Borrowed(&[
         // Crypt slabs low by each side, then up toward the middle, a mausoleum roof, and a bell
         // tower ledge at the top.
         Aabb::new(40.0, 214.0, 72.0, 5.0),
@@ -458,14 +449,13 @@ const OUTBREAK: Arena = Arena {
         Aabb::new(150.0, 110.0, 60.0, 5.0),
         Aabb::new(270.0, 110.0, 60.0, 5.0),
         Aabb::new(210.0, 76.0, 60.0, 5.0),
-    ],
+    ]),
     walls: &[],
     hills: &[],
     campfire: false,
     boss: None,
     survival: true,
-    shift: None,
-    hidden: false,
+    architect: false,
     // Together in the middle, away from where they come in.
     spawn_x: [100.0, 160.0, 230.0, 290.0],
 };
@@ -474,68 +464,16 @@ const OUTBREAK: Arena = Arena {
 /// the floor and the underside of the ceiling trade places (`FLIP_AXIS` - y).
 pub const FLIP_AXIS: f32 = crate::sim::FLOOR_Y + crate::sim::WALL;
 
-/// A ledge flipped upside down (its top becomes its underside).
-const fn flipped(p: Aabb) -> Aabb {
-    Aabb::new(p.x, FLIP_AXIS - p.y - p.h, p.w, p.h)
-}
-
-const fn flip_all<const N: usize>(ps: [Aabb; N]) -> [Aabb; N] {
-    let mut out = ps;
-    let mut i = 0;
-    while i < N {
-        out[i] = flipped(ps[i]);
-        i += 1;
-    }
-    out
-}
-
-/// The Architect's room. The ledges sit at six heights that flip onto one another (214 and 43, 180
-/// and 77, 146 and 111), so upside down every ledge is still in reach of the next: zig-zag columns
-/// up each side, and in the middle a long bridge low down under a stack up to a perch at the top
-/// (upside down: the bridge high up, the perch just off the floor).
-const ARCHITECT_LEDGES: [Aabb; 16] = [
-    Aabb::new(24.0, 214.0, 64.0, 5.0),
-    Aabb::new(60.0, 180.0, 64.0, 5.0),
-    Aabb::new(24.0, 146.0, 64.0, 5.0),
-    Aabb::new(60.0, 111.0, 64.0, 5.0),
-    Aabb::new(24.0, 77.0, 64.0, 5.0),
-    Aabb::new(60.0, 43.0, 64.0, 5.0),
-    Aabb::new(392.0, 214.0, 64.0, 5.0),
-    Aabb::new(356.0, 180.0, 64.0, 5.0),
-    Aabb::new(392.0, 146.0, 64.0, 5.0),
-    Aabb::new(356.0, 111.0, 64.0, 5.0),
-    Aabb::new(392.0, 77.0, 64.0, 5.0),
-    Aabb::new(356.0, 43.0, 64.0, 5.0),
-    Aabb::new(150.0, 146.0, 180.0, 5.0),
-    Aabb::new(200.0, 111.0, 80.0, 5.0),
-    Aabb::new(196.0, 77.0, 88.0, 5.0),
-    Aabb::new(226.0, 43.0, 28.0, 5.0),
-];
-const ARCHITECT_LEDGES_FLIPPED: [Aabb; 16] = flip_all(ARCHITECT_LEDGES);
-
+/// The Simulation: just the box (its ledges are the match's: `architect::Room`).
 const ARCHITECT: Arena = Arena {
     id: "architect",
-    platforms: &ARCHITECT_LEDGES,
+    platforms: Cow::Borrowed(&[]),
     walls: &[],
     hills: &[],
     campfire: false,
     boss: None,
     survival: false,
-    shift: Some(ArenaId::ArchitectFlipped),
-    hidden: false,
-    spawn_x: [20.0, 135.0, 250.0, 365.0],
-};
-
-const ARCHITECT_FLIPPED: Arena = Arena {
-    id: "architect_flipped",
-    platforms: &ARCHITECT_LEDGES_FLIPPED,
-    walls: &[],
-    hills: &[],
-    campfire: false,
-    boss: None,
-    survival: false,
-    shift: Some(ArenaId::Architect),
-    hidden: true,
+    architect: true,
     spawn_x: [20.0, 135.0, 250.0, 365.0],
 };
 
@@ -548,7 +486,7 @@ mod tests {
     fn every_arena_fits_the_box_and_has_reachable_tiers() {
         for a in ArenaId::ALL {
             let d = a.def();
-            for p in d.platforms {
+            for p in d.platforms.iter() {
                 assert!(p.x >= WALL + 3.0 && p.x + p.w <= W - WALL - 3.0, "{} platform {p:?} touches a wall", d.id);
                 assert!(p.y < FLOOR_Y && p.y > WALL + 20.0, "{} platform {p:?} is outside the box", d.id);
                 // Something to jump up from within reach: the floor or a lower platform.

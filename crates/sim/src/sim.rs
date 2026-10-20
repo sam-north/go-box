@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
 use std::ops::{Range, RangeInclusive};
+use std::sync::Arc;
 
 pub const W: f32 = 480.0;
 pub const H: f32 = 270.0;
@@ -153,6 +154,8 @@ pub enum Source {
     Boss,
     /// The boss's embers.
     Ember,
+    /// One of the Simulation's live cables.
+    Shock,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -656,10 +659,12 @@ pub enum Event {
     Bitten { who: usize, pos: Vec2 },
     /// `who` revived by a teammate.
     Revived { who: usize, pos: Vec2 },
-    /// The Architect about to reshape his room (the code glitching).
-    ShiftWarn,
-    /// The Architect reshaping his room: flipped, everyone in it with it.
-    Shift,
+    /// The Architect about to reshape his room (the code glitching), and how.
+    ShiftWarn { kind: crate::architect::ShiftKind },
+    /// The Architect reshaping his room.
+    Shift { kind: crate::architect::ShiftKind },
+    /// Someone shocked by one of his live cables.
+    Shock { pos: Vec2 },
 }
 
 /// Which side body `j` of `bodies` fights on: its team (its own seat, or a mini's summoner's), but
@@ -686,7 +691,7 @@ pub fn terrain_ray(arena: &Arena, o: Vec2, d: Vec2, max: f32) -> f32 {
     let inv = |v: f32| if v.abs() < 1e-8 { 1e8_f32.copysign(v) } else { 1.0 / v };
     let (ix, iy) = (inv(d.x), inv(d.y));
     let mut best = max;
-    for r in arena.solids().chain(arena.platforms) {
+    for r in arena.solids().chain(arena.platforms.iter()) {
         let (tx1, tx2) = ((r.x - o.x) * ix, (r.x + r.w - o.x) * ix);
         let (ty1, ty2) = ((r.y - o.y) * iy, (r.y + r.h - o.y) * iy);
         let tmin = tx1.min(tx2).max(ty1.min(ty2)).max(0.0);
@@ -787,19 +792,22 @@ fn one_hot(kind: Option<ItemKind>) -> [f32; N_SENSED] {
 
 /// A random spot on top of the floor or a platform — everywhere a fighter can stand. Wider
 /// surfaces are proportionally more likely.
-fn random_surface_spot(rng: &mut impl Rng, arena: ArenaId) -> Vec2 {
-    random_surface_spot_between(rng, arena, 0.0, W).unwrap_or(vec2(W / 2.0, FLOOR_Y))
+fn random_surface_spot(rng: &mut impl Rng, spans: &[(f32, f32, f32)]) -> Vec2 {
+    random_surface_spot_between(rng, spans, 0.0, W).unwrap_or(vec2(W / 2.0, FLOOR_Y))
 }
 
 /// Everywhere a fighter can stand on a map, as (left, right, height): the floor and the tops of
 /// its ledges, less any stretch where one of its walls stands (a tree trunk on the floor).
 /// Worked out once per map (Austin's pop-up alone asks for dozens of spots at a time).
 fn standable(arena: ArenaId) -> &'static [(f32, f32, f32)] {
-    static SPANS: std::sync::LazyLock<Vec<Vec<(f32, f32, f32)>>> = std::sync::LazyLock::new(|| {
-        ArenaId::ALL
-            .iter()
-            .map(|a| {
-                let arena = a.def();
+    static SPANS: std::sync::LazyLock<Vec<Vec<(f32, f32, f32)>>> = std::sync::LazyLock::new(|| ArenaId::ALL.iter().map(|a| spans(a.def())).collect());
+    &SPANS[arena as usize]
+}
+
+/// `standable`'s spans for a map (worked out afresh: a map that changes, the Simulation's).
+fn spans(arena: &Arena) -> Vec<(f32, f32, f32)> {
+            {
+                {
                 let floor = (WALL + 6.0, W - WALL - 6.0, FLOOR_Y);
                 let mut spans = Vec::new();
                 for (x0, x1, y) in std::iter::once(floor).chain(arena.platforms.iter().map(|p| (p.x + 3.0, p.x + p.w - 3.0, p.y))) {
@@ -819,16 +827,14 @@ fn standable(arena: ArenaId) -> &'static [(f32, f32, f32)] {
                 // (Short of each end, so nothing there overlaps the next step up.)
                 spans.extend(arena.hills.iter().map(|h| (h.x + ITEM_R + 0.1, h.x + h.w - ITEM_R - 0.1, h.y)));
                 spans
-            })
-            .collect()
-    });
-    &SPANS[arena as usize]
+            }
+        }
 }
 
 /// Like `random_surface_spot`, but only spots with `lo <= x <= hi`. None if no surface reaches
 /// into that range.
-fn random_surface_spot_between(rng: &mut impl Rng, arena: ArenaId, lo: f32, hi: f32) -> Option<Vec2> {
-    let surfaces = standable(arena).iter().map(|&(x0, x1, y)| (x0.max(lo), x1.min(hi), y)).filter(|(x0, x1, _)| x1 > x0);
+fn random_surface_spot_between(rng: &mut impl Rng, spans: &[(f32, f32, f32)], lo: f32, hi: f32) -> Option<Vec2> {
+    let surfaces = spans.iter().map(|&(x0, x1, y)| (x0.max(lo), x1.min(hi), y)).filter(|(x0, x1, _)| x1 > x0);
     let total: f32 = surfaces.clone().map(|(x0, x1, _)| x1 - x0).sum();
     if total <= 0.0 {
         return None;
@@ -869,7 +875,7 @@ pub struct MatchConfig {
 impl MatchConfig {
     /// The usual rules on `arena`: a boss map is a boss fight (longer, with more health about).
     pub fn for_arena(arena: ArenaId) -> Self {
-        if arena.def().shift.is_some() {
+        if arena.def().architect {
             return Self { arena, max_ticks: crate::architect::ARCHITECT_MATCH, ..Self::default() };
         }
         if arena.def().survival {
@@ -1003,6 +1009,10 @@ pub struct Match {
     pub zombies_killed: u32,
     pub(crate) next_zombie: u32,
     pub config: MatchConfig,
+    /// The map as it is (see `arena`).
+    pub(crate) live: Arc<Arena>,
+    /// The Simulation: the Architect's room (`architect.rs`): its ledges, and how it's been turned.
+    pub room: Option<crate::architect::Room>,
 }
 
 impl Match {
@@ -1029,7 +1039,7 @@ impl Match {
         let start = if config.mode == Mode::Survival { [(ItemKind::Spear, 4), (ItemKind::Rock, START_ROCKS), (ItemKind::Grenade, 1)] } else { [(ItemKind::Spear, START_SPEARS), (ItemKind::Rock, START_ROCKS), (ItemKind::Grenade, START_GRENADES)] };
         for (kind, n) in start {
             for _ in 0..n {
-                items.push(Item::new(kind, random_surface_spot(rng, config.arena) - vec2(0.0, ITEM_R)));
+                items.push(Item::new(kind, random_surface_spot(rng, standable(config.arena)) - vec2(0.0, ITEM_R)));
             }
         }
         // (A boss fight is longer: its pickups come all through it.)
@@ -1052,6 +1062,7 @@ impl Match {
         if config.mode == Mode::Boss {
             f[BOSS] = crate::boss::new_boss(arena.boss.unwrap_or(crate::boss::BossKind::Gatecrasher));
         }
+        let room = arena.architect.then(crate::architect::Room::new);
         if config.mode == Mode::Survival {
             for b in f[..N_FIGHTERS].iter_mut() {
                 b.coop = true;
@@ -1074,6 +1085,8 @@ impl Match {
             next_effect_id: 0,
             zombies_killed: 0,
             next_zombie: config.countdown + config.spawn_grace + crate::zombies::FIRST_ZOMBIE,
+            live: Arc::new(room.as_ref().map_or_else(|| arena.clone(), |r| r.arena(arena))),
+            room,
             config,
         }
     }
@@ -1120,8 +1133,10 @@ impl Match {
     }
 
     /// The map this match is on.
-    pub fn arena(&self) -> &'static Arena {
-        self.config.arena.def()
+    /// (Its live copy: the same as its definition, but for a map that changes mid-match, the
+    /// Simulation's, whose ledges the Architect rebuilds.) Cheap to call: it's shared.
+    pub fn arena(&self) -> Arc<Arena> {
+        Arc::clone(&self.live)
     }
 
     /// True with probability `p`, from the match's own random stream (so it plays out the same
@@ -1135,8 +1150,14 @@ impl Match {
         self.rng.gen_bool(p)
     }
 
+    /// Everywhere on this map you can stand (see `standable`): worked out afresh for one that changes.
+    fn spans(&self) -> std::borrow::Cow<'static, [(f32, f32, f32)]> {
+        if self.room.is_some() { std::borrow::Cow::Owned(spans(&self.live)) } else { std::borrow::Cow::Borrowed(standable(self.config.arena)) }
+    }
+
     pub(crate) fn random_surface_spot_between(&mut self, lo: f32, hi: f32) -> Option<Vec2> {
-        random_surface_spot_between(&mut self.rng, self.config.arena, lo, hi)
+        let spans = self.spans();
+        random_surface_spot_between(&mut self.rng, &spans, lo, hi)
     }
 
     /// Empties seat `i` (before the match starts): nobody plays there.
@@ -1152,7 +1173,7 @@ impl Match {
     /// Everything fighter `i` perceives. Other fighters, items and pickups are only seen
     /// when in line of sight.
     pub fn senses(&self, i: usize) -> [f32; N_IN] {
-        let arena = self.arena();
+        let arena = &self.arena();
         let me = &self.f[i];
         let mut s = [0.0; N_IN];
         let eye = me.eye();
@@ -1351,6 +1372,7 @@ impl Match {
 
         // 2. Move.
         let props = props(&self.effects);
+        let arena = &self.arena();
         let mut landed = [false; N_BODIES];
         for i in 0..N_BODIES {
             // (The boss never moves.)
@@ -1358,10 +1380,10 @@ impl Match {
                 continue;
             }
             let was_grounded = self.f[i].grounded;
-            let wall = wall_side(&self.f[i], self.config.arena.def(), &props);
+            let wall = wall_side(&self.f[i], &arena, &props);
             let f = &mut self.f[i];
             control(f, i, actions[i], wall, &mut self.events);
-            collide(f, self.config.arena.def(), &props);
+            collide(f, &arena, &props);
             f.wind = 0.0;
             if f.grounded && !was_grounded {
                 landed[i] = true;
@@ -1430,7 +1452,7 @@ impl Match {
         self.step_effects();
         self.step_boss();
         self.step_zombies();
-        self.step_shift();
+        self.step_architect();
         self.step_minis();
         self.step_digital();
         self.step_heals();
@@ -1605,12 +1627,13 @@ impl Match {
         // Items to remove: (index, explodes) — grenades going off, sushi splatting or spoiling.
         let mut gone = Vec::new();
         let props = props(&self.effects);
+        let arena = &self.arena();
         for k in 0..self.items.len() {
             let splats = self.items[k].kind.def().splats;
             if let Some(h) = self.items[k].held_by {
                 self.items[k].pos = self.f[h].hand();
             } else {
-                let (struck, touched) = step_item(&mut self.items[k], self.config.arena.def(), &props);
+                let (struck, touched) = step_item(&mut self.items[k], &arena, &props);
                 let it = &self.items[k];
                 // A thrown Molotov shatters on whatever it hits, and the ground below catches fire.
                 if it.kind.def().ignites && it.owner.is_some() {
@@ -1618,7 +1641,7 @@ impl Match {
                     let on_someone = (0..N_BODIES).any(|j| self.f[j].present() && !(it.owner == Some(j) && it.age < OWN_GRACE) && ib.overlaps(&self.f[j].body()));
                     if touched || on_someone {
                         let (pos, owner) = (it.pos, it.owner.unwrap_or(0));
-                        let fire = crate::character::Fire::at(self.arena(), &props, pos, owner);
+                        let fire = crate::character::Fire::at(&self.arena(), &props, pos, owner);
                         self.events.push(Event::Ignite { pos });
                         self.add_effect(Effect::Fire(fire));
                         gone.push((k, false));
@@ -1724,7 +1747,8 @@ impl Match {
     fn step_heals(&mut self) {
         while self.heal_schedule.last().is_some_and(|&t| self.tick >= t) {
             self.heal_schedule.pop();
-            let pos = random_surface_spot(&mut self.rng, self.config.arena) - vec2(0.0, HEAL_R + 1.0);
+            let spans = self.spans();
+            let pos = random_surface_spot(&mut self.rng, &spans) - vec2(0.0, HEAL_R + 1.0);
             self.heals.push(pos);
             self.events.push(Event::Spawn { pos });
         }
@@ -1769,7 +1793,8 @@ impl Match {
                 break;
             }
         }
-        let pos = random_surface_spot(&mut self.rng, self.config.arena) - vec2(0.0, ITEM_R);
+        let spans = self.spans();
+        let pos = random_surface_spot(&mut self.rng, &spans) - vec2(0.0, ITEM_R);
         self.items.push(Item::new(kind, pos));
         self.spawned[kind as usize] += 1;
         self.events.push(Event::Spawn { pos });
@@ -1884,8 +1909,20 @@ pub struct MatchView {
     pub arena: ArenaId,
     /// Survival: zombies put down so far.
     pub zombies_killed: u32,
+    /// The Simulation: the Architect's room as it stands.
+    pub room: Option<crate::architect::Room>,
     pub over: bool,
     pub winner: Option<usize>,
+}
+
+impl MatchView {
+    /// The map as this view has it: its definition, or (the Simulation) the box with its live ledges.
+    pub fn live_arena(&self) -> Arena {
+        match &self.room {
+            Some(r) => r.arena(self.arena.def()),
+            None => self.arena.def().clone(),
+        }
+    }
 }
 
 impl Match {
@@ -1925,6 +1962,7 @@ impl Match {
             winner: self.winner,
             arena: self.config.arena,
             zombies_killed: self.zombies_killed,
+            room: self.room.clone(),
         }
     }
 
@@ -1949,6 +1987,8 @@ impl Match {
             next_effect_id: 0,
             zombies_killed: v.zombies_killed,
             next_zombie: u32::MAX,
+            live: Arc::new(v.room.as_ref().map_or_else(|| config.arena.def().clone(), |r| r.arena(config.arena.def()))),
+            room: v.room,
             config,
         }
     }
@@ -2493,7 +2533,7 @@ mod tests {
     #[test]
     fn a_rocket_blows_up_on_a_trunk_in_its_way_but_flies_over_ledges() {
         let (mut m, z) = quiet_match();
-        m.config.arena = ArenaId::Forest;
+        m.set_arena(ArenaId::Forest);
         let trunk = crate::arena::FOREST_TRUNKS[2];
         m.f[0].pos = vec2(trunk.x - 40.0, FLOOR_Y);
         m.f[1].pos = vec2(trunk.x + trunk.w + 70.0, FLOOR_Y);
@@ -2514,7 +2554,7 @@ mod tests {
 
         // In the City, fired up through a ledge: it carries on.
         let (mut m, z) = quiet_match();
-        m.config.arena = ArenaId::Bridges;
+        m.set_arena(ArenaId::Bridges);
         let ledge = ArenaId::Bridges.def().platforms[0];
         m.f[0].pos = vec2(ledge.x + ledge.w / 2.0, FLOOR_Y);
         m.items.push(Item { held_by: Some(0), ..Item::new(ItemKind::RocketLauncher, m.f[0].hand()) });
@@ -2540,7 +2580,7 @@ mod tests {
                 let floors = std::iter::once(FLOOR_Y).chain(arena.def().platforms.iter().step_by(every).map(|p| p.y));
                 for (x0, y0) in floors.flat_map(|y| (12..468).step_by(3).map(move |x| (x, y))) {
                     let (mut m, z) = quiet_match();
-                    m.config.arena = arena;
+                    m.set_arena(arena);
                     // (The others stand still, out of the way.)
                     m.f[0].pos = vec2(x0 as f32, y0);
                     if arena.def().solids().any(|s| m.f[0].body().overlaps(s)) {
@@ -2569,7 +2609,7 @@ mod tests {
         for (x, y) in starts {
             let toward = if x < mid { 1.0 } else { -1.0 };
             let (mut m, z) = quiet_match();
-            m.config.arena = ArenaId::Cafe;
+            m.set_arena(ArenaId::Cafe);
             m.f[0].pos = vec2(x, y);
             for t in 0..secs(4) {
                 let a = Action { mv: toward, run: true, jump: t % 24 < 14, dash: (t % 40 == 5).then_some(toward), ..Action::default() };
@@ -2587,7 +2627,7 @@ mod tests {
     #[test]
     fn a_jump_from_the_floor_lands_inside_the_desktops_chat_window() {
         let (mut m, z) = quiet_match();
-        m.config.arena = ArenaId::Desktop;
+        m.set_arena(ArenaId::Desktop);
         let chat = crate::arena::DESKTOP_WINDOWS[1];
         let bottom = chat.y + chat.h - crate::arena::WINDOW_BAR;
         m.f[0].pos = vec2(chat.x + chat.w / 2.0, FLOOR_Y);
@@ -2602,7 +2642,7 @@ mod tests {
     #[test]
     fn the_forests_campfire_burns_whoever_stands_in_it_all_match() {
         let (mut m, z) = quiet_match();
-        m.config.arena = ArenaId::Forest;
+        m.set_arena(ArenaId::Forest);
         m.config.campfire = Some(120.0);
         let fire = m.config.campfire_area().unwrap();
         m.f[0].pos = vec2(fire.x + fire.w / 2.0, FLOOR_Y);
@@ -2656,7 +2696,7 @@ mod tests {
     #[test]
     fn the_citys_pillars_are_walked_under_bumped_into_and_wall_jumped_off() {
         let (mut m, z) = quiet_match();
-        m.config.arena = ArenaId::Bridges;
+        m.set_arena(ArenaId::Bridges);
         let pillar = ArenaId::Bridges.def().walls[0];
         m.f[1].pos.x = 340.0;
         // Walking along the floor, right under it.
@@ -2867,6 +2907,12 @@ mod tests {
 
 #[cfg(test)]
 impl Match {
+    /// Puts the match on another map (and its live copy with it).
+    pub(crate) fn set_arena(&mut self, a: ArenaId) {
+        self.config.arena = a;
+        self.live = Arc::new(a.def().clone());
+    }
+
     pub(crate) fn rng_reseed(&mut self, seed: u64) {
         self.rng = SimRng::seed_from_u64(seed);
     }

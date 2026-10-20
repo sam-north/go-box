@@ -280,8 +280,7 @@ impl Room {
                 }
                 self.broadcast_room();
             }
-            // (Not a map only reached mid-match, like the Architect's room upside down.)
-            ClientMsg::SetArena(a) if is_leader && lobby && !a.def().hidden => {
+            ClientMsg::SetArena(a) if is_leader && lobby => {
                 self.arena = a;
                 self.broadcast_room();
             }

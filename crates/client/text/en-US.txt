@@ -79,7 +79,10 @@ seat.bot = {character} (bot)
 hud.you = {name} (you)
 hud.joining = Joining...
 hud.go = GO!
-hud.shift = The Architect reshapes the room in {secs}
+hud.shift = The Architect flips the room in {secs}
+hud.shift_gravity = The Architect turns gravity round in {secs}
+hud.shift_mirror = The Architect mirrors the room in {secs}
+hud.shift_rebuild = The Architect rewrites the room in {secs}
 hud.zombies_down = Zombies down: {n}
 hud.turned = Bitten! You're one of them now
 hud.down_revivable = You're down: a teammate can hold grab over you to revive you
@@ -151,11 +154,10 @@ arena.bridges = City
 arena.forest = Forest
 arena.desktop = Desktop
 arena.cafe = Cafe
-arena.lair = Gatecrasher
+arena.lair = Bigbot
 arena.dune = Bigworm
 arena.outbreak = Outbreak
-arena.architect = The Architect
-arena.architect_flipped = The Architect (upside down)
+arena.architect = Simulation
 
 # Messages
 notice.connection_lost = Lost connection to the server.

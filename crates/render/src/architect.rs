@@ -88,3 +88,77 @@ pub fn draw_code_rain(time: f32, flipped: bool) {
         }
     }
 }
+
+/// The room's ledges, drawn live (the Architect reshapes them): lit blocks of code; loose ones
+/// edged in amber with warning stripes (they'll drop when the room turns over); live cables
+/// crackling along them. Mid-rebuild they glitch away and back.
+pub fn draw_room(room: &go_box_sim::architect::Room, m: &go_box_sim::sim::Match, time: f32) {
+    use go_box_sim::architect::ShiftKind;
+    let glitch = match m.shift_anim() {
+        Some((ShiftKind::Rebuild, k)) if k < 1.0 => k,
+        _ => 1.0,
+    };
+    let flick = (time * 30.0) as i32;
+    for (n, l) in room.ledges.iter().enumerate() {
+        let r = l.rect;
+        // (Glitching: jittering about, and blinking out more and more.)
+        if glitch < 1.0 && hash(n as i32, flick, 119) > glitch {
+            continue;
+        }
+        let jx = if glitch < 1.0 { ((hash(n as i32, flick, 120) - 0.5) * 8.0 * (1.0 - glitch)).round() } else { 0.0 };
+        let (x, y, w, h) = (r.x.round() + jx, r.y.round(), r.w.round(), r.h.round());
+        let edge = if l.loose { Color::new(1.0, 0.72, 0.25, 1.0) } else { Color::new(0.47, 1.0, 0.59, 1.0) };
+        draw_rectangle(x, y, w, h, Color::new(0.02, 0.14, 0.07, 1.0));
+        draw_rectangle(x, y, w, 1.0, edge);
+        draw_rectangle(x, y + h - 1.0, w, 1.0, Color::new(edge.r * 0.4, edge.g * 0.4, edge.b * 0.4, 1.0));
+        draw_rectangle(x, y, 1.0, h, edge);
+        draw_rectangle(x + w - 1.0, y, 1.0, h, edge);
+        for gx in (2..(w as i32 - 2)).step_by(2) {
+            for gy in 1..(h as i32 - 1) {
+                let lit = if l.loose { (gx / 3 + gy) % 4 == 0 } else { glyph(x as i32 + gx, gy + n as i32 * 3, 121) };
+                if lit {
+                    let c = if l.loose { Color::new(0.85, 0.55, 0.15, 0.9) } else { Color::new(0.24, 0.78, 0.39, 1.0) };
+                    draw_rectangle(x + gx as f32, y + gy as f32, 1.0, 1.0, c);
+                }
+            }
+        }
+        // Falling: streaks trailing it.
+        if l.vy > 0.0 {
+            for k in 0..4 {
+                let sx = x + 4.0 + k as f32 * (w - 8.0) / 3.0;
+                draw_line(sx, y - 2.0, sx, y - 2.0 - (l.vy * 0.04).min(10.0), 1.0, Color::new(edge.r, edge.g, edge.b, 0.4));
+            }
+        }
+        // A live cable: a tangle of wires along it, arcs of current jumping about it.
+        if let Some(c) = l.cable_area() {
+            let (cx, cy, cw, ch) = (c.x.round() + jx, c.y.round(), c.w.round(), c.h);
+            for wire in 0..4 {
+                let mut p = vec2(cx, cy + ch * hash(n as i32, wire, 122));
+                let steps = (cw / 3.0).max(2.0) as i32;
+                for s in 1..=steps {
+                    let q = vec2(cx + cw * s as f32 / steps as f32, cy + ch * hash(n as i32 * 31 + wire, s, 123));
+                    draw_line(p.x, p.y, q.x, q.y, 1.0, if wire % 2 == 0 { Color::new(0.20, 0.32, 0.42, 1.0) } else { Color::new(0.08, 0.10, 0.12, 1.0) });
+                    p = q;
+                }
+            }
+            draw_rectangle(cx - 2.0, cy - 2.0, cw + 4.0, ch + 4.0, Color::new(0.4, 0.85, 1.0, 0.10 + 0.08 * ((time * 25.0).sin() * 0.5 + 0.5)));
+            for arc in 0..5 {
+                let seed = flick / 2 + arc;
+                let mut p = vec2(cx + cw * hash(seed, n as i32, 124), cy + ch * hash(seed, 1, 124));
+                let bright = Color::new(0.6, 0.95, 1.0, 0.95);
+                for s in 0..4 {
+                    let q = p + vec2((hash(seed, s * 2, 125) - 0.5) * 7.0, (hash(seed, s * 2 + 1, 125) - 0.5) * ch);
+                    let q = vec2(q.x.clamp(cx, cx + cw), q.y.clamp(cy - 1.0, cy + ch + 1.0));
+                    draw_line(p.x, p.y, q.x, q.y, if arc == 0 { 2.0 } else { 1.0 }, bright);
+                    p = q;
+                }
+            }
+            // Sparks spitting off it.
+            for s in 0..4 {
+                let u = ((time * 3.0 + hash(n as i32, s, 126)) % 1.0 + 1.0) % 1.0;
+                let p = vec2(cx + cw * hash(n as i32 + (time * 3.0) as i32, s, 127), cy + ch * 0.5 - u * 10.0);
+                draw_rectangle(p.x.round(), p.y.round(), 1.0, 1.0, Color::new(0.85, 1.0, 1.0, 1.0 - u));
+            }
+        }
+    }
+}

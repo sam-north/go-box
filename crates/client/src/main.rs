@@ -95,6 +95,7 @@ async fn main() {
         acc: 0.0,
         controls: Controls::default(),
         view: (Vec2::ZERO, 1.0),
+        upside_down: false,
         settings,
         settings_open: opts.settings || opts.controls,
         settings_tab: if opts.controls { SettingsTab::Controls } else { SettingsTab::default() },
@@ -150,7 +151,11 @@ async fn main() {
 
         // Your inputs, at the sim's fixed 60/s.
         let mouse: Vec2 = mouse_position().into();
-        let mouse_arena = (mouse - app.view.0) / app.view.1;
+        let mut mouse_arena = (mouse - app.view.0) / app.view.1;
+        // (The arena drawn upside down: the mouse's height in it runs the other way.)
+        if app.upside_down {
+            mouse_arena.y = H - mouse_arena.y;
+        }
         // Clicks on the menu or its button aren't throws.
         // (Nor are clicks on the controls overlay's header, which opens and closes it.)
         let mouse_free = !app.settings_open && !settings_button(&ui).contains(mouse) && !(playing && app.settings.show_controls && controls_header(&ui).contains(mouse));
@@ -234,8 +239,10 @@ async fn main() {
         set_camera(&cam);
         clear_background(BLACK);
         art.draw(m);
-        // (The Architect reshaping his room: how far it's folded, for drawing it onto the screen.)
-        let fold = m.shift_fold();
+        // (The Architect reshaping his room: which way it folds, and how far, for drawing it onto the
+        // screen; and whether gravity's turned round, so it's shown upside down.)
+        let anim = m.shift_anim();
+        let upside_down = m.room.as_ref().is_some_and(|r| r.upside_down);
         if let (true, Some(seat)) = (playing, seat) {
             // (On a trackpad, the aim shown is the nearest opponent, which is where throws go.)
             let hand = m.f[seat].hand();
@@ -283,15 +290,28 @@ async fn main() {
         let tint = if in_menu { Color::new(0.55, 0.55, 0.6, 1.0) } else { WHITE };
         // (Shaken by the boss's slams; the view the mouse is measured against stays put.)
         let shake = if in_menu { Vec2::ZERO } else { art.shake() * scale };
-        // (Folded edge-on as the Architect flips his room, then opening back up: squashed toward its
-        // middle, a line of green light across it.)
-        let fh = dh * fold;
-        draw_texture_ex(&rt.texture, ox + shake.x, oy + shake.y + (dh - fh) / 2.0, tint, DrawTextureParams { dest_size: Some(vec2(dw, fh)), ..Default::default() });
-        if fold < 1.0 {
-            let glow = 1.0 - fold;
-            draw_rectangle(ox, oy + dh / 2.0 - 2.0 * scale, dw, 4.0 * scale, Color::new(0.4, 1.0, 0.55, 0.8 * glow));
-            draw_rectangle(ox, oy + (dh - fh) / 2.0, dw, fh, Color::new(0.2, 0.9, 0.4, 0.25 * glow));
+        // (Folded edge-on as the Architect reshapes his room, then opening back up: squashed toward its
+        // middle, top to bottom for a flip, side to side for a mirror, a line of light across it, green
+        // for a flip, violet for gravity, cyan for a mirror. Upside down while gravity's turned round.)
+        use go_box_sim::architect::ShiftKind;
+        let (sx, sy, glow) = match anim {
+            Some((ShiftKind::Mirror, k)) => (k, 1.0, Color::new(0.4, 0.9, 1.0, 1.0 - k)),
+            Some((ShiftKind::Gravity, k)) => (1.0, k, Color::new(0.75, 0.45, 1.0, 1.0 - k)),
+            Some((ShiftKind::Flip, k)) => (1.0, k, Color::new(0.4, 1.0, 0.55, 1.0 - k)),
+            _ => (1.0, 1.0, Color::new(0.0, 0.0, 0.0, 0.0)),
+        };
+        let (fw, fh) = (dw * sx, dh * sy);
+        let (fx, fy) = (ox + shake.x + (dw - fw) / 2.0, oy + shake.y + (dh - fh) / 2.0);
+        draw_texture_ex(&rt.texture, fx, fy, tint, DrawTextureParams { dest_size: Some(vec2(fw, fh)), flip_y: upside_down, ..Default::default() });
+        if glow.a > 0.0 {
+            if sx < 1.0 {
+                draw_rectangle(ox + dw / 2.0 - 2.0 * scale, oy, 4.0 * scale, dh, Color::new(glow.r, glow.g, glow.b, 0.8 * glow.a));
+            } else {
+                draw_rectangle(ox, oy + dh / 2.0 - 2.0 * scale, dw, 4.0 * scale, Color::new(glow.r, glow.g, glow.b, 0.8 * glow.a));
+            }
+            draw_rectangle(fx, fy, fw, fh, Color::new(glow.r, glow.g, glow.b, 0.25 * glow.a));
         }
+        app.upside_down = upside_down && !in_menu;
         app.view = (vec2(ox, oy), scale);
 
         // Screens (under the settings menu or "How to Play", if open, they ignore the mouse).

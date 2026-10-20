@@ -296,27 +296,33 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
     let my = y;
     // (As wide as fit, side by side: the usual maps on one row, boss fights on a row of their own
     // under them.)
-    let (fights, bosses): (Vec<ArenaId>, Vec<ArenaId>) = ArenaId::ALL.into_iter().filter(|a| !a.def().hidden).partition(|a| !a.def().pve());
-    let n = fights.len() as f32;
-    // (The leader's rows are labelled, PvP and PvE, in front.)
+    let (fights, bosses): (Vec<ArenaId>, Vec<ArenaId>) = ArenaId::ALL.into_iter().partition(|a| !a.def().pve());
+    // (Up to `PER_ROW` to a row, wrapping onto more: PvP rows first, then PvE. The leader's are
+    // labelled, in front of each kind's first row.)
+    const PER_ROW: usize = 5;
     let label_w = if leader { ui.px(44.0) } else { 0.0 };
     let avail = r.x + w - pad - map_x - label_w;
-    let bw = ui.px(120.0).min((avail - ui.px(8.0) * (n - 1.0)) / n);
+    let bw = ui.px(120.0).min((avail - ui.px(8.0) * (PER_ROW as f32 - 1.0)) / PER_ROW as f32);
     let row_h = ui.px(42.0);
-    let rows = if leader && !bosses.is_empty() { 2.0 } else { 1.0 };
-    for (row, maps) in [fights, bosses].into_iter().enumerate() {
+    let rows: Vec<(Option<&str>, Vec<ArenaId>)> = [(t("lobby.maps_pvp"), fights), (t("lobby.maps_pve"), bosses)]
+        .into_iter()
+        .flat_map(|(label, maps)| maps.chunks(PER_ROW).enumerate().map(|(k, row)| ((k == 0).then_some(label), row.to_vec())).collect::<Vec<_>>())
+        .collect();
+    let shown_rows = if leader { rows.len().max(1) } else { 1 };
+    for (row, (label, maps)) in rows.into_iter().enumerate() {
         let mut dx = map_x + label_w;
         // (Only the leader sees the rows; everyone else sees the chosen map's name, in the first.)
         let ry = my + if leader { row as f32 * row_h } else { 0.0 };
-        if leader {
-            let label = if row == 0 { t("lobby.maps_pvp") } else { t("lobby.maps_pve") };
+        if leader && let Some(label) = label {
             ui.text(label, map_x, ry + ui.px(35.0), 18.0, DIM);
         }
-        // (Each row's buttons share its width: the PvE ones wider while there's room, never past the edge.)
+        // (Each row's buttons share its width: wider while there's room (the PvE ones, and any on a row
+        // that isn't full), never past the edge.)
         let k = maps.len().max(1) as f32;
         let fit = (avail - ui.px(8.0) * (k - 1.0)) / k;
+        let roomy = maps.len() < PER_ROW;
         for a in maps {
-            let wide = if a.def().pve() { bw * 2.0 + ui.px(8.0) } else { bw };
+            let wide = if a.def().pve() || roomy { bw * 2.0 + ui.px(8.0) } else { bw };
             let rr = Rect::new(dx, ry + ui.px(12.0), wide.min(fit), ui.px(34.0));
             let selected = room.arena == a;
             let name = t(&format!("arena.{}", a.id()));
@@ -330,7 +336,7 @@ pub fn lobby_screen(ui: &mut Ui, app: &mut App, room: &RoomInfo, portraits: &[Re
             dx += rr.w + ui.px(8.0);
         }
     }
-    let my = my + (rows - 1.0) * row_h;
+    let my = my + (shown_rows as f32 - 1.0) * row_h;
     // Spectators: under the map, next in line for a seat.
     if !watching.is_empty() {
         let sy = my + ui.px(76.0);

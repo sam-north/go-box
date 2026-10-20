@@ -35,6 +35,9 @@ pub struct App {
     pub controls: Controls,
     /// Arena-to-screen mapping of the last frame drawn: (top-left on screen, pixels per unit).
     pub view: (Vec2, f32),
+    /// The arena's drawn upside down (the Simulation with gravity turned round): screen and arena
+    /// heights run opposite ways.
+    pub upside_down: bool,
     pub settings: Settings,
     /// The settings menu is open, and which page of it.
     pub settings_open: bool,

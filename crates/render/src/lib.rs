@@ -860,7 +860,7 @@ impl Solidity {
 fn make_background(arena: ArenaId) -> (Image, Option<Image>, Option<Image>) {
     let mut front = None;
     let mut patch = None;
-    let mut img = if matches!(arena, ArenaId::Architect | ArenaId::ArchitectFlipped) {
+    let mut img = if arena == ArenaId::Architect {
         architect::make_backdrop()
     } else if arena == ArenaId::Outbreak {
         graveyard::make_backdrop()
@@ -1213,7 +1213,7 @@ fn draw_scaffold(img: &mut Image, a: &Arena) {
         img.set_pixel(x as u32, y as u32, Color::new(mix(o.r, c.0), mix(o.g, c.1), mix(o.b, c.2), 1.0));
     };
     let pole = (82.0, 88.0, 98.0);
-    for s in a.platforms {
+    for s in a.platforms.iter() {
         let top = s.y + s.h;
         let mut xs: Vec<f32> = vec![s.x + 2.0];
         let n = ((s.w - 5.0) / 44.0).ceil().max(1.0) as usize;
@@ -1250,7 +1250,7 @@ fn make_terrain(arena: ArenaId, s: &Solidity) -> Image {
         ArenaId::Desktop => Some(desktop_px),
         ArenaId::Cafe => Some(cafe::terrain_px),
         ArenaId::Dune => Some(dune::terrain_px),
-        ArenaId::Architect | ArenaId::ArchitectFlipped => Some(architect::terrain_px),
+        ArenaId::Architect => Some(architect::terrain_px),
         _ => None,
     };
     let mut img = Image::gen_image_color(W as u16, H as u16, Color::new(0.0, 0.0, 0.0, 0.0));
@@ -2061,7 +2061,7 @@ impl Art {
                     // Planted on whatever is below the spot they died.
                     // (Players and bots get a flag; minis just vanish.)
                     if who < N_FIGHTERS {
-                        let ground = pos + vec2(0.0, terrain_ray(m.arena(), pos, vec2(0.0, 1.0), H));
+                        let ground = pos + vec2(0.0, terrain_ray(&m.arena(), pos, vec2(0.0, 1.0), H));
                         self.flags.push((ground, look(m.f[who].character, who).accent));
                     }
                     self.burst(pos, vec2(0.0, -1.0), 6.0, 70, BLOOD, true, 160.0, 2.5, 420.0);
@@ -2217,8 +2217,11 @@ impl Art {
                     self.burst(pos, vec2(0.0, -1.0), 1.4, 30, Color::new(0.86, 0.72, 0.48, 1.0), false, 110.0, 0.6, 300.0);
                     self.shake = (0.3, 2.0);
                 }
-                Event::ShiftWarn => self.shake = (0.25, 1.0),
-                Event::Shift => self.shake = (0.5, 3.0),
+                Event::ShiftWarn { .. } => self.shake = (0.25, 1.0),
+                Event::Shift { .. } => self.shake = (0.5, 3.0),
+                Event::Shock { pos } => {
+                    self.burst(pos, vec2(0.0, -1.0), 6.3, 16, Color::new(0.6, 0.95, 1.0, 1.0), false, 90.0, 0.25, 0.0);
+                }
                 Event::ZombieIn { pos } => {
                     self.burst(pos + vec2(0.0, -2.0), vec2(0.0, -1.0), 2.5, 10, DUST, false, 40.0, 0.5, 120.0);
                 }
@@ -2475,9 +2478,11 @@ impl Art {
             }
             draw_texture(front, 0.0, 0.0, WHITE);
         }
-        // The Architect's room: code raining down it (up, upside down).
-        if matches!(self.arena, ArenaId::Architect | ArenaId::ArchitectFlipped) {
-            architect::draw_code_rain(self.time, self.arena == ArenaId::ArchitectFlipped);
+        // The Simulation: code raining down it (up, turned over), and its ledges, which the Architect
+        // reshapes (drawn live, not baked in).
+        if let Some(room) = &m.room {
+            architect::draw_code_rain(self.time, room.inverted);
+            architect::draw_room(room, m, self.time);
         }
         // The boss map: the boss in its hole (or the wall it's about to smash through), and the
         // torches.
@@ -2489,7 +2494,7 @@ impl Art {
             lair::draw_torches(self.time);
         }
         // (No rain indoors, on the Desktop, in the Cafe or the boss's hall.)
-        for d in self.rain.iter().filter(|_| !matches!(self.arena, ArenaId::Desktop | ArenaId::Cafe | ArenaId::Lair | ArenaId::Dune | ArenaId::Outbreak | ArenaId::Architect | ArenaId::ArchitectFlipped)) {
+        for d in self.rain.iter().filter(|_| !matches!(self.arena, ArenaId::Desktop | ArenaId::Cafe | ArenaId::Lair | ArenaId::Dune | ArenaId::Outbreak | ArenaId::Architect)) {
             draw_line(d.pos.x, d.pos.y, d.pos.x + 0.6, d.pos.y - 4.0, 1.0, Color::new(0.55, 0.62, 0.72, 0.22));
         }
         draw_texture(&self.map.terrain, 0.0, 0.0, WHITE);

@@ -516,7 +516,7 @@ pub struct Glue {
 fn nearest_surface(arena: &Arena, props: &[Aabb], p: Vec2) -> Vec2 {
     arena
         .solids()
-        .chain(arena.platforms)
+        .chain(arena.platforms.iter())
         .chain(props)
         .map(|r| vec2(p.x.clamp(r.x, r.x + r.w), p.y.clamp(r.y, r.y + r.h)))
         .min_by(|a, b| a.distance(p).total_cmp(&b.distance(p)))
@@ -1784,16 +1784,16 @@ impl Match {
         let hunting = bug && BUG_TICKS - pet.ticks.min(BUG_TICKS) >= BUG_SCATTER;
         let prey = (0..N_BODIES).filter(|&j| hunting && self.foes(pet.owner, j)).map(|j| self.f[j].pos).min_by(|a, b| a.distance(pet.pos).total_cmp(&b.distance(pet.pos)));
         match pet.breed {
-            Breed::Fly(k) => fly_bug(pet, self.arena(), prey.map(|p| p - vec2(0.0, 7.0)), k, self.tick),
+            Breed::Fly(k) => fly_bug(pet, &self.arena(), prey.map(|p| p - vec2(0.0, 7.0)), k, self.tick),
             Breed::Spider(_) => {
                 if hunting {
                     pet.speed = SPIDER_SPEED;
                 }
-                run_pet(pet, self.arena(), props, prey, false);
+                run_pet(pet, &self.arena(), props, prey, false);
             }
             _ => {
                 let hop = goal.is_none() && pet.vy == 0.0 && self.chance(PET_HOP_CHANCE);
-                run_pet(pet, self.arena(), props, goal, hop);
+                run_pet(pet, &self.arena(), props, goal, hop);
             }
         }
         if goal.is_some() {
@@ -2074,7 +2074,7 @@ impl Match {
             None => (((living_orbit(&self.f[who], l.slot, self.tick) - it.pos) * 6.0).clamp_length_max(LIVE_FOLLOW), LIVE_ACCEL * 2.0),
         };
         it.vel += (want - it.vel).clamp_length_max(accel * DT);
-        let arena = self.arena();
+        let arena = &self.arena();
         let blocked = |p: Vec2| arena.solids().any(|s| Aabb::around(p, crate::sim::ITEM_R).overlaps(s));
         let was = it.pos;
         it.pos.x += it.vel.x * DT;
@@ -2105,7 +2105,7 @@ impl Match {
             return;
         }
         if def.ignites {
-            let fire = Fire::at(self.arena(), props, pos, who);
+            let fire = Fire::at(&self.arena(), props, pos, who);
             self.events.push(Event::Ignite { pos });
             self.add_effect(Effect::Fire(fire));
             return;
@@ -2490,7 +2490,7 @@ impl Match {
         let victim = (0..N_BODIES).find(|&j| self.foes(g.owner, j) && !self.f[j].unshakeable() && hit.overlaps(&self.f[j].body()));
         if let Some(j) = victim.filter(|_| !self.protected()) {
             let c = self.f[j].center();
-            g.pos = nearest_surface(self.arena(), props, c);
+            g.pos = nearest_surface(&self.arena(), props, c);
             g.stuck = true;
             g.held = vec![j as u8];
             g.ticks = GLUE_HOLD;
@@ -2501,7 +2501,7 @@ impl Match {
         let in_solid = self.arena().solids().chain(props.iter()).any(|s| s.contains(g.pos));
         let on_ledge = g.vel.y > 0.0 && self.arena().platforms.iter().any(|p| g.pos.x > p.x && g.pos.x < p.x + p.w && prev.y <= p.y && g.pos.y >= p.y);
         if in_solid || on_ledge {
-            g.pos = nearest_surface(self.arena(), props, prev);
+            g.pos = nearest_surface(&self.arena(), props, prev);
             g.stuck = true;
             g.ticks = GLUE_HOLD;
             self.events.push(Event::Glued { pos: g.pos });

@@ -332,11 +332,11 @@ impl Match {
     /// The sand (and the skiffs' decks) are slick: whoever's standing on a slope slides down it,
     /// toward the mouth, unless they run or jump the other way.
     pub(crate) fn slide_downhill(&mut self) {
-        let arena = self.arena();
+        let arena = &self.arena();
         for f in self.f.iter_mut().filter(|f| f.present() && f.grounded && f.boss.is_none()) {
             // (Standing on top of a step of it, anywhere under their feet.)
             let (l, r) = (f.pos.x - f.half_w(), f.pos.x + f.half_w());
-            if arena.hills.iter().chain(arena.platforms).any(|s| s.x < r && s.x + s.w > l && (s.y - f.pos.y).abs() < 0.6) {
+            if arena.hills.iter().chain(arena.platforms.iter()).any(|s| s.x < r && s.x + s.w > l && (s.y - f.pos.y).abs() < 0.6) {
                 f.wind += if f.pos.x < W / 2.0 { SLIDE } else { -SLIDE };
             }
         }

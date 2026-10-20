@@ -30,13 +30,13 @@ wall, press jump to kick off it (and hold toward a wall to slide down it slowly)
 The browser only reports a controller after you press a button on it. In menus (lobby, scoreboard,
 settings) the d-pad or left stick moves a highlight and Cross presses it.
 
-The leader also picks the **map** (Classic, City, Forest, Desktop, Cafe: a coffee shop and a courtyard, joined only by a gap under the wall between them; or, in a row of their own, the co-op maps Gatecrasher, Bigworm, Outbreak and The Architect, below). In the lobby the leader sets each seat without a player to **Bot** or **None**, so a match can have
+The leader also picks the **map** (Classic, City, Forest, Desktop, Cafe: a coffee shop and a courtyard, joined only by a gap under the wall between them; or, in a row of their own, the co-op maps Bigbot, Bigworm, Outbreak and Simulation, below). In the lobby the leader sets each seat without a player to **Bot** or **None**, so a match can have
 anywhere from 1 to 4 fighters (alone, it runs until the clock or you run out).
 
 The server only listens on `127.0.0.1` unless told otherwise (`GO_BOX_BIND`); see
 `crates/server/src/main.rs` for its settings. To put it online for friends, see **`docs/DEPLOY.md`** (Fly.io).
 
-**Gatecrasher** is a co-op (PvE) map: a giant smashes through the back wall during the countdown
+**Bigbot** is a co-op (PvE) map, against the Gatecrasher: a giant smashes through the back wall during the countdown
 and stands in the middle of the hall all match, and everyone (players and bots) fights it together.
 Its health (160 for each fighter in the match) is the big bar top right. Swings, throws and
 specials can't hurt your own side, but grenades, rockets, air strikes and fire still hurt anyone
@@ -68,12 +68,15 @@ holding grab (empty-handed) for a second and a half; a ring over you fills up, a
 over. Bots revive teammates too, when it's safe. Tuning lives at the top of
 `crates/sim/src/zombies.rs`.
 
-**The Architect** is a room made of code that the Architect flips upside down every 10 seconds
-(with a warning first): the screen folds flat and opens back up with the high ledges low and the
-low ones high, and everyone and everything in it flipped too, so whoever was on the floor falls
-from the top. No boss yet: for now it's a free-for-all while the mechanic finds its feet. A
-shift turns the room into another map (`Arena::shift`; the upside-down room is its own, hidden
-map), so more reshufflings are new maps. See `crates/sim/src/architect.rs`.
+**Simulation** is the Architect's room, made of code. Every 10 seconds (with a warning saying which)
+he reshapes it one of four ways: **flips** it upside down (the screen folds and opens again, with
+everyone and everything flipped, so whoever was on the floor falls from the top), turns **gravity**
+round (the screen turns over with it, so the room looks the same but everyone falls up onto the
+undersides of things), **mirrors** it left to right, or **rewrites** it: every ledge gone and a new,
+lopsided set in their place. Its ledges start only halfway up, so turned over they're out of reach
+but for wall jumps. Some ledges carry live cables that shock whoever touches them, and amber ones
+are loose: turned over, they fall till they land on a ledge or the floor. No boss yet: for now it's
+a free-for-all while the mechanic finds its feet. See `crates/sim/src/architect.rs`.
 
 
 ### Characters

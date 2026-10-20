@@ -146,7 +146,14 @@ pub fn hud(ui: &Ui, app: &App, m: &Match) {
         let secs = to.div_ceil(TICK_RATE).max(1);
         let flicker = (get_time() * 20.0).sin() > -0.6;
         if flicker {
-            ui.text_centered(&tf("hud.shift", &[("secs", &secs.to_string())]), sw / 2.0, ui.px(104.0), 24.0, Color::new(0.4, 1.0, 0.55, 1.0));
+            use go_box_sim::architect::ShiftKind;
+            let (line, c) = match m.room.as_ref().map(|r| r.next) {
+                Some(ShiftKind::Gravity) => (tf("hud.shift_gravity", &[("secs", &secs.to_string())]), Color::new(0.75, 0.45, 1.0, 1.0)),
+                Some(ShiftKind::Mirror) => (tf("hud.shift_mirror", &[("secs", &secs.to_string())]), Color::new(0.4, 0.9, 1.0, 1.0)),
+                Some(ShiftKind::Rebuild) => (tf("hud.shift_rebuild", &[("secs", &secs.to_string())]), Color::new(1.0, 0.85, 0.4, 1.0)),
+                _ => (tf("hud.shift", &[("secs", &secs.to_string())]), Color::new(0.4, 1.0, 0.55, 1.0)),
+            };
+            ui.text_centered(&line, sw / 2.0, ui.px(104.0), 24.0, c);
         }
     }
     // 3, 2, 1 in the middle of the screen, then GO! for a moment.
@@ -259,7 +266,11 @@ fn special_pie(c: Vec2, r: f32, ready: f32, color: Color) {
 fn names_over_heads(ui: &Ui, app: &App, m: &Match) {
     let Some(g) = &app.game else { return };
     let (origin, scale) = app.view;
-    let to_screen = |p: Vec2| origin + p * scale;
+    // (Upside down while the Simulation's gravity is turned round.)
+    let to_screen = |p: Vec2| {
+        let p = if app.upside_down { vec2(p.x, go_box_sim::sim::H - p.y) } else { p };
+        origin + p * scale
+    };
     // Michelle's freeze: a pie in its colour beside each frozen fighter's feet, running down until
     // they're free.
     for f in m.f.iter().filter(|f| f.pinned > 0 && f.present()) {

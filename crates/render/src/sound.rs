@@ -737,6 +737,7 @@ impl Sounds {
                         Source::Grenade | Source::Special => Sfx::Punch,
                         Source::Boss => Sfx::Slam,
                         Source::Ember => Sfx::Scratch,
+                        Source::Shock => Sfx::Zap,
                     };
                     self.at(s, pos, ear, 0.9);
                     if headshot {
@@ -796,8 +797,9 @@ impl Sounds {
                     self.at(Sfx::BigStomp, pos, ear, 1.0);
                     self.at(Sfx::Bite, pos, ear, 1.0);
                 }
-                Event::ShiftWarn => self.play(Sfx::Possess, 0.9),
-                Event::Shift => {
+                Event::ShiftWarn { .. } => self.play(Sfx::Possess, 0.9),
+                Event::Shock { pos } => self.at(Sfx::Zap, pos, ear, 0.8),
+                Event::Shift { .. } => {
                     self.play(Sfx::BigStomp, 1.0);
                     self.play(Sfx::Release, 0.8);
                 }
